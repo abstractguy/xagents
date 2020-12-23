@@ -3,12 +3,12 @@ from time import perf_counter
 
 import numpy as np
 import tensorflow as tf
+import wrappers
 from tensorflow.keras.layers import Conv2D, Dense, Flatten, Input
 from tensorflow.keras.models import Model
 from tensorflow.keras.optimizers import Adam
 
 import wandb
-from Chapter06.lib import wrappers
 from utils import activate_gpu_tf
 
 
@@ -16,33 +16,34 @@ class DQN:
     def __init__(
         self,
         env,
-        buffer_size=10000,
+        replay_buffer_size=10000,
         batch_size=32,
         checkpoint=None,
         target_reward=19,
-        reward_mean_n=100,
+        reward_buffer_size=100,
         epsilon_start=1,
         epsilon_end=0.01,
+        logger=None,
     ):
         self.env = wrappers.make_env(env)
         self.input_shape = self.env.observation_space.shape
         self.main_model = self.create_model()
         self.target_model = self.create_model()
-        self.buffer_size = buffer_size
-        self.buffer = deque(maxlen=buffer_size)
+        self.buffer_size = replay_buffer_size
+        self.buffer = deque(maxlen=replay_buffer_size)
         self.batch_size = batch_size
         self.checkpoint_path = checkpoint
-        self.total_rewards = []
-        self.best_reward = 0
-        self.mean_reward = 0
+        self.total_rewards = deque(maxlen=reward_buffer_size)
+        self.best_reward = -float('inf')
+        self.mean_reward = -float('inf')
         self.target_reward = target_reward
-        self.reward_mean_n = reward_mean_n
         self.state = self.env.reset()
         self.frame_idx = 0
         self.frame_speed = 0
         self.last_reset_frame = 0
         self.epsilon_start = self.epsilon = epsilon_start
         self.epsilon_end = epsilon_end
+        self.logger = logger
 
     def create_model(self):
         x0 = Input(self.input_shape)
@@ -82,14 +83,22 @@ class DQN:
             print(f'Best reward updated: {self.best_reward} -> {self.mean_reward}')
             if self.checkpoint_path:
                 self.main_model.save(self.checkpoint_path)
-            self.best_reward = self.best_reward
+        self.best_reward = max(self.mean_reward, self.best_reward)
 
     def display_metrics(self):
-        display_titles = ('frame', 'games', 'reward', 'epsilon', 'speed')
+        display_titles = (
+            'frame',
+            'games',
+            'mean reward',
+            'best_reward',
+            'epsilon',
+            'speed',
+        )
         display_values = (
             self.frame_idx,
             len(self.total_rewards),
             np.around(self.mean_reward, 2),
+            np.around(self.best_reward, 2),
             np.around(self.epsilon, 2),
             f'{round(self.frame_speed)} frames/s',
         )
@@ -99,12 +108,14 @@ class DQN:
         print(*display, sep=', ')
 
     def reset(self, episode_reward, start_time):
+        self.checkpoint()
         self.total_rewards.append(episode_reward)
         self.frame_speed = (self.frame_idx - self.last_reset_frame) / (
             perf_counter() - start_time
         )
         self.last_reset_frame = self.frame_idx
-        self.mean_reward = np.mean(self.total_rewards[-self.reward_mean_n :])
+        self.mean_reward = np.mean(self.total_rewards)
+        self.display_metrics()
 
     def fit(
         self,
@@ -112,7 +123,11 @@ class DQN:
         lr=1e-4,
         gamma=0.99,
         update_target_frames=1000,
+        monitor_session=None,
     ):
+        activate_gpu_tf(self.logger)
+        if monitor_session:
+            wandb.init(name=monitor_session)
         episode_reward = 0
         start_time = perf_counter()
         optimizer = Adam(lr)
@@ -132,9 +147,7 @@ class DQN:
                 if self.mean_reward >= self.target_reward:
                     print(f'Reward achieved in {self.frame_idx} frames!')
                     break
-                self.checkpoint()
                 self.reset(episode_reward, start_time)
-                self.display_metrics()
                 start_time = perf_counter()
                 episode_reward = 0
                 self.state = self.env.reset()
@@ -147,8 +160,6 @@ class DQN:
 
 
 if __name__ == '__main__':
-    # tf.compat.v1.disable_eager_execution()
-    # wandb.init(name='Post modification test')
-    activate_gpu_tf()
-    agn = DQN('PongNoFrameskip-v4', 10000)
-    agn.fit()
+    tf.compat.v1.disable_eager_execution()
+    agn = DQN('PongNoFrameskip-v4', 10000, checkpoint='dqn_pong_test.tf')
+    agn.fit(monitor_session='Post modification test')
