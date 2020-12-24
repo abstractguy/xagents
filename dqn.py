@@ -19,16 +19,34 @@ class DQN:
         replay_buffer_size=10000,
         batch_size=32,
         checkpoint=None,
-        target_reward=19,
         reward_buffer_size=100,
-        epsilon_start=1,
+        epsilon_start=1.0,
         epsilon_end=0.01,
-        logger=None,
         frame_skips=4,
-        frame_shape=(84, 84),
+        resize_shape=(84, 84),
+        state_buffer_size=2,
     ):
+        """
+        Initialize agent settings.
+        Args:
+            env: gym environment that returns states as atari frames.
+            replay_buffer_size: Size of the replay buffer that will hold record the
+                last n observations in the form of (state, action, reward, done, new state)
+            batch_size: Training batch size.
+            checkpoint: Path to .tf filename under which the trained model will be saved.
+            reward_buffer_size: Size of the reward buffer that will hold the last n total
+                rewards which will be used for calculating the mean reward.
+            epsilon_start: Start value of epsilon that regulates exploration during training.
+            epsilon_end: End value of epsilon which represents the minimum value of epsilon
+                which will not be decayed further when reached.
+            frame_skips: Number of frame skips to use per environment step.
+            resize_shape: (m, n) dimensions for the frame preprocessor
+            state_buffer_size: Size of the state buffer used by the frame preprocessor.
+        """
         self.env = gym.make(env)
-        self.env = AtariPreprocessor(self.env, frame_skips, frame_shape)
+        self.env = AtariPreprocessor(
+            self.env, frame_skips, resize_shape, state_buffer_size
+        )
         self.input_shape = self.env.observation_space.shape
         self.main_model = self.create_model()
         self.target_model = self.create_model()
@@ -39,17 +57,20 @@ class DQN:
         self.total_rewards = deque(maxlen=reward_buffer_size)
         self.best_reward = -float('inf')
         self.mean_reward = -float('inf')
-        self.target_reward = target_reward
         self.state = self.env.reset()
         self.steps = 0
         self.frame_speed = 0
         self.last_reset_frame = 0
         self.epsilon_start = self.epsilon = epsilon_start
         self.epsilon_end = epsilon_end
-        self.logger = logger
         self.games = 0
 
     def create_model(self):
+        """
+        Create model that will be used for the main and target models.
+        Returns:
+            None
+        """
         x0 = Input(self.input_shape)
         x = Conv2D(32, 8, 4, activation='relu')(x0)
         x = Conv2D(64, 4, 2, activation='relu')(x)
@@ -60,18 +81,42 @@ class DQN:
         return Model(x0, x)
 
     def get_action(self, training=True):
+        """
+        Generate action following an epsilon-greedy policy.
+        Args:
+            training: If False, no use of randomness will apply.
+
+        Returns:
+            A random action or Q argmax.
+        """
         if training and np.random.random() < self.epsilon:
             return self.env.action_space.sample()
         q_values = self.main_model.predict(np.expand_dims(self.state, 0))
         return np.argmax(q_values)
 
     def get_buffer_sample(self):
+        """
+        Get a sample of the replay buffer.
+        Returns:
+            A batch of observations in the form of
+            [[states], [actions], [rewards], [dones], [next states]]
+        """
         indices = np.random.choice(len(self.buffer), self.batch_size, replace=False)
         memories = [self.buffer[i] for i in indices]
         batch = [np.array(item) for item in zip(*memories)]
         return batch
 
     def update(self, batch, gamma):
+        """
+        Update gradients on a given a batch.
+        Args:
+            batch: A batch of observations in the form of
+                [[states], [actions], [rewards], [dones], [next states]]
+            gamma: Discount factor.
+
+        Returns:
+            None
+        """
         states, actions, rewards, dones, new_states = batch
         q_states = self.main_model.predict(states)
         new_state_values = self.target_model.predict(new_states).max(1)
@@ -83,6 +128,11 @@ class DQN:
         self.main_model.fit(states, target_values, verbose=0)
 
     def checkpoint(self):
+        """
+        Save model weights if improved.
+        Returns:
+            None
+        """
         if self.best_reward < self.mean_reward:
             print(f'Best reward updated: {self.best_reward} -> {self.mean_reward}')
             if self.checkpoint_path:
@@ -90,6 +140,11 @@ class DQN:
         self.best_reward = max(self.mean_reward, self.best_reward)
 
     def display_metrics(self):
+        """
+        Display progress metrics to the console.
+        Returns:
+            None
+        """
         display_titles = (
             'frame',
             'games',
@@ -111,7 +166,16 @@ class DQN:
         )
         print(', '.join(display))
 
-    def reset(self, episode_reward, start_time):
+    def update_metrics(self, episode_reward, start_time):
+        """
+        Update progress metrics.
+        Args:
+            episode_reward: Total reward per a single episode (game).
+            start_time: Episode start time, used for calculating fps.
+
+        Returns:
+            None
+        """
         self.games += 1
         self.checkpoint()
         self.total_rewards.append(episode_reward)
@@ -125,17 +189,34 @@ class DQN:
     def fit(
         self,
         decay_n_steps=150000,
-        lr=1e-4,
+        learning_rate=1e-4,
         gamma=0.99,
         update_target_steps=1000,
         monitor_session=None,
         weights=None,
+        max_steps=None,
+        target_reward=18,
     ):
+        """
+        Train agent on a supported environment
+        Args:
+            decay_n_steps: Maximum steps that determine epsilon decay rate.
+            learning_rate: Model learning rate shared by both main and target networks.
+            gamma: Discount factor used for gradient updates.
+            update_target_steps: Update target model every n steps.
+            monitor_session: Session name to use for monitoring the training with wandb.
+            weights: Path to .tf trained model weights to continue training.
+            max_steps: Maximum number of steps, if reached the training will stop.
+            target_reward: Target reward, if achieved, the training will stop
+
+        Returns:
+            None
+        """
         if monitor_session:
             wandb.init(name=monitor_session)
         episode_reward = 0
         start_time = perf_counter()
-        optimizer = Adam(lr)
+        optimizer = Adam(learning_rate)
         if weights:
             self.main_model.load_weights(weights)
             self.target_model.load_weights(weights)
@@ -152,10 +233,13 @@ class DQN:
             self.buffer.append((self.state, action, reward, done, new_state))
             self.state = new_state
             if done:
-                if self.mean_reward >= self.target_reward:
+                if self.mean_reward >= target_reward:
                     print(f'Reward achieved in {self.steps} steps!')
                     break
-                self.reset(episode_reward, start_time)
+                if max_steps and self.steps >= max_steps:
+                    print(f'Maximum steps exceeded')
+                    break
+                self.update_metrics(episode_reward, start_time)
                 start_time = perf_counter()
                 episode_reward = 0
                 self.state = self.env.reset()
@@ -166,24 +250,42 @@ class DQN:
             if self.steps % update_target_steps == 0:
                 self.target_model.set_weights(self.main_model.get_weights())
 
-    def play(self, weights=None, games=1, video_dir=None):
+    def play(self, weights=None, video_dir=None, render=False):
+        """
+        Play and display a game.
+        Args:
+            weights: Path to trained weights, if not specified, the most recent
+                model weights will be used.
+            video_dir: Path to directory to save the resulting game video.
+            render: If True, the game will be displayed.
+
+        Returns:
+            None
+        """
         if weights:
             self.main_model.load_weights(weights)
         if video_dir:
             self.env = gym.wrappers.Monitor(self.env, video_dir)
         played_games = 0
-        while played_games < games:
-            self.env.render()
+        self.state = self.env.reset()
+        while True:
+            if render:
+                self.env.render()
             action = self.get_action(False)
             self.state, reward, done, info = self.env.step(action)
             if done:
-                played_games += 1
+                break
 
 
 if __name__ == '__main__':
-    tf.compat.v1.disable_eager_execution()
-    agn = DQN('PongNoFrameskip-v4', 10000, checkpoint='pong_test_preprocess.tf')
-    # agn.play(
-    #     '/Users/emadboctor/Downloads/drive-download-20201223T205047Z-001/dqn_pong_test.tf'
-    # )
-    agn.fit(monitor_session='Pong test preprocess')
+    # tf.compat.v1.disable_eager_execution()
+    agn = DQN(
+        'PongNoFrameskip-v4',
+        10000,
+        checkpoint='pong_test_preprocess.tf',
+        epsilon_end=0.01,
+    )
+    agn.play(
+        '/Users/emadboctor/Downloads/drive-download-20201224T231046Z-001/pong_test_preprocess.tf',
+        video_dir='.',
+    )
