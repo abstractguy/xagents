@@ -1,15 +1,15 @@
 from collections import deque
 from time import perf_counter
 
+import gym
 import numpy as np
 import tensorflow as tf
-import wrappers
+import wandb
 from tensorflow.keras.layers import Conv2D, Dense, Flatten, Input
 from tensorflow.keras.models import Model
 from tensorflow.keras.optimizers import Adam
 
-import wandb
-from utils import activate_gpu_tf
+from Chapter06.lib import wrappers
 
 
 class DQN:
@@ -44,6 +44,7 @@ class DQN:
         self.epsilon_start = self.epsilon = epsilon_start
         self.epsilon_end = epsilon_end
         self.logger = logger
+        self.games = 0
 
     def create_model(self):
         x0 = Input(self.input_shape)
@@ -55,8 +56,8 @@ class DQN:
         x = Dense(self.env.action_space.n)(x)
         return Model(x0, x)
 
-    def get_action(self):
-        if np.random.random() < self.epsilon:
+    def get_action(self, training=True):
+        if training and np.random.random() < self.epsilon:
             return self.env.action_space.sample()
         q_values = self.main_model.predict(np.expand_dims(self.state, 0))
         return np.argmax(q_values)
@@ -82,7 +83,7 @@ class DQN:
         if self.best_reward < self.mean_reward:
             print(f'Best reward updated: {self.best_reward} -> {self.mean_reward}')
             if self.checkpoint_path:
-                self.main_model.save(self.checkpoint_path)
+                self.main_model.save_weights(self.checkpoint_path)
         self.best_reward = max(self.mean_reward, self.best_reward)
 
     def display_metrics(self):
@@ -96,9 +97,9 @@ class DQN:
         )
         display_values = (
             self.frame_idx,
-            len(self.total_rewards),
-            np.around(self.mean_reward, 2),
-            np.around(self.best_reward, 2),
+            self.games,
+            self.mean_reward,
+            self.best_reward,
             np.around(self.epsilon, 2),
             f'{round(self.frame_speed)} frames/s',
         )
@@ -108,13 +109,14 @@ class DQN:
         print(*display, sep=', ')
 
     def reset(self, episode_reward, start_time):
+        self.games += 1
         self.checkpoint()
         self.total_rewards.append(episode_reward)
         self.frame_speed = (self.frame_idx - self.last_reset_frame) / (
             perf_counter() - start_time
         )
         self.last_reset_frame = self.frame_idx
-        self.mean_reward = np.mean(self.total_rewards)
+        self.mean_reward = np.around(np.mean(self.total_rewards), 2)
         self.display_metrics()
 
     def fit(
@@ -124,13 +126,16 @@ class DQN:
         gamma=0.99,
         update_target_frames=1000,
         monitor_session=None,
+        weights=None,
     ):
-        activate_gpu_tf(self.logger)
         if monitor_session:
             wandb.init(name=monitor_session)
         episode_reward = 0
         start_time = perf_counter()
         optimizer = Adam(lr)
+        if weights:
+            self.main_model.load_weights(weights)
+            self.target_model.load_weights(weights)
         self.main_model.compile(optimizer, loss='mse')
         self.target_model.compile(optimizer, loss='mse')
         while True:
@@ -158,8 +163,24 @@ class DQN:
             if self.frame_idx % update_target_frames == 0:
                 self.target_model.set_weights(self.main_model.get_weights())
 
+    def play(self, weights=None, games=1, video_dir=None):
+        if weights:
+            self.main_model.load_weights(weights)
+        if video_dir:
+            self.env = gym.wrappers.Monitor(self.env, video_dir)
+        played_games = 0
+        while played_games < games:
+            self.env.render()
+            action = self.get_action(False)
+            self.state, reward, done, info = self.env.step(action)
+            if done:
+                played_games += 1
+
 
 if __name__ == '__main__':
-    tf.compat.v1.disable_eager_execution()
-    agn = DQN('PongNoFrameskip-v4', 10000, checkpoint='dqn_pong_test.tf')
-    agn.fit(monitor_session='Post modification test')
+    # tf.compat.v1.disable_eager_execution()
+    agn = DQN('PongNoFrameskip-v4', 10000, checkpoint='pong_no_skip.tf')
+    agn.play(
+        '/Users/emadboctor/Downloads/drive-download-20201223T205047Z-001/dqn_pong_test.tf'
+    )
+    # agn.fit(monitor_session='Post modification test')
