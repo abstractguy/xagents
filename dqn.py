@@ -1,9 +1,10 @@
+import os
 from collections import deque
 from time import perf_counter
 
+import cv2
 import gym
 import numpy as np
-import tensorflow as tf
 import wandb
 from tensorflow.keras.layers import Conv2D, Dense, Flatten, Input
 from tensorflow.keras.models import Model
@@ -195,7 +196,7 @@ class DQN:
         monitor_session=None,
         weights=None,
         max_steps=None,
-        target_reward=18,
+        target_reward=19,
     ):
         """
         Train agent on a supported environment
@@ -250,7 +251,7 @@ class DQN:
             if self.steps % update_target_steps == 0:
                 self.target_model.set_weights(self.main_model.get_weights())
 
-    def play(self, weights=None, video_dir=None, render=False):
+    def play(self, weights=None, video_dir=None, render=False, frame_dir=None):
         """
         Play and display a game.
         Args:
@@ -258,6 +259,7 @@ class DQN:
                 model weights will be used.
             video_dir: Path to directory to save the resulting game video.
             render: If True, the game will be displayed.
+            frame_dir: Path to directory to save game frames.
 
         Returns:
             None
@@ -266,26 +268,23 @@ class DQN:
             self.main_model.load_weights(weights)
         if video_dir:
             self.env = gym.wrappers.Monitor(self.env, video_dir)
-        played_games = 0
         self.state = self.env.reset()
+        steps = 0
+        for dir_name in (video_dir, frame_dir):
+            os.makedirs(dir_name or '.', exist_ok=True)
         while True:
             if render:
                 self.env.render()
+            if frame_dir:
+                frame = self.env.render(mode='rgb_array')
+                cv2.imwrite(os.path.join(frame_dir, f'{steps:05d}.jpg'), frame)
             action = self.get_action(False)
             self.state, reward, done, info = self.env.step(action)
             if done:
                 break
+            steps += 1
 
 
 if __name__ == '__main__':
-    # tf.compat.v1.disable_eager_execution()
-    agn = DQN(
-        'PongNoFrameskip-v4',
-        10000,
-        checkpoint='pong_test_preprocess.tf',
-        epsilon_end=0.01,
-    )
-    agn.play(
-        '/Users/emadboctor/Downloads/drive-download-20201224T231046Z-001/pong_test_preprocess.tf',
-        video_dir='.',
-    )
+    agn = DQN('PongNoFrameskip-v4')
+    agn.play('model/pong_dqn.tf', render=True)
