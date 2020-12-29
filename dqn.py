@@ -10,14 +10,14 @@ from tensorflow.keras.layers import Conv2D, Dense, Flatten, Input
 from tensorflow.keras.models import Model
 from tensorflow.keras.optimizers import Adam
 
-from utils import AtariPreprocessor
+from utils import AtariPreprocessor, ReplayBuffer
 
 
 class DQN:
     def __init__(
         self,
         env,
-        replay_buffer_size=10000,
+        replay_buffer_size=7500,
         batch_size=32,
         checkpoint=None,
         reward_buffer_size=100,
@@ -26,6 +26,8 @@ class DQN:
         frame_skips=4,
         resize_shape=(84, 84),
         state_buffer_size=2,
+        n_steps=1,
+        gamma=0.99,
     ):
         """
         Initialize agent settings.
@@ -43,6 +45,9 @@ class DQN:
             frame_skips: Number of frame skips to use per environment step.
             resize_shape: (m, n) dimensions for the frame preprocessor
             state_buffer_size: Size of the state buffer used by the frame preprocessor.
+            n_steps: n-step transition for example given s1, s2, s3, s4 and n_step = 4,
+                transition will be s1 -> s4 (defaults to 1, s1 -> s2)
+            gamma: Discount factor used for gradient updates.
         """
         self.env = gym.make(env)
         self.env = AtariPreprocessor(
@@ -52,7 +57,7 @@ class DQN:
         self.main_model = self.create_model()
         self.target_model = self.create_model()
         self.buffer_size = replay_buffer_size
-        self.buffer = deque(maxlen=replay_buffer_size)
+        self.buffer = ReplayBuffer(replay_buffer_size, n_steps)
         self.batch_size = batch_size
         self.checkpoint_path = checkpoint
         self.total_rewards = deque(maxlen=reward_buffer_size)
@@ -65,6 +70,8 @@ class DQN:
         self.epsilon_start = self.epsilon = epsilon_start
         self.epsilon_end = epsilon_end
         self.games = 0
+        self.n_steps = n_steps
+        self.gamma = gamma
 
     def create_model(self):
         """
@@ -107,13 +114,12 @@ class DQN:
         batch = [np.array(item) for item in zip(*memories)]
         return batch
 
-    def update(self, batch, gamma):
+    def update(self, batch):
         """
         Update gradients on a given a batch.
         Args:
             batch: A batch of observations in the form of
                 [[states], [actions], [rewards], [dones], [next states]]
-            gamma: Discount factor.
 
         Returns:
             None
@@ -124,7 +130,7 @@ class DQN:
         new_state_values[dones] = 0
         target_values = np.copy(q_states)
         target_values[np.arange(self.batch_size), actions] = (
-            new_state_values * gamma + rewards
+            new_state_values * self.gamma ** self.n_steps + rewards
         )
         self.main_model.fit(states, target_values, verbose=0)
 
@@ -191,7 +197,6 @@ class DQN:
         self,
         decay_n_steps=150000,
         learning_rate=1e-4,
-        gamma=0.99,
         update_target_steps=1000,
         monitor_session=None,
         weights=None,
@@ -203,7 +208,6 @@ class DQN:
         Args:
             decay_n_steps: Maximum steps that determine epsilon decay rate.
             learning_rate: Model learning rate shared by both main and target networks.
-            gamma: Discount factor used for gradient updates.
             update_target_steps: Update target model every n steps.
             monitor_session: Session name to use for monitoring the training with wandb.
             weights: Path to .tf trained model weights to continue training.
@@ -247,7 +251,7 @@ class DQN:
             if len(self.buffer) < self.buffer_size:
                 continue
             batch = self.get_buffer_sample()
-            self.update(batch, gamma)
+            self.update(batch)
             if self.steps % update_target_steps == 0:
                 self.target_model.set_weights(self.main_model.get_weights())
 
@@ -287,4 +291,5 @@ class DQN:
 
 if __name__ == '__main__':
     agn = DQN('PongNoFrameskip-v4')
-    agn.play('model/pong_dqn.tf', render=True)
+    agn.fit()
+    # agn.play('/Users/emadboctor/Desktop/code/dqn-pong-19-model/pong_test.tf', render=True, video_dir='.')

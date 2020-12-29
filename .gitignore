@@ -6,3 +6,5 @@ __pycache__
 checkpoint*
 *.tf*
 *.mp4
+openaigym*
+scratch

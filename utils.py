@@ -71,3 +71,22 @@ class AtariPreprocessor(gym.Wrapper):
         observation = self.env.reset(**kwargs)
         self.observation_buffer.append(observation)
         return self.process_frame(observation)
+
+
+class ReplayBuffer(deque):
+    def __init__(self, size, n_steps=1, gamma=0.99):
+        super(ReplayBuffer, self).__init__(maxlen=size)
+        self.n_steps = n_steps
+        self.gamma = gamma
+        self.temp_history = []
+
+    def append(self, experience):
+        if self.n_steps == 1:
+            super(ReplayBuffer, self).append(experience)
+
+
+if __name__ == '__main__':
+    b = ReplayBuffer(100)
+    for i in range(10):
+        b.append(i)
+    print(b)
