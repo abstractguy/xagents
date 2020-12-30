@@ -57,7 +57,7 @@ class DQN:
         self.main_model = self.create_model()
         self.target_model = self.create_model()
         self.buffer_size = replay_buffer_size
-        self.buffer = ReplayBuffer(replay_buffer_size, n_steps, batch_size)
+        self.buffer = ReplayBuffer(replay_buffer_size, n_steps, gamma, batch_size)
         self.batch_size = batch_size
         self.checkpoint_path = checkpoint
         self.total_rewards = deque(maxlen=reward_buffer_size)
@@ -281,6 +281,12 @@ if __name__ == '__main__':
     import tensorflow as tf
 
     tf.compat.v1.disable_eager_execution()
-    agn = DQN('PongNoFrameskip-v4', 10000, checkpoint='pong_replay_buffer_test.tf')
+    agn = DQN(
+        'PongNoFrameskip-v4',
+        10000,
+        checkpoint='pong_replay_buffer_test.tf',
+        n_steps=4,
+        epsilon_end=0.02,
+    )
     agn.fit()
     # agn.play('/Users/emadboctor/Desktop/code/dqn-pong-19-model/pong_test.tf', render=True, video_dir='.')

@@ -86,7 +86,7 @@ class ReplayBuffer(deque):
         if (self.temp_history and self.temp_history[-1][3]) or len(
             self.temp_history
         ) == self.n_steps:
-            for exp in reversed(self.temp_history):
+            for exp in self.temp_history[::-1]:
                 total_reward *= self.gamma
                 total_reward += exp[2]
             state = self.temp_history[0][0]
