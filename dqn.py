@@ -57,7 +57,7 @@ class DQN:
         self.main_model = self.create_model()
         self.target_model = self.create_model()
         self.buffer_size = replay_buffer_size
-        self.buffer = ReplayBuffer(replay_buffer_size, n_steps)
+        self.buffer = ReplayBuffer(replay_buffer_size, n_steps, batch_size)
         self.batch_size = batch_size
         self.checkpoint_path = checkpoint
         self.total_rewards = deque(maxlen=reward_buffer_size)
@@ -101,18 +101,6 @@ class DQN:
             return self.env.action_space.sample()
         q_values = self.main_model.predict(np.expand_dims(self.state, 0))
         return np.argmax(q_values)
-
-    def get_buffer_sample(self):
-        """
-        Get a sample of the replay buffer.
-        Returns:
-            A batch of observations in the form of
-            [[states], [actions], [rewards], [dones], [next states]]
-        """
-        indices = np.random.choice(len(self.buffer), self.batch_size, replace=False)
-        memories = [self.buffer[i] for i in indices]
-        batch = [np.array(item) for item in zip(*memories)]
-        return batch
 
     def update(self, batch):
         """
@@ -250,7 +238,7 @@ class DQN:
                 self.state = self.env.reset()
             if len(self.buffer) < self.buffer_size:
                 continue
-            batch = self.get_buffer_sample()
+            batch = self.buffer.get_sample()
             self.update(batch)
             if self.steps % update_target_steps == 0:
                 self.target_model.set_weights(self.main_model.get_weights())
@@ -290,6 +278,9 @@ class DQN:
 
 
 if __name__ == '__main__':
-    agn = DQN('PongNoFrameskip-v4')
+    import tensorflow as tf
+
+    tf.compat.v1.disable_eager_execution()
+    agn = DQN('PongNoFrameskip-v4', 10000, checkpoint='pong_replay_buffer_test.tf')
     agn.fit()
     # agn.play('/Users/emadboctor/Desktop/code/dqn-pong-19-model/pong_test.tf', render=True, video_dir='.')

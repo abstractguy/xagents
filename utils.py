@@ -74,19 +74,39 @@ class AtariPreprocessor(gym.Wrapper):
 
 
 class ReplayBuffer(deque):
-    def __init__(self, size, n_steps=1, gamma=0.99):
+    def __init__(self, size, n_steps=1, gamma=0.99, batch_size=32):
         super(ReplayBuffer, self).__init__(maxlen=size)
         self.n_steps = n_steps
         self.gamma = gamma
         self.temp_history = []
+        self.batch_size = batch_size
 
     def append(self, experience):
-        if self.n_steps == 1:
-            super(ReplayBuffer, self).append(experience)
+        total_reward = 0
+        if (self.temp_history and self.temp_history[-1][3]) or len(
+            self.temp_history
+        ) == self.n_steps:
+            for exp in reversed(self.temp_history):
+                total_reward *= self.gamma
+                total_reward += exp[2]
+            state = self.temp_history[0][0]
+            action = self.temp_history[0][1]
+            done = self.temp_history[-1][3]
+            new_state = self.temp_history[-1][-1]
+            super(ReplayBuffer, self).append(
+                (state, action, total_reward, done, new_state)
+            )
+            self.temp_history.clear()
+        self.temp_history.append(experience)
 
-
-if __name__ == '__main__':
-    b = ReplayBuffer(100)
-    for i in range(10):
-        b.append(i)
-    print(b)
+    def get_sample(self):
+        """
+        Get a sample of the replay buffer.
+        Returns:
+            A batch of observations in the form of
+            [[states], [actions], [rewards], [dones], [next states]]
+        """
+        indices = np.random.choice(len(self), self.batch_size, replace=False)
+        memories = [self[i] for i in indices]
+        batch = [np.array(item) for item in zip(*memories)]
+        return batch
