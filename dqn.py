@@ -28,6 +28,7 @@ class DQN:
         state_buffer_size=2,
         n_steps=1,
         gamma=0.99,
+        double=False,
     ):
         """
         Initialize agent settings.
@@ -48,6 +49,7 @@ class DQN:
             n_steps: n-step transition for example given s1, s2, s3, s4 and n_step = 4,
                 transition will be s1 -> s4 (defaults to 1, s1 -> s2)
             gamma: Discount factor used for gradient updates.
+            double: If True, DDQN is used for gradient updates.
         """
         self.env = gym.make(env)
         self.env = AtariPreprocessor(
@@ -72,6 +74,7 @@ class DQN:
         self.games = 0
         self.n_steps = n_steps
         self.gamma = gamma
+        self.double = double
 
     def create_model(self):
         """
@@ -114,7 +117,14 @@ class DQN:
         """
         states, actions, rewards, dones, new_states = batch
         q_states = self.main_model.predict(states)
-        new_state_values = self.target_model.predict(new_states).max(1)
+        if self.double:
+            next_state_actions = np.argmax(self.main_model.predict(new_states), 1)
+            new_state_q_values = self.target_model.predict(new_states)
+            new_state_values = new_state_q_values[
+                np.arange(self.batch_size), next_state_actions
+            ]
+        else:
+            new_state_values = self.target_model.predict(new_states).max(1)
         new_state_values[dones] = 0
         target_values = np.copy(q_states)
         target_values[np.arange(self.batch_size), actions] = (
@@ -284,9 +294,10 @@ if __name__ == '__main__':
     agn = DQN(
         'PongNoFrameskip-v4',
         10000,
-        checkpoint='pong_replay_buffer_test.tf',
-        n_steps=4,
+        # checkpoint='pong_replay_buffer_test.tf',
+        # n_steps=4,
         epsilon_end=0.02,
+        double=True,
     )
     agn.fit()
     # agn.play('/Users/emadboctor/Desktop/code/dqn-pong-19-model/pong_test.tf', render=True, video_dir='.')
