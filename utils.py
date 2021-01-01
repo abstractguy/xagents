@@ -74,12 +74,26 @@ class AtariPreprocessor(gym.Wrapper):
 
 
 class ReplayBuffer(deque):
-    def __init__(self, size, n_steps=1, gamma=0.99, batch_size=32):
+    def __init__(
+        self,
+        size,
+        n_steps=1,
+        gamma=0.99,
+        batch_size=32,
+        alpha=0.6,
+        beta=0.4,
+        prioritize=False,
+    ):
         super(ReplayBuffer, self).__init__(maxlen=size)
         self.n_steps = n_steps
         self.gamma = gamma
         self.temp_history = []
         self.batch_size = batch_size
+        self.alpha = alpha
+        self.beta = beta
+        self.priorities = None
+        if prioritize:
+            self.priorities = deque(maxlen=size)
 
     def append(self, experience):
         total_reward = 0
@@ -96,6 +110,9 @@ class ReplayBuffer(deque):
             super(ReplayBuffer, self).append(
                 (state, action, total_reward, done, new_state)
             )
+            if self.priorities is not None:
+                priority = max(self.priorities) if self.priorities else 1
+                self.priorities.append(priority)
             self.temp_history.clear()
         self.temp_history.append(experience)
 
@@ -105,8 +122,18 @@ class ReplayBuffer(deque):
         Returns:
             A batch of observations in the form of
             [[states], [actions], [rewards], [dones], [next states]]
+            and weights (if prioritize=True) or None
         """
-        indices = np.random.choice(len(self), self.batch_size, replace=False)
+        probabilities, weights = None, None
+        if self.priorities is not None:
+            probabilities = np.array(self.priorities) ** self.alpha
+            probabilities /= probabilities.sum()
+        indices = np.random.choice(
+            len(self), self.batch_size, replace=False, p=probabilities
+        )
+        if isinstance(probabilities, np.ndarray):
+            weights = (len(self) * probabilities[indices]) ** (-self.beta)
+            weights /= weights.max()
         memories = [self[i] for i in indices]
         batch = [np.array(item) for item in zip(*memories)]
-        return batch
+        return batch, weights

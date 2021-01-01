@@ -5,6 +5,7 @@ from time import perf_counter
 import cv2
 import gym
 import numpy as np
+import tensorflow as tf
 import wandb
 from tensorflow.keras.layers import Conv2D, Dense, Flatten, Input
 from tensorflow.keras.models import Model
@@ -17,7 +18,7 @@ class DQN:
     def __init__(
         self,
         env,
-        replay_buffer_size=7500,
+        replay_buffer,
         batch_size=32,
         checkpoint=None,
         reward_buffer_size=100,
@@ -34,7 +35,6 @@ class DQN:
         Initialize agent settings.
         Args:
             env: gym environment that returns states as atari frames.
-            replay_buffer_size: Size of the replay buffer that will hold record the
                 last n observations in the form of (state, action, reward, done, new state)
             batch_size: Training batch size.
             checkpoint: Path to .tf filename under which the trained model will be saved.
@@ -58,8 +58,7 @@ class DQN:
         self.input_shape = self.env.observation_space.shape
         self.main_model = self.create_model()
         self.target_model = self.create_model()
-        self.buffer_size = replay_buffer_size
-        self.buffer = ReplayBuffer(replay_buffer_size, n_steps, gamma, batch_size)
+        self.buffer = replay_buffer
         self.batch_size = batch_size
         self.checkpoint_path = checkpoint
         self.total_rewards = deque(maxlen=reward_buffer_size)
@@ -193,24 +192,24 @@ class DQN:
 
     def fit(
         self,
+        target_reward,
         decay_n_steps=150000,
         learning_rate=1e-4,
         update_target_steps=1000,
         monitor_session=None,
         weights=None,
         max_steps=None,
-        target_reward=19,
     ):
         """
         Train agent on a supported environment
         Args:
+            target_reward: Target reward, if achieved, the training will stop
             decay_n_steps: Maximum steps that determine epsilon decay rate.
             learning_rate: Model learning rate shared by both main and target networks.
             update_target_steps: Update target model every n steps.
             monitor_session: Session name to use for monitoring the training with wandb.
             weights: Path to .tf trained model weights to continue training.
             max_steps: Maximum number of steps, if reached the training will stop.
-            target_reward: Target reward, if achieved, the training will stop
 
         Returns:
             None
@@ -246,9 +245,9 @@ class DQN:
                 start_time = perf_counter()
                 episode_reward = 0
                 self.state = self.env.reset()
-            if len(self.buffer) < self.buffer_size:
+            if len(self.buffer) < self.buffer.maxlen:
                 continue
-            batch = self.buffer.get_sample()
+            batch, priority_weights = self.buffer.get_sample()
             self.update(batch)
             if self.steps % update_target_steps == 0:
                 self.target_model.set_weights(self.main_model.get_weights())
@@ -288,16 +287,16 @@ class DQN:
 
 
 if __name__ == '__main__':
-    import tensorflow as tf
-
+    # import tensorflow as tf
     tf.compat.v1.disable_eager_execution()
+    bf = ReplayBuffer(10000)
     agn = DQN(
         'PongNoFrameskip-v4',
-        10000,
+        bf,
         # checkpoint='pong_replay_buffer_test.tf',
         # n_steps=4,
         epsilon_end=0.02,
-        double=True,
+        # double=True,
     )
-    agn.fit()
+    agn.fit(19)
     # agn.play('/Users/emadboctor/Desktop/code/dqn-pong-19-model/pong_test.tf', render=True, video_dir='.')
