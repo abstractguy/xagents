@@ -36,6 +36,7 @@ class DQN:
         Args:
             env: gym environment that returns states as atari frames.
                 last n observations in the form of (state, action, reward, done, new state)
+            replay_buffer: ReplayBuffer object to use for memorizing transitions.
             batch_size: Training batch size.
             checkpoint: Path to .tf filename under which the trained model will be saved.
             reward_buffer_size: Size of the reward buffer that will hold the last n total
@@ -117,19 +118,25 @@ class DQN:
         states, actions, rewards, dones, new_states = batch
         q_states = self.main_model.predict(states)
         if self.double:
-            next_state_actions = np.argmax(self.main_model.predict(new_states), 1)
+            new_state_actions = np.argmax(self.main_model.predict(new_states), 1)
             new_state_q_values = self.target_model.predict(new_states)
             new_state_values = new_state_q_values[
-                np.arange(self.batch_size), next_state_actions
+                np.arange(self.batch_size), new_state_actions
             ]
         else:
             new_state_values = self.target_model.predict(new_states).max(1)
         new_state_values[dones] = 0
         target_values = np.copy(q_states)
-        target_values[np.arange(self.batch_size), actions] = (
-            new_state_values * self.gamma ** self.n_steps + rewards
-        )
+        target_value_update = new_state_values * self.gamma ** self.n_steps + rewards
+        state_action_values = target_values[np.arange(self.batch_size), actions]
+        target_values[np.arange(self.batch_size), actions] = target_value_update
         self.main_model.fit(states, target_values, verbose=0)
+        if self.buffer.priorities:
+            squared_loss = (state_action_values - target_value_update) ** 2
+            priorities = (
+                self.buffer.current_weights * squared_loss + self.buffer.priority_bias
+            )
+            self.buffer.update_priorities(priorities)
 
     def checkpoint(self):
         """
@@ -247,7 +254,7 @@ class DQN:
                 self.state = self.env.reset()
             if len(self.buffer) < self.buffer.maxlen:
                 continue
-            batch, priority_weights = self.buffer.get_sample()
+            batch = self.buffer.get_sample()
             self.update(batch)
             if self.steps % update_target_steps == 0:
                 self.target_model.set_weights(self.main_model.get_weights())
@@ -289,7 +296,7 @@ class DQN:
 if __name__ == '__main__':
     # import tensorflow as tf
     tf.compat.v1.disable_eager_execution()
-    bf = ReplayBuffer(10000)
+    bf = ReplayBuffer(10000, prioritize=True)
     agn = DQN(
         'PongNoFrameskip-v4',
         bf,

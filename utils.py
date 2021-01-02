@@ -83,6 +83,8 @@ class ReplayBuffer(deque):
         alpha=0.6,
         beta=0.4,
         prioritize=False,
+        beta_frames=100000,
+        priority_bias=1e-5,
     ):
         super(ReplayBuffer, self).__init__(maxlen=size)
         self.n_steps = n_steps
@@ -94,26 +96,33 @@ class ReplayBuffer(deque):
         self.priorities = None
         if prioritize:
             self.priorities = deque(maxlen=size)
+        self.priority_updates = 0
+        self.beta_frames = beta_frames
+        self.current_indices = None
+        self.current_weights = None
+        self.priority_bias = priority_bias
+
+    def reset_temp_history(self):
+        reward = 0
+        for exp in self.temp_history[::-1]:
+            reward *= self.gamma
+            reward += exp[2]
+        state = self.temp_history[0][0]
+        action = self.temp_history[0][1]
+        done = self.temp_history[-1][3]
+        new_state = self.temp_history[-1][-1]
+        self.temp_history.clear()
+        return state, action, reward, done, new_state
 
     def append(self, experience):
-        total_reward = 0
         if (self.temp_history and self.temp_history[-1][3]) or len(
             self.temp_history
         ) == self.n_steps:
-            for exp in self.temp_history[::-1]:
-                total_reward *= self.gamma
-                total_reward += exp[2]
-            state = self.temp_history[0][0]
-            action = self.temp_history[0][1]
-            done = self.temp_history[-1][3]
-            new_state = self.temp_history[-1][-1]
-            super(ReplayBuffer, self).append(
-                (state, action, total_reward, done, new_state)
-            )
+            adjusted_sample = self.reset_temp_history()
+            super(ReplayBuffer, self).append(adjusted_sample)
             if self.priorities is not None:
-                priority = max(self.priorities) if self.priorities else 1
+                priority = max(self.priorities, default=1)
                 self.priorities.append(priority)
-            self.temp_history.clear()
         self.temp_history.append(experience)
 
     def get_sample(self):
@@ -121,19 +130,28 @@ class ReplayBuffer(deque):
         Get a sample of the replay buffer.
         Returns:
             A batch of observations in the form of
-            [[states], [actions], [rewards], [dones], [next states]]
-            and weights (if prioritize=True) or None
+            [[states], [actions], [rewards], [dones], [next states]],
+            indices chosen and weights.
         """
         probabilities, weights = None, None
         if self.priorities is not None:
             probabilities = np.array(self.priorities) ** self.alpha
             probabilities /= probabilities.sum()
-        indices = np.random.choice(
+        self.current_indices = np.random.choice(
             len(self), self.batch_size, replace=False, p=probabilities
         )
         if isinstance(probabilities, np.ndarray):
-            weights = (len(self) * probabilities[indices]) ** (-self.beta)
-            weights /= weights.max()
-        memories = [self[i] for i in indices]
+            self.current_weights = (
+                len(self) * probabilities[self.current_indices]
+            ) ** (-self.beta)
+            self.current_weights /= self.current_weights.max()
+        memories = [self[i] for i in self.current_indices]
         batch = [np.array(item) for item in zip(*memories)]
-        return batch, weights
+        return batch
+
+    def update_priorities(self, priorities):
+        for idx, priority in zip(self.current_indices, priorities):
+            self.priorities[idx] = priority
+        self.priority_updates += 1
+        v = self.beta + self.priority_updates * (1.0 - self.beta) / self.beta_frames
+        self.beta = min(1.0, v)
