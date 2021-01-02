@@ -74,28 +74,51 @@ class AtariPreprocessor(gym.Wrapper):
 
 
 class ReplayBuffer(deque):
+    """
+    Replay buffer that holds state transitions which supports:
+    - N-step transitions.
+    - Prioritized sampling.
+    - Initial and max sizes.
+    """
+
     def __init__(
         self,
-        size,
+        max_size,
+        initial_size=None,
         n_steps=1,
         gamma=0.99,
         batch_size=32,
+        prioritize=False,
         alpha=0.6,
         beta=0.4,
-        prioritize=False,
         beta_frames=100000,
         priority_bias=1e-5,
     ):
-        super(ReplayBuffer, self).__init__(maxlen=size)
+        """
+        Initialize buffer settings.
+        Args:
+            max_size: Maximum transitions to store.
+            initial_size: Maximum transitions to store before starting the training.
+            n_steps: Steps separating start and end frames.
+            gamma: Discount factor.
+            batch_size: Size of the sampling method batch.
+            prioritize: If True, Sampling will be prioritized.
+            alpha: Alpha parameter to be used if prioritize==True.
+            beta: Beta parameter to bes used if prioritize==True.
+            beta_frames: Beta frames parameter to be used if prioritize==True.
+            priority_bias: Bias to be added to the sample priorities if prioritize==True.
+        """
+        super(ReplayBuffer, self).__init__(maxlen=max_size)
+        self.initial_size = initial_size or max_size
         self.n_steps = n_steps
         self.gamma = gamma
-        self.temp_history = []
+        self.temp_buffer = []
         self.batch_size = batch_size
         self.alpha = alpha
         self.beta = beta
         self.priorities = None
         if prioritize:
-            self.priorities = deque(maxlen=size)
+            self.priorities = deque(maxlen=max_size)
         self.priority_updates = 0
         self.beta_frames = beta_frames
         self.current_indices = None
@@ -103,27 +126,40 @@ class ReplayBuffer(deque):
         self.priority_bias = priority_bias
 
     def reset_temp_history(self):
+        """
+        Calculate start and end frames and clear temp buffer.
+        Returns:
+            state, action, reward, done, new_state
+        """
         reward = 0
-        for exp in self.temp_history[::-1]:
+        for exp in self.temp_buffer[::-1]:
             reward *= self.gamma
             reward += exp[2]
-        state = self.temp_history[0][0]
-        action = self.temp_history[0][1]
-        done = self.temp_history[-1][3]
-        new_state = self.temp_history[-1][-1]
-        self.temp_history.clear()
+        state = self.temp_buffer[0][0]
+        action = self.temp_buffer[0][1]
+        done = self.temp_buffer[-1][3]
+        new_state = self.temp_buffer[-1][-1]
+        self.temp_buffer.clear()
         return state, action, reward, done, new_state
 
     def append(self, experience):
-        if (self.temp_history and self.temp_history[-1][3]) or len(
-            self.temp_history
+        """
+        Append experience and auto-allocate to temp buffer / main buffer(self)
+        Args:
+            experience: state, action, reward, done, new_state
+
+        Returns:
+            None
+        """
+        if (self.temp_buffer and self.temp_buffer[-1][3]) or len(
+            self.temp_buffer
         ) == self.n_steps:
             adjusted_sample = self.reset_temp_history()
             super(ReplayBuffer, self).append(adjusted_sample)
             if self.priorities is not None:
                 priority = max(self.priorities, default=1)
                 self.priorities.append(priority)
-        self.temp_history.append(experience)
+        self.temp_buffer.append(experience)
 
     def get_sample(self):
         """
@@ -131,7 +167,6 @@ class ReplayBuffer(deque):
         Returns:
             A batch of observations in the form of
             [[states], [actions], [rewards], [dones], [next states]],
-            indices chosen and weights.
         """
         probabilities, weights = None, None
         if self.priorities is not None:
@@ -150,6 +185,14 @@ class ReplayBuffer(deque):
         return batch
 
     def update_priorities(self, priorities):
+        """
+        Update sampling priorities and self.beta
+        Args:
+            priorities: numpy array of priorities post gradient update.
+
+        Returns:
+            None
+        """
         for idx, priority in zip(self.current_indices, priorities):
             self.priorities[idx] = priority
         self.priority_updates += 1

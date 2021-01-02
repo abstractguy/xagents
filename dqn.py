@@ -107,7 +107,7 @@ class DQN:
 
     def update(self, batch):
         """
-        Update gradients on a given a batch.
+        Update gradients given a batch.
         Args:
             batch: A batch of observations in the form of
                 [[states], [actions], [rewards], [dones], [next states]]
@@ -140,7 +140,7 @@ class DQN:
 
     def checkpoint(self):
         """
-        Save model weights if improved.
+        Save model weights if current reward > best reward.
         Returns:
             None
         """
@@ -150,9 +150,12 @@ class DQN:
                 self.main_model.save_weights(self.checkpoint_path)
         self.best_reward = max(self.mean_reward, self.best_reward)
 
-    def display_metrics(self):
+    def display_metrics(self, episode_reward):
         """
         Display progress metrics to the console.
+        Args:
+            episode_reward: Current episode reward.
+
         Returns:
             None
         """
@@ -160,7 +163,8 @@ class DQN:
             'frame',
             'games',
             'mean reward',
-            'best_reward',
+            'best reward',
+            'episode reward',
             'epsilon',
             'speed',
         )
@@ -169,6 +173,7 @@ class DQN:
             self.games,
             self.mean_reward,
             self.best_reward,
+            episode_reward,
             np.around(self.epsilon, 2),
             f'{round(self.frame_speed)} steps/s',
         )
@@ -195,7 +200,7 @@ class DQN:
         )
         self.last_reset_frame = self.steps
         self.mean_reward = np.around(np.mean(self.total_rewards), 2)
-        self.display_metrics()
+        self.display_metrics(episode_reward)
 
     def fit(
         self,
@@ -232,6 +237,12 @@ class DQN:
         self.main_model.compile(optimizer, loss='mse')
         self.target_model.compile(optimizer, loss='mse')
         while True:
+            if self.mean_reward >= target_reward:
+                print(f'Reward achieved in {self.steps} steps!')
+                break
+            if max_steps and self.steps >= max_steps:
+                print(f'Maximum steps exceeded')
+                break
             self.steps += 1
             self.epsilon = max(
                 self.epsilon_end, self.epsilon_start - self.steps / decay_n_steps
@@ -242,17 +253,11 @@ class DQN:
             self.buffer.append((self.state, action, reward, done, new_state))
             self.state = new_state
             if done:
-                if self.mean_reward >= target_reward:
-                    print(f'Reward achieved in {self.steps} steps!')
-                    break
-                if max_steps and self.steps >= max_steps:
-                    print(f'Maximum steps exceeded')
-                    break
                 self.update_metrics(episode_reward, start_time)
                 start_time = perf_counter()
                 episode_reward = 0
                 self.state = self.env.reset()
-            if len(self.buffer) < self.buffer.maxlen:
+            if len(self.buffer) < self.buffer.initial_size:
                 continue
             batch = self.buffer.get_sample()
             self.update(batch)
