@@ -6,11 +6,11 @@ import cv2
 import gym
 import numpy as np
 import tensorflow as tf
-import wandb
 from tensorflow.keras.layers import Conv2D, Dense, Flatten, Input
 from tensorflow.keras.models import Model
 from tensorflow.keras.optimizers import Adam
 
+import wandb
 from utils import AtariPreprocessor, ReplayBuffer
 
 
@@ -75,6 +75,7 @@ class DQN:
         self.n_steps = n_steps
         self.gamma = gamma
         self.double = double
+        self.batch_indices = tf.range(self.batch_size, dtype=tf.int64)[:, tf.newaxis]
 
     def create_model(self):
         """
@@ -105,9 +106,46 @@ class DQN:
         q_values = self.main_model.predict(np.expand_dims(self.state, 0))
         return np.argmax(q_values)
 
-    def update(self, batch):
+    # def update(self, batch):
+    #     """
+    #     Update gradients given a batch.
+    #     Args:
+    #         batch: A batch of observations in the form of
+    #             [[states], [actions], [rewards], [dones], [next states]]
+    #
+    #     Returns:
+    #         None
+    #     """
+    #     states, actions, rewards, dones, new_states = batch
+    #     q_states = self.main_model.predict(states)
+    #     if self.double:
+    #         new_state_actions = np.argmax(self.main_model.predict(new_states), 1)
+    #         new_state_q_values = self.target_model.predict(new_states)
+    #         new_state_values = new_state_q_values[
+    #             np.arange(self.batch_size), new_state_actions
+    #         ]
+    #     else:
+    #         new_state_values = self.target_model.predict(new_states).max(1)
+    #     new_state_values[dones] = 0
+    #     target_values = np.copy(q_states)
+    #     target_value_update = new_state_values * self.gamma ** self.n_steps + rewards
+    #     state_action_values = target_values[np.arange(self.batch_size), actions]
+    #     target_values[np.arange(self.batch_size), actions] = target_value_update
+    #     self.main_model.fit(states, target_values, verbose=0)
+    #     if self.buffer.priorities:
+    #         squared_loss = (state_action_values - target_value_update) ** 2
+    #         priorities = (
+    #             self.buffer.current_weights * squared_loss + self.buffer.priority_bias
+    #         )
+    #         self.buffer.update_priorities(priorities)
+
+    def get_action_indices(self, actions):
+        return tf.concat((self.batch_indices, actions[:, tf.newaxis]), -1)
+
+    @tf.function
+    def get_targets(self, batch):
         """
-        Update gradients given a batch.
+        Get target values for gradient updates.
         Args:
             batch: A batch of observations in the form of
                 [[states], [actions], [rewards], [dones], [next states]]
@@ -116,27 +154,29 @@ class DQN:
             None
         """
         states, actions, rewards, dones, new_states = batch
-        q_states = self.main_model.predict(states)
+        q_states = self.main_model(states)
         if self.double:
-            new_state_actions = np.argmax(self.main_model.predict(new_states), 1)
-            new_state_q_values = self.target_model.predict(new_states)
-            new_state_values = new_state_q_values[
-                np.arange(self.batch_size), new_state_actions
-            ]
+            new_state_actions = tf.argmax(self.main_model(new_states), 1)
+            new_state_q_values = self.target_model(new_states)
+            a = self.get_action_indices(new_state_actions)
+            new_state_values = tf.gather_nd(new_state_q_values, a)
         else:
-            new_state_values = self.target_model.predict(new_states).max(1)
-        new_state_values[dones] = 0
-        target_values = np.copy(q_states)
-        target_value_update = new_state_values * self.gamma ** self.n_steps + rewards
-        state_action_values = target_values[np.arange(self.batch_size), actions]
-        target_values[np.arange(self.batch_size), actions] = target_value_update
-        self.main_model.fit(states, target_values, verbose=0)
+            new_state_values = tf.reduce_max(self.target_model(new_states), axis=1)
+        new_state_values *= tf.cast(~dones, tf.float32)
+        target_values = tf.identity(q_states)
+        target_value_update = new_state_values * self.gamma ** self.n_steps + tf.cast(
+            rewards, tf.float32
+        )
+        indices = self.get_action_indices(actions)
+        state_action_values = tf.gather_nd(target_values, indices)
+        tf.tensor_scatter_nd_update(target_values, indices, target_value_update)
         if self.buffer.priorities:
             squared_loss = (state_action_values - target_value_update) ** 2
             priorities = (
                 self.buffer.current_weights * squared_loss + self.buffer.priority_bias
             )
             self.buffer.update_priorities(priorities)
+        return target_values
 
     def checkpoint(self):
         """
@@ -260,7 +300,14 @@ class DQN:
             if len(self.buffer) < self.buffer.initial_size:
                 continue
             batch = self.buffer.get_sample()
-            self.update(batch)
+            targets = self.get_targets(batch)
+            self.main_model.fit(
+                batch[0],
+                targets,
+                verbose=0,
+                steps_per_epoch=1,
+                batch_size=self.batch_size,
+            )
             if self.steps % update_target_steps == 0:
                 self.target_model.set_weights(self.main_model.get_weights())
 
@@ -301,7 +348,8 @@ class DQN:
 if __name__ == '__main__':
     # import tensorflow as tf
     tf.compat.v1.disable_eager_execution()
-    bf = ReplayBuffer(10000, prioritize=True)
+    # tf.config.experimental_run_functions_eagerly(True)
+    bf = ReplayBuffer(10000)
     agn = DQN(
         'PongNoFrameskip-v4',
         bf,
@@ -310,5 +358,7 @@ if __name__ == '__main__':
         epsilon_end=0.02,
         # double=True,
     )
-    agn.fit(19)
-    # agn.play('/Users/emadboctor/Desktop/code/dqn-pong-19-model/pong_test.tf', render=True, video_dir='.')
+    agn.fit(19, monitor_session='tf.function update')
+    # agn.play(
+    #     '/Users/emadboctor/Desktop/code/dqn-pong-19-model/pong_test.tf', render=True
+    # )
