@@ -20,4 +20,6 @@ def dqn_conv(input_shape, num_actions, duel=False, fc_units=512):
         )
         value = Dense(units=1)(fc2)
         output = Add()([advantage, value])
-    return Model(x0, output)
+    model = Model(x0, output)
+    model.call = tf.function(model.call)
+    return model
