@@ -244,8 +244,6 @@ class DQN:
                 start_time = perf_counter()
                 episode_reward = 0
                 self.state = self.env.reset()
-            # if len(self.buffer) < self.buffer.initial_size:
-            #     continue
             batch = self.buffer.get_sample()
             self.update(batch)
             if self.steps % update_target_steps == 0:
@@ -291,11 +289,11 @@ if __name__ == '__main__':
     from utils import ReplayBuffer, create_gym_env
 
     tf.compat.v1.disable_eager_execution()
-    bf = ReplayBuffer(10000)
+    bf = ReplayBuffer(10000, n_steps=4)
     en = create_gym_env('PongNoFrameskip-v4')
     mod1 = dqn_conv(en.observation_space.shape, en.action_space.n, True)
     mod2 = dqn_conv(en.observation_space.shape, en.action_space.n, True)
-    agn = DQN(en, bf, (mod1, mod2))
+    agn = DQN(en, bf, (mod1, mod2), n_steps=4, double=True)
     agn.fit(19)
     # agn.play(
     #     '/Users/emadboctor/Desktop/code/dqn-pong-19-model/pong_test.tf', render=True
