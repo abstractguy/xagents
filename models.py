@@ -1,4 +1,5 @@
-from tensorflow.keras.layers import Add, Conv2D, Dense, Flatten, Input
+import tensorflow as tf
+from tensorflow.keras.layers import Add, Conv2D, Dense, Flatten, Input, Lambda
 from tensorflow.keras.models import Model
 
 
@@ -13,7 +14,10 @@ def dqn_conv(input_shape, num_actions, duel=False, fc_units=512):
         output = Dense(units=num_actions)(fc1)
     else:
         fc2 = Dense(units=fc_units, activation='relu')(x)
-        advantage = Dense(units=num_actions, activation='relu')(fc1)
-        value = Dense(units=1, activation='relu')(fc2)
+        advantage = Dense(units=num_actions)(fc1)
+        advantage = Lambda(lambda a: a - tf.expand_dims(tf.reduce_mean(a, axis=1), -1))(
+            advantage
+        )
+        value = Dense(units=1)(fc2)
         output = Add()([advantage, value])
     return Model(x0, output)
