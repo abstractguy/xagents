@@ -198,3 +198,10 @@ class ReplayBuffer(deque):
         self.priority_updates += 1
         v = self.beta + self.priority_updates * (1.0 - self.beta) / self.beta_frames
         self.beta = min(1.0, v)
+
+
+def create_gym_env(env_name, preprocess=True, *args, **kwargs):
+    env = gym.make(env_name)
+    if preprocess:
+        env = AtariPreprocessor(env, *args, **kwargs)
+    return env

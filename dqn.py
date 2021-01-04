@@ -5,13 +5,8 @@ from time import perf_counter
 import cv2
 import gym
 import numpy as np
-import tensorflow as tf
-from tensorflow.keras.layers import Conv2D, Dense, Flatten, Input
-from tensorflow.keras.models import Model
-from tensorflow.keras.optimizers import Adam
-
 import wandb
-from utils import AtariPreprocessor, ReplayBuffer
+from tensorflow.keras.optimizers import Adam
 
 
 class DQN:
@@ -19,14 +14,12 @@ class DQN:
         self,
         env,
         replay_buffer,
+        models,
         batch_size=32,
         checkpoint=None,
         reward_buffer_size=100,
         epsilon_start=1.0,
-        epsilon_end=0.01,
-        frame_skips=4,
-        resize_shape=(84, 84),
-        state_buffer_size=2,
+        epsilon_end=0.02,
         n_steps=1,
         gamma=0.99,
         double=False,
@@ -35,8 +28,8 @@ class DQN:
         Initialize agent settings.
         Args:
             env: gym environment that returns states as atari frames.
-                last n observations in the form of (state, action, reward, done, new state)
             replay_buffer: ReplayBuffer object to use for memorizing transitions.
+            models: Main and target models which should be of the same architecture.
             batch_size: Training batch size.
             checkpoint: Path to .tf filename under which the trained model will be saved.
             reward_buffer_size: Size of the reward buffer that will hold the last n total
@@ -44,21 +37,13 @@ class DQN:
             epsilon_start: Start value of epsilon that regulates exploration during training.
             epsilon_end: End value of epsilon which represents the minimum value of epsilon
                 which will not be decayed further when reached.
-            frame_skips: Number of frame skips to use per environment step.
-            resize_shape: (m, n) dimensions for the frame preprocessor
-            state_buffer_size: Size of the state buffer used by the frame preprocessor.
             n_steps: n-step transition for example given s1, s2, s3, s4 and n_step = 4,
                 transition will be s1 -> s4 (defaults to 1, s1 -> s2)
             gamma: Discount factor used for gradient updates.
             double: If True, DDQN is used for gradient updates.
         """
-        self.env = gym.make(env)
-        self.env = AtariPreprocessor(
-            self.env, frame_skips, resize_shape, state_buffer_size
-        )
-        self.input_shape = self.env.observation_space.shape
-        self.main_model = self.create_model()
-        self.target_model = self.create_model()
+        self.env = env
+        self.main_model, self.target_model = models
         self.buffer = replay_buffer
         self.batch_size = batch_size
         self.checkpoint_path = checkpoint
@@ -75,29 +60,12 @@ class DQN:
         self.n_steps = n_steps
         self.gamma = gamma
         self.double = double
-        self.batch_indices = tf.range(self.batch_size, dtype=tf.int64)[:, tf.newaxis]
-
-    def create_model(self):
-        """
-        Create model that will be used for the main and target models.
-        Returns:
-            None
-        """
-        x0 = Input(self.input_shape)
-        x = Conv2D(32, 8, 4, activation='relu')(x0)
-        x = Conv2D(64, 4, 2, activation='relu')(x)
-        x = Conv2D(64, 3, 1, activation='relu')(x)
-        x = Flatten()(x)
-        x = Dense(512, 'relu')(x)
-        x = Dense(self.env.action_space.n)(x)
-        return Model(x0, x)
 
     def get_action(self, training=True):
         """
         Generate action following an epsilon-greedy policy.
         Args:
             training: If False, no use of randomness will apply.
-
         Returns:
             A random action or Q argmax.
         """
@@ -106,46 +74,9 @@ class DQN:
         q_values = self.main_model.predict(np.expand_dims(self.state, 0))
         return np.argmax(q_values)
 
-    # def update(self, batch):
-    #     """
-    #     Update gradients given a batch.
-    #     Args:
-    #         batch: A batch of observations in the form of
-    #             [[states], [actions], [rewards], [dones], [next states]]
-    #
-    #     Returns:
-    #         None
-    #     """
-    #     states, actions, rewards, dones, new_states = batch
-    #     q_states = self.main_model.predict(states)
-    #     if self.double:
-    #         new_state_actions = np.argmax(self.main_model.predict(new_states), 1)
-    #         new_state_q_values = self.target_model.predict(new_states)
-    #         new_state_values = new_state_q_values[
-    #             np.arange(self.batch_size), new_state_actions
-    #         ]
-    #     else:
-    #         new_state_values = self.target_model.predict(new_states).max(1)
-    #     new_state_values[dones] = 0
-    #     target_values = np.copy(q_states)
-    #     target_value_update = new_state_values * self.gamma ** self.n_steps + rewards
-    #     state_action_values = target_values[np.arange(self.batch_size), actions]
-    #     target_values[np.arange(self.batch_size), actions] = target_value_update
-    #     self.main_model.fit(states, target_values, verbose=0)
-    #     if self.buffer.priorities:
-    #         squared_loss = (state_action_values - target_value_update) ** 2
-    #         priorities = (
-    #             self.buffer.current_weights * squared_loss + self.buffer.priority_bias
-    #         )
-    #         self.buffer.update_priorities(priorities)
-
-    def get_action_indices(self, actions):
-        return tf.concat((self.batch_indices, actions[:, tf.newaxis]), -1)
-
-    @tf.function
-    def get_targets(self, batch):
+    def update(self, batch):
         """
-        Get target values for gradient updates.
+        Update gradients given a batch.
         Args:
             batch: A batch of observations in the form of
                 [[states], [actions], [rewards], [dones], [next states]]
@@ -154,29 +85,27 @@ class DQN:
             None
         """
         states, actions, rewards, dones, new_states = batch
-        q_states = self.main_model(states)
+        q_states = self.main_model.predict(states)
         if self.double:
-            new_state_actions = tf.argmax(self.main_model(new_states), 1)
-            new_state_q_values = self.target_model(new_states)
-            a = self.get_action_indices(new_state_actions)
-            new_state_values = tf.gather_nd(new_state_q_values, a)
+            new_state_actions = np.argmax(self.main_model.predict(new_states), 1)
+            new_state_q_values = self.target_model.predict(new_states)
+            new_state_values = new_state_q_values[
+                np.arange(self.batch_size), new_state_actions
+            ]
         else:
-            new_state_values = tf.reduce_max(self.target_model(new_states), axis=1)
-        new_state_values *= tf.cast(~dones, tf.float32)
-        target_values = tf.identity(q_states)
-        target_value_update = new_state_values * self.gamma ** self.n_steps + tf.cast(
-            rewards, tf.float32
-        )
-        indices = self.get_action_indices(actions)
-        state_action_values = tf.gather_nd(target_values, indices)
-        tf.tensor_scatter_nd_update(target_values, indices, target_value_update)
+            new_state_values = self.target_model.predict(new_states).max(1)
+        new_state_values[dones] = 0
+        target_values = np.copy(q_states)
+        target_value_update = new_state_values * self.gamma ** self.n_steps + rewards
+        state_action_values = target_values[np.arange(self.batch_size), actions]
+        target_values[np.arange(self.batch_size), actions] = target_value_update
+        self.main_model.fit(states, target_values, verbose=0)
         if self.buffer.priorities:
             squared_loss = (state_action_values - target_value_update) ** 2
             priorities = (
                 self.buffer.current_weights * squared_loss + self.buffer.priority_bias
             )
             self.buffer.update_priorities(priorities)
-        return target_values
 
     def checkpoint(self):
         """
@@ -195,27 +124,26 @@ class DQN:
         Display progress metrics to the console.
         Args:
             episode_reward: Current episode reward.
-
         Returns:
             None
         """
         display_titles = (
             'frame',
             'games',
+            'speed',
+            'episode reward',
             'mean reward',
             'best reward',
-            'episode reward',
             'epsilon',
-            'speed',
         )
         display_values = (
             self.steps,
             self.games,
+            f'{round(self.frame_speed)} steps/s',
+            episode_reward,
             self.mean_reward,
             self.best_reward,
-            episode_reward,
             np.around(self.epsilon, 2),
-            f'{round(self.frame_speed)} steps/s',
         )
         display = (
             f'{title}: {value}' for title, value in zip(display_titles, display_values)
@@ -228,7 +156,6 @@ class DQN:
         Args:
             episode_reward: Total reward per a single episode (game).
             start_time: Episode start time, used for calculating fps.
-
         Returns:
             None
         """
@@ -262,7 +189,6 @@ class DQN:
             monitor_session: Session name to use for monitoring the training with wandb.
             weights: Path to .tf trained model weights to continue training.
             max_steps: Maximum number of steps, if reached the training will stop.
-
         Returns:
             None
         """
@@ -300,14 +226,7 @@ class DQN:
             if len(self.buffer) < self.buffer.initial_size:
                 continue
             batch = self.buffer.get_sample()
-            targets = self.get_targets(batch)
-            self.main_model.fit(
-                batch[0],
-                targets,
-                verbose=0,
-                steps_per_epoch=1,
-                batch_size=self.batch_size,
-            )
+            self.update(batch)
             if self.steps % update_target_steps == 0:
                 self.target_model.set_weights(self.main_model.get_weights())
 
@@ -320,7 +239,6 @@ class DQN:
             video_dir: Path to directory to save the resulting game video.
             render: If True, the game will be displayed.
             frame_dir: Path to directory to save game frames.
-
         Returns:
             None
         """
@@ -346,19 +264,18 @@ class DQN:
 
 
 if __name__ == '__main__':
-    # import tensorflow as tf
+    import tensorflow as tf
+
+    from models import dqn_conv
+    from utils import ReplayBuffer, create_gym_env
+
     tf.compat.v1.disable_eager_execution()
-    # tf.config.experimental_run_functions_eagerly(True)
     bf = ReplayBuffer(10000)
-    agn = DQN(
-        'PongNoFrameskip-v4',
-        bf,
-        # checkpoint='pong_replay_buffer_test.tf',
-        # n_steps=4,
-        epsilon_end=0.02,
-        # double=True,
-    )
-    agn.fit(19, monitor_session='tf.function update')
+    en = create_gym_env('PongNoFrameskip-v4')
+    mod1 = dqn_conv(en.observation_space.shape, en.action_space.n)
+    mod2 = dqn_conv(en.observation_space.shape, en.action_space.n)
+    agn = DQN(en, bf, [mod1, mod2])
+    agn.fit(19)
     # agn.play(
     #     '/Users/emadboctor/Desktop/code/dqn-pong-19-model/pong_test.tf', render=True
     # )
