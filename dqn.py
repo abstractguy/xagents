@@ -45,6 +45,9 @@ class DQN:
         self.env = env
         self.main_model, self.target_model = models
         self.buffer = replay_buffer
+        assert (
+            self.buffer.n_steps == n_steps
+        ), f'Buffer n-steps mismatch {self.buffer.n_steps}, {n_steps}'
         self.batch_size = batch_size
         self.checkpoint_path = checkpoint
         self.total_rewards = deque(maxlen=reward_buffer_size)
@@ -131,18 +134,18 @@ class DQN:
             'frame',
             'games',
             'speed',
-            'episode reward',
             'mean reward',
             'best reward',
+            'episode reward',
             'epsilon',
         )
         display_values = (
             self.steps,
             self.games,
             f'{round(self.frame_speed)} steps/s',
-            episode_reward,
             self.mean_reward,
             self.best_reward,
+            episode_reward,
             np.around(self.epsilon, 2),
         )
         display = (
@@ -168,6 +171,23 @@ class DQN:
         self.last_reset_frame = self.steps
         self.mean_reward = np.around(np.mean(self.total_rewards), 2)
         self.display_metrics(episode_reward)
+
+    def fill_buffer(self):
+        while len(self.buffer) < self.buffer.initial_size:
+            action = self.env.action_space.sample()
+            new_state, reward, done, info = self.env.step(action)
+            self.buffer.append((self.state, action, reward, done, new_state))
+            self.state = new_state
+            if done:
+                self.state = self.env.reset()
+            filled = round((len(self.buffer) / self.buffer.initial_size) * 100, 2)
+            print(
+                f'\rFilling replay buffer ==> {filled}% | '
+                f'{len(self.buffer)}/{self.buffer.initial_size}',
+                end='',
+            )
+        print()
+        self.state = self.env.reset()
 
     def fit(
         self,
@@ -202,6 +222,7 @@ class DQN:
             self.target_model.load_weights(weights)
         self.main_model.compile(optimizer, loss='mse')
         self.target_model.compile(optimizer, loss='mse')
+        self.fill_buffer()
         while True:
             if self.mean_reward >= target_reward:
                 print(f'Reward achieved in {self.steps} steps!')
@@ -223,8 +244,8 @@ class DQN:
                 start_time = perf_counter()
                 episode_reward = 0
                 self.state = self.env.reset()
-            if len(self.buffer) < self.buffer.initial_size:
-                continue
+            # if len(self.buffer) < self.buffer.initial_size:
+            #     continue
             batch = self.buffer.get_sample()
             self.update(batch)
             if self.steps % update_target_steps == 0:
@@ -272,9 +293,9 @@ if __name__ == '__main__':
     tf.compat.v1.disable_eager_execution()
     bf = ReplayBuffer(10000)
     en = create_gym_env('PongNoFrameskip-v4')
-    mod1 = dqn_conv(en.observation_space.shape, en.action_space.n)
-    mod2 = dqn_conv(en.observation_space.shape, en.action_space.n)
-    agn = DQN(en, bf, [mod1, mod2])
+    mod1 = dqn_conv(en.observation_space.shape, en.action_space.n, True)
+    mod2 = dqn_conv(en.observation_space.shape, en.action_space.n, True)
+    agn = DQN(en, bf, (mod1, mod2))
     agn.fit(19)
     # agn.play(
     #     '/Users/emadboctor/Desktop/code/dqn-pong-19-model/pong_test.tf', render=True
