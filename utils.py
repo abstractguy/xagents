@@ -201,6 +201,17 @@ class ReplayBuffer(deque):
 
 
 def create_gym_env(env_name, preprocess=True, *args, **kwargs):
+    """
+    Create gym environment and initialize preprocessing settings.
+    Args:
+        env_name: Name of the environment to be passed to gym.make()
+        preprocess: If True, AtariPreprocessor will be used.
+        *args: args to be passed to AtariPreprocessor
+        **kwargs: kwargs to be passed to AtariPreprocessor
+
+    Returns:
+
+    """
     env = gym.make(env_name)
     if preprocess:
         env = AtariPreprocessor(env, *args, **kwargs)

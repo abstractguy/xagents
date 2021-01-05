@@ -80,6 +80,14 @@ class DQN:
         return np.argmax(q_values)
 
     def get_action_indices(self, actions):
+        """
+        Get indices that will be passed to tf.gather_nd()
+        Args:
+            actions: Action tensor of shape self.batch_size
+
+        Returns:
+            Indices.
+        """
         return tf.concat(
             (self.batch_indices, tf.cast(actions[:, tf.newaxis], tf.int64)), -1
         )
@@ -186,6 +194,9 @@ class DQN:
         self.display_metrics(episode_reward)
 
     def fill_buffer(self):
+        """
+        Fill self.buffer up to its initial size.
+        """
         while len(self.buffer) < self.buffer.initial_size:
             action = self.env.action_space.sample()
             new_state, reward, done, info = self.env.step(action)
@@ -204,6 +215,17 @@ class DQN:
 
     @tf.function
     def train_on_batch(self, model, x, y, sample_weight=None):
+        """
+        Train on a given batch.
+        Args:
+            model: tf.keras.Model
+            x: States tensor
+            y: Targets tensor
+            sample_weight: sample_weight passed to model.compiled_loss()
+
+        Returns:
+            None
+        """
         with tf.GradientTape() as tape:
             y_pred = model(x, training=True)
             loss = model.compiled_loss(
