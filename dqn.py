@@ -1,5 +1,5 @@
 import os
-from collections import deque
+from collections import defaultdict, deque
 from time import perf_counter
 
 import cv2
@@ -13,10 +13,10 @@ from tensorflow.keras.optimizers import Adam
 class DQN:
     def __init__(
         self,
-        env,
-        replay_buffer,
+        envs,
+        replay_buffers,
         models,
-        batch_size=32,
+        buffer_batch_size=32,
         checkpoint=None,
         reward_buffer_size=100,
         epsilon_start=1.0,
@@ -28,10 +28,11 @@ class DQN:
         """
         Initialize agent settings.
         Args:
-            env: gym environment that returns states as atari frames.
-            replay_buffer: ReplayBuffer object to use for memorizing transitions.
+            envs: gym environment that returns states as atari frames.
+            replay_buffers: ReplayBuffer object to use for memorizing transitions.
             models: Main and target models which should be of the same architecture.
-            batch_size: Training batch size.
+            buffer_batch_size: Batch size when any buffer from the given buffers
+                get_sample() method is called.
             checkpoint: Path to .tf filename under which the trained model will be saved.
             reward_buffer_size: Size of the reward buffer that will hold the last n total
                 rewards which will be used for calculating the mean reward.
@@ -43,40 +44,59 @@ class DQN:
             gamma: Discount factor used for gradient updates.
             double: If True, DDQN is used for gradient updates.
         """
-        self.env = env
+        assert replay_buffers, 'No Replay buffers given'
+        assert envs, 'No Environments given'
+        self.n_envs = len(envs)
+        assert len(replay_buffers) == self.n_envs, (
+            f'Environments ({len(replay_buffers)}) '
+            f'vs buffers mismatch ({self.n_envs})'
+        )
+        assert all(
+            [buffer.n_steps == n_steps for buffer in replay_buffers]
+        ), f'Buffer n-steps mismatch {self.buffers[0].n_steps}, {n_steps}'
+        self.envs = envs
+        self.env_ids = [id(env) for env in self.envs]
+        self.buffers = {
+            env_id: buffer for (env_id, buffer) in zip(self.env_ids, replay_buffers)
+        }
         self.main_model, self.target_model = models
-        self.buffer = replay_buffer
-        assert (
-            self.buffer.n_steps == n_steps
-        ), f'Buffer n-steps mismatch {self.buffer.n_steps}, {n_steps}'
-        self.batch_size = batch_size
+        self.buffer_batch_size = buffer_batch_size
         self.checkpoint_path = checkpoint
-        self.total_rewards = deque(maxlen=reward_buffer_size)
+        self.total_rewards = deque(maxlen=reward_buffer_size * self.n_envs)
         self.best_reward = -float('inf')
         self.mean_reward = -float('inf')
-        self.state = self.env.reset()
+        self.states = {}
+        self.reset_envs()
         self.steps = 0
         self.frame_speed = 0
-        self.last_reset_frame = 0
+        self.last_reset_step = 0
         self.epsilon_start = self.epsilon = epsilon_start
         self.epsilon_end = epsilon_end
         self.games = 0
         self.n_steps = n_steps
         self.gamma = gamma
         self.double = double
-        self.batch_indices = tf.range(self.batch_size, dtype=tf.int64)[:, tf.newaxis]
+        self.batch_indices = tf.range(
+            self.buffer_batch_size * self.n_envs, dtype=tf.int64
+        )[:, tf.newaxis]
+        self.episode_rewards = defaultdict(lambda: 0)
 
-    def get_action(self, training=True):
+    def reset_envs(self):
+        for env_id, env in zip(self.env_ids, self.envs):
+            self.states[env_id] = env.reset()
+
+    def get_action(self, state, training=True):
         """
         Generate action following an epsilon-greedy policy.
         Args:
+            state: Atari frame that needs an action.
             training: If False, no use of randomness will apply.
         Returns:
             A random action or Q argmax.
         """
         if training and np.random.random() < self.epsilon:
-            return self.env.action_space.sample()
-        q_values = self.main_model(np.expand_dims(self.state, 0)).numpy()
+            return self.envs[0].action_space.sample()
+        q_values = self.main_model(np.expand_dims(state, 0)).numpy()
         return np.argmax(q_values)
 
     def get_action_indices(self, actions):
@@ -123,12 +143,13 @@ class DQN:
         target_values = tf.tensor_scatter_nd_update(
             target_values, indices, target_value_update
         )
-        if self.buffer.priorities:
-            squared_loss = (state_action_values - target_value_update) ** 2
-            priorities = (
-                self.buffer.current_weights * squared_loss + self.buffer.priority_bias
-            )
-            self.buffer.update_priorities(priorities)
+        for buffer in self.buffers.values():
+            if buffer.priorities:
+                squared_loss = (state_action_values - target_value_update) ** 2
+                priorities = (
+                    buffer.current_weights * squared_loss + buffer.priority_bias
+                )
+                buffer.update_priorities(priorities)
         return target_values
 
     def checkpoint(self):
@@ -143,11 +164,9 @@ class DQN:
                 self.main_model.save_weights(self.checkpoint_path)
         self.best_reward = max(self.mean_reward, self.best_reward)
 
-    def display_metrics(self, episode_reward):
+    def display_metrics(self):
         """
         Display progress metrics to the console.
-        Args:
-            episode_reward: Current episode reward.
         Returns:
             None
         """
@@ -157,7 +176,6 @@ class DQN:
             'speed',
             'mean reward',
             'best reward',
-            'episode reward',
             'epsilon',
         )
         display_values = (
@@ -166,7 +184,6 @@ class DQN:
             f'{round(self.frame_speed)} steps/s',
             self.mean_reward,
             self.best_reward,
-            episode_reward,
             np.around(self.epsilon, 2),
         )
         display = (
@@ -174,44 +191,48 @@ class DQN:
         )
         print(', '.join(display))
 
-    def update_metrics(self, episode_reward, start_time):
+    def update_metrics(self, start_time):
         """
         Update progress metrics.
         Args:
-            episode_reward: Total reward per a single episode (game).
             start_time: Episode start time, used for calculating fps.
         Returns:
             None
         """
-        self.games += 1
         self.checkpoint()
-        self.total_rewards.append(episode_reward)
-        self.frame_speed = (self.steps - self.last_reset_frame) / (
+        self.frame_speed = (self.steps - self.last_reset_step) / (
             perf_counter() - start_time
         )
-        self.last_reset_frame = self.steps
+        self.last_reset_step = self.steps
         self.mean_reward = np.around(np.mean(self.total_rewards), 2)
-        self.display_metrics(episode_reward)
 
-    def fill_buffer(self):
+    def fill_buffers(self):
         """
         Fill self.buffer up to its initial size.
         """
-        while len(self.buffer) < self.buffer.initial_size:
-            action = self.env.action_space.sample()
-            new_state, reward, done, info = self.env.step(action)
-            self.buffer.append((self.state, action, reward, done, new_state))
-            self.state = new_state
-            if done:
-                self.state = self.env.reset()
-            filled = round((len(self.buffer) / self.buffer.initial_size) * 100, 2)
-            print(
-                f'\rFilling replay buffer ==> {filled}% | '
-                f'{len(self.buffer)}/{self.buffer.initial_size}',
-                end='',
-            )
+        total_size = sum(buffer.initial_size for buffer in self.buffers.values())
+        sizes = {}
+        for i, env in enumerate(self.envs, 1):
+            env_id = id(env)
+            buffer = self.buffers[env_id]
+            state = self.states[env_id]
+            while len(buffer) < buffer.initial_size:
+                action = env.action_space.sample()
+                new_state, reward, done, _ = env.step(action)
+                buffer.append((state, action, reward, done, new_state))
+                state = new_state
+                if done:
+                    state = env.reset()
+                sizes[env_id] = len(buffer)
+                filled = sum(sizes.values())
+                complete = round((filled / total_size) * 100, 2)
+                print(
+                    f'\rFilling replay buffer {i}/{self.n_envs} ==> {complete}% | '
+                    f'{filled}/{total_size}',
+                    end='',
+                )
         print()
-        self.state = self.env.reset()
+        self.reset_envs()
 
     @tf.function
     def train_on_batch(self, model, x, y, sample_weight=None):
@@ -233,6 +254,29 @@ class DQN:
             )
         model.optimizer.minimize(loss, model.trainable_variables, tape=tape)
         model.compiled_metrics.update_state(y, y_pred, sample_weight)
+
+    def get_training_batch(self, done_envs):
+        batches = []
+        for env_id, env in zip(self.env_ids, self.envs):
+            state = self.states[env_id]
+            action = self.get_action(state)
+            buffer = self.buffers[env_id]
+            new_state, reward, done, _ = env.step(action)
+            self.steps += 1
+            self.episode_rewards[env_id] += reward
+            buffer.append((state, action, reward, done, new_state))
+            self.states[env_id] = new_state
+            if done:
+                done_envs.append(1)
+                self.total_rewards.append(self.episode_rewards[env_id])
+                self.games += 1
+                self.episode_rewards[env_id] = 0
+                self.states[env_id] = env.reset()
+            batch = buffer.get_sample()
+            batches.append(batch)
+        if len(batches) > 1:
+            return [np.concatenate(item) for item in zip(*batches)]
+        return batches[0]
 
     def fit(
         self,
@@ -259,39 +303,33 @@ class DQN:
         """
         if monitor_session:
             wandb.init(name=monitor_session)
-        episode_reward = 0
-        start_time = perf_counter()
         optimizer = Adam(learning_rate)
         if weights:
             self.main_model.load_weights(weights)
             self.target_model.load_weights(weights)
         self.main_model.compile(optimizer, loss='mse')
         self.target_model.compile(optimizer, loss='mse')
-        self.fill_buffer()
+        self.fill_buffers()
+        done_envs = []
+        start_time = perf_counter()
         while True:
+            if len(done_envs) == self.n_envs:
+                self.update_metrics(start_time)
+                start_time = perf_counter()
+                self.display_metrics()
+                done_envs.clear()
             if self.mean_reward >= target_reward:
                 print(f'Reward achieved in {self.steps} steps!')
                 break
             if max_steps and self.steps >= max_steps:
                 print(f'Maximum steps exceeded')
                 break
-            self.steps += 1
             self.epsilon = max(
                 self.epsilon_end, self.epsilon_start - self.steps / decay_n_steps
             )
-            action = self.get_action()
-            new_state, reward, done, info = self.env.step(action)
-            episode_reward += reward
-            self.buffer.append((self.state, action, reward, done, new_state))
-            self.state = new_state
-            if done:
-                self.update_metrics(episode_reward, start_time)
-                start_time = perf_counter()
-                episode_reward = 0
-                self.state = self.env.reset()
-            batch = self.buffer.get_sample()
-            targets = self.get_targets(batch)
-            self.train_on_batch(self.main_model, batch[0], targets)
+            training_batch = self.get_training_batch(done_envs)
+            targets = self.get_targets(training_batch)
+            self.train_on_batch(self.main_model, training_batch[0], targets)
             if self.steps % update_target_steps == 0:
                 self.target_model.set_weights(self.main_model.get_weights())
 
@@ -310,19 +348,19 @@ class DQN:
         if weights:
             self.main_model.load_weights(weights)
         if video_dir:
-            self.env = gym.wrappers.Monitor(self.env, video_dir)
-        self.state = self.env.reset()
+            self.envs = gym.wrappers.Monitor(self.envs, video_dir)
+        self.states = self.envs.reset()
         steps = 0
         for dir_name in (video_dir, frame_dir):
             os.makedirs(dir_name or '.', exist_ok=True)
         while True:
             if render:
-                self.env.render()
+                self.envs.render()
             if frame_dir:
-                frame = self.env.render(mode='rgb_array')
+                frame = self.envs.render(mode='rgb_array')
                 cv2.imwrite(os.path.join(frame_dir, f'{steps:05d}.jpg'), frame)
             action = self.get_action(False)
-            self.state, reward, done, info = self.env.step(action)
+            self.states, reward, done, _ = self.envs.step(action)
             if done:
                 break
             steps += 1
@@ -331,11 +369,17 @@ class DQN:
 if __name__ == '__main__':
     from models import dqn_conv
     from utils import ReplayBuffer, create_gym_env
-    bf = ReplayBuffer(10000)
-    en = create_gym_env('PongNoFrameskip-v4')
-    mod1 = dqn_conv(en.observation_space.shape, en.action_space.n)
-    mod2 = dqn_conv(en.observation_space.shape, en.action_space.n)
-    agn = DQN(en, bf, (mod1, mod2))
+
+    nnn = 10000
+    bf = [ReplayBuffer(nnn)]  # , ReplayBuffer(nnn), ReplayBuffer(nnn)]
+    en = [
+        # create_gym_env('PongNoFrameskip-v4'),
+        # create_gym_env('PongNoFrameskip-v4'),
+        create_gym_env('PongNoFrameskip-v4'),
+    ]
+    mod1 = dqn_conv(en[0].observation_space.shape, en[0].action_space.n)
+    mod2 = dqn_conv(en[0].observation_space.shape, en[0].action_space.n)
+    agn = DQN(en, bf, (mod1, mod2), double=True)
     agn.fit(19)
     # agn.play(
     #     '/Users/emadboctor/Desktop/code/dqn-pong-19-model/pong_test.tf', render=True
