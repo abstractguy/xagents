@@ -142,19 +142,20 @@ class ReplayBuffer(deque):
         return batch
 
 
-def create_gym_env(env_name, preprocess=True, *args, **kwargs):
+def create_gym_env(env_name, n=1, preprocess=True, *args, **kwargs):
     """
     Create gym environment and initialize preprocessing settings.
     Args:
         env_name: Name of the environment to be passed to gym.make()
+        n: Number of environments to create.
         preprocess: If True, AtariPreprocessor will be used.
         *args: args to be passed to AtariPreprocessor
         **kwargs: kwargs to be passed to AtariPreprocessor
 
     Returns:
-
+        A list of gym environments.
     """
-    env = gym.make(env_name)
+    envs = [gym.make(env_name) for _ in range(n)]
     if preprocess:
-        env = AtariPreprocessor(env, *args, **kwargs)
-    return env
+        envs = [AtariPreprocessor(env, *args, **kwargs) for env in envs]
+    return envs

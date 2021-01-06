@@ -7,30 +7,35 @@ import gym
 import numpy as np
 import tensorflow as tf
 import wandb
+from tensorflow.keras.layers import Add, Conv2D, Dense, Flatten, Input, Lambda
+from tensorflow.keras.models import Model
 from tensorflow.keras.optimizers import Adam
+
+from utils import ReplayBuffer
 
 
 class DQN:
     def __init__(
         self,
         envs,
-        replay_buffers,
-        models,
+        buffer_max_size=10000,
+        buffer_initial_size=None,
         buffer_batch_size=32,
         checkpoint=None,
         reward_buffer_size=100,
         epsilon_start=1.0,
         epsilon_end=0.02,
-        n_steps=1,
+        transition_steps=1,
         gamma=0.99,
         double=False,
+        duel=False,
+        cnn_fc_units=512,
     ):
         """
         Initialize agent settings.
         Args:
             envs: gym environment that returns states as atari frames.
-            replay_buffers: ReplayBuffer object to use for memorizing transitions.
-            models: Main and target models which should be of the same architecture.
+            buffer_max_size: Replay buffer maximum size.
             buffer_batch_size: Batch size when any buffer from the given buffers
                 get_sample() method is called.
             checkpoint: Path to .tf filename under which the trained model will be saved.
@@ -39,27 +44,32 @@ class DQN:
             epsilon_start: Start value of epsilon that regulates exploration during training.
             epsilon_end: End value of epsilon which represents the minimum value of epsilon
                 which will not be decayed further when reached.
-            n_steps: n-step transition for example given s1, s2, s3, s4 and n_step = 4,
+            transition_steps: n-step transition for example given s1, s2, s3, s4 and n_step = 4,
                 transition will be s1 -> s4 (defaults to 1, s1 -> s2)
             gamma: Discount factor used for gradient updates.
             double: If True, DDQN is used for gradient updates.
+            duel: If True, a dueling extension will be added to the model.
+            cnn_fc_units: Number of units passed to Dense layer.
         """
-        assert replay_buffers, 'No Replay buffers given'
         assert envs, 'No Environments given'
         self.n_envs = len(envs)
-        assert len(replay_buffers) == self.n_envs, (
-            f'Environments ({len(replay_buffers)}) '
-            f'vs buffers mismatch ({self.n_envs})'
-        )
-        assert all(
-            [buffer.n_steps == n_steps for buffer in replay_buffers]
-        ), f'Buffer n-steps mismatch {self.buffers[0].n_steps}, {n_steps}'
         self.envs = envs
         self.env_ids = [id(env) for env in self.envs]
+        replay_buffers = [
+            ReplayBuffer(
+                buffer_max_size,
+                buffer_initial_size,
+                transition_steps,
+                gamma,
+                buffer_batch_size,
+            )
+            for _ in range(self.n_envs)
+        ]
         self.buffers = {
             env_id: buffer for (env_id, buffer) in zip(self.env_ids, replay_buffers)
         }
-        self.main_model, self.target_model = models
+        self.main_model = self.create_cnn_model(duel, cnn_fc_units)
+        self.target_model = self.create_cnn_model(duel, cnn_fc_units)
         self.buffer_batch_size = buffer_batch_size
         self.checkpoint_path = checkpoint
         self.total_rewards = deque(maxlen=reward_buffer_size * self.n_envs)
@@ -73,13 +83,43 @@ class DQN:
         self.epsilon_start = self.epsilon = epsilon_start
         self.epsilon_end = epsilon_end
         self.games = 0
-        self.n_steps = n_steps
+        self.transition_steps = transition_steps
         self.gamma = gamma
         self.double = double
         self.batch_indices = tf.range(
             self.buffer_batch_size * self.n_envs, dtype=tf.int64
         )[:, tf.newaxis]
         self.episode_rewards = defaultdict(lambda: 0)
+
+    def create_cnn_model(self, duel=False, fc_units=512):
+        """
+        Create convolutional model.
+        Args:
+            duel: If True, a dueling extension will be added to the model.
+            fc_units: Number of units passed to Dense layer.
+
+        Returns:
+            tf.keras.models.Model
+        """
+        x0 = Input(self.envs[0].observation_space.shape)
+        x = Conv2D(32, 8, 4, activation='relu')(x0)
+        x = Conv2D(64, 4, 2, activation='relu')(x)
+        x = Conv2D(64, 3, 1, activation='relu')(x)
+        x = Flatten()(x)
+        fc1 = Dense(units=fc_units, activation='relu')(x)
+        if not duel:
+            output = Dense(units=self.envs[0].action_space.n)(fc1)
+        else:
+            fc2 = Dense(units=fc_units, activation='relu')(x)
+            advantage = Dense(units=self.envs[0].action_space.n)(fc1)
+            advantage = Lambda(
+                lambda a: a - tf.expand_dims(tf.reduce_mean(a, axis=1), -1)
+            )(advantage)
+            value = Dense(units=1)(fc2)
+            output = Add()([advantage, value])
+        model = Model(x0, output)
+        model.call = tf.function(model.call)
+        return model
 
     def reset_envs(self):
         """
@@ -140,9 +180,9 @@ class DQN:
             dones, tf.constant(0, new_state_values.dtype), new_state_values
         )
         target_values = tf.identity(q_states)
-        target_value_update = new_state_values * (self.gamma ** self.n_steps) + tf.cast(
-            rewards, tf.float32
-        )
+        target_value_update = new_state_values * (
+            self.gamma ** self.transition_steps
+        ) + tf.cast(rewards, tf.float32)
         indices = self.get_action_indices(actions)
         target_values = tf.tensor_scatter_nd_update(
             target_values, indices, target_value_update
@@ -385,25 +425,10 @@ class DQN:
 
 
 if __name__ == '__main__':
-    from models import dqn_conv
-    from utils import ReplayBuffer, create_gym_env
+    from utils import create_gym_env
 
-    nnn = 10000
-    ppp = True
-    nss = 1
-    bf = [
-        ReplayBuffer(nnn, n_steps=nss),
-        # ReplayBuffer(nnn, n_steps=nss),
-        # ReplayBuffer(nnn, n_steps=nss),
-    ]
-    en = [
-        create_gym_env('PongNoFrameskip-v4'),
-        # create_gym_env('PongNoFrameskip-v4'),
-        # create_gym_env('PongNoFrameskip-v4'),
-    ]
-    mod1 = dqn_conv(en[0].observation_space.shape, en[0].action_space.n)
-    mod2 = dqn_conv(en[0].observation_space.shape, en[0].action_space.n)
-    agn = DQN(en, bf, (mod1, mod2), n_steps=nss)
+    ens = create_gym_env('PongNoFrameskip-v4')
+    agn = DQN(ens, reward_buffer_size=1000)
     agn.fit(19, max_steps=40000)
     # agn.play(
     #     '/Users/emadboctor/Desktop/code/dqn-pong-19-model/pong_test.tf',
