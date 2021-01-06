@@ -139,17 +139,9 @@ class DQN:
             rewards, tf.float32
         )
         indices = self.get_action_indices(actions)
-        state_action_values = tf.gather_nd(target_values, indices)
         target_values = tf.tensor_scatter_nd_update(
             target_values, indices, target_value_update
         )
-        for buffer in self.buffers.values():
-            if buffer.priorities:
-                squared_loss = (state_action_values - target_value_update) ** 2
-                priorities = (
-                    buffer.current_weights * squared_loss + buffer.priority_bias
-                )
-                buffer.update_priorities(priorities)
         return target_values
 
     def checkpoint(self):
@@ -177,6 +169,7 @@ class DQN:
             'mean reward',
             'best reward',
             'epsilon',
+            'episode rewards',
         )
         display_values = (
             self.steps,
@@ -185,6 +178,7 @@ class DQN:
             self.mean_reward,
             self.best_reward,
             np.around(self.epsilon, 2),
+            list(self.total_rewards)[-self.n_envs :],
         )
         display = (
             f'{title}: {value}' for title, value in zip(display_titles, display_values)
@@ -371,15 +365,21 @@ if __name__ == '__main__':
     from utils import ReplayBuffer, create_gym_env
 
     nnn = 10000
-    bf = [ReplayBuffer(nnn)]  # , ReplayBuffer(nnn), ReplayBuffer(nnn)]
+    ppp = True
+    nss = 3
+    bf = [
+        ReplayBuffer(nnn, n_steps=nss),
+        ReplayBuffer(nnn, n_steps=nss),
+        ReplayBuffer(nnn, n_steps=nss),
+    ]
     en = [
-        # create_gym_env('PongNoFrameskip-v4'),
-        # create_gym_env('PongNoFrameskip-v4'),
+        create_gym_env('PongNoFrameskip-v4'),
+        create_gym_env('PongNoFrameskip-v4'),
         create_gym_env('PongNoFrameskip-v4'),
     ]
-    mod1 = dqn_conv(en[0].observation_space.shape, en[0].action_space.n)
-    mod2 = dqn_conv(en[0].observation_space.shape, en[0].action_space.n)
-    agn = DQN(en, bf, (mod1, mod2), double=True)
+    mod1 = dqn_conv(en[0].observation_space.shape, en[0].action_space.n, duel=True)
+    mod2 = dqn_conv(en[0].observation_space.shape, en[0].action_space.n, duel=True)
+    agn = DQN(en, bf, (mod1, mod2), n_steps=nss, double=True)
     agn.fit(19)
     # agn.play(
     #     '/Users/emadboctor/Desktop/code/dqn-pong-19-model/pong_test.tf', render=True
