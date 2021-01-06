@@ -1,6 +1,6 @@
 import os
 from collections import defaultdict, deque
-from time import perf_counter
+from time import perf_counter, sleep
 
 import cv2
 import gym
@@ -82,6 +82,11 @@ class DQN:
         self.episode_rewards = defaultdict(lambda: 0)
 
     def reset_envs(self):
+        """
+        Reset all environments in self.envs
+        Returns:
+            None
+        """
         for env_id, env in zip(self.env_ids, self.envs):
             self.states[env_id] = env.reset()
 
@@ -250,6 +255,15 @@ class DQN:
         model.compiled_metrics.update_state(y, y_pred, sample_weight)
 
     def get_training_batch(self, done_envs):
+        """
+        Join batches for each environment in self.envs
+        Args:
+            done_envs: A flag list for marking episode ends.
+
+        Returns:
+            batch: A batch of observations in the form of
+                [[states], [actions], [rewards], [dones], [next states]]
+        """
         batches = []
         for env_id, env in zip(self.env_ids, self.envs):
             state = self.states[env_id]
@@ -327,7 +341,14 @@ class DQN:
             if self.steps % update_target_steps == 0:
                 self.target_model.set_weights(self.main_model.get_weights())
 
-    def play(self, weights=None, video_dir=None, render=False, frame_dir=None):
+    def play(
+        self,
+        weights=None,
+        video_dir=None,
+        render=False,
+        frame_dir=None,
+        frame_delay=0.0,
+    ):
         """
         Play and display a game.
         Args:
@@ -336,28 +357,31 @@ class DQN:
             video_dir: Path to directory to save the resulting game video.
             render: If True, the game will be displayed.
             frame_dir: Path to directory to save game frames.
+            frame_delay: Delay between rendered frames.
         Returns:
             None
         """
+        env_in_use = self.envs[0]
         if weights:
             self.main_model.load_weights(weights)
         if video_dir:
-            self.envs = gym.wrappers.Monitor(self.envs, video_dir)
-        self.states = self.envs.reset()
+            env_in_use = gym.wrappers.Monitor(env_in_use, video_dir)
+        state = env_in_use.reset()
         steps = 0
         for dir_name in (video_dir, frame_dir):
             os.makedirs(dir_name or '.', exist_ok=True)
         while True:
             if render:
-                self.envs.render()
+                env_in_use.render()
             if frame_dir:
-                frame = self.envs.render(mode='rgb_array')
+                frame = env_in_use.render(mode='rgb_array')
                 cv2.imwrite(os.path.join(frame_dir, f'{steps:05d}.jpg'), frame)
-            action = self.get_action(False)
-            self.states, reward, done, _ = self.envs.step(action)
+            action = self.get_action(state, False)
+            state, reward, done, _ = env_in_use.step(action)
             if done:
                 break
             steps += 1
+            sleep(frame_delay)
 
 
 if __name__ == '__main__':
@@ -366,21 +390,22 @@ if __name__ == '__main__':
 
     nnn = 10000
     ppp = True
-    nss = 3
+    nss = 1
     bf = [
         ReplayBuffer(nnn, n_steps=nss),
-        ReplayBuffer(nnn, n_steps=nss),
-        ReplayBuffer(nnn, n_steps=nss),
+        # ReplayBuffer(nnn, n_steps=nss),
+        # ReplayBuffer(nnn, n_steps=nss),
     ]
     en = [
         create_gym_env('PongNoFrameskip-v4'),
-        create_gym_env('PongNoFrameskip-v4'),
-        create_gym_env('PongNoFrameskip-v4'),
+        # create_gym_env('PongNoFrameskip-v4'),
+        # create_gym_env('PongNoFrameskip-v4'),
     ]
-    mod1 = dqn_conv(en[0].observation_space.shape, en[0].action_space.n, duel=True)
-    mod2 = dqn_conv(en[0].observation_space.shape, en[0].action_space.n, duel=True)
-    agn = DQN(en, bf, (mod1, mod2), n_steps=nss, double=True)
-    agn.fit(19)
+    mod1 = dqn_conv(en[0].observation_space.shape, en[0].action_space.n)
+    mod2 = dqn_conv(en[0].observation_space.shape, en[0].action_space.n)
+    agn = DQN(en, bf, (mod1, mod2), n_steps=nss)
+    agn.fit(19, max_steps=40000)
     # agn.play(
-    #     '/Users/emadboctor/Desktop/code/dqn-pong-19-model/pong_test.tf', render=True
+    #     '/Users/emadboctor/Desktop/code/dqn-pong-19-model/pong_test.tf',
+    #     render=True,
     # )

@@ -1,3 +1,4 @@
+import random
 from collections import deque
 
 import cv2
@@ -10,20 +11,18 @@ class AtariPreprocessor(gym.Wrapper):
     gym wrapper for preprocessing atari frames.
     """
 
-    def __init__(self, env, frame_skips=4, resize_shape=(84, 84), state_buffer_size=2):
+    def __init__(self, env, frame_skips=4, resize_shape=(84, 84)):
         """
         Initialize preprocessing settings.
         Args:
             env: gym environment that returns states as atari frames.
             frame_skips: Number of frame skips to use per environment step.
             resize_shape: (m, n) output frame size.
-            state_buffer_size: State buffer for max pooling.
         """
         super(AtariPreprocessor, self).__init__(env)
         self.skips = frame_skips
         self.frame_shape = resize_shape
         self.observation_space.shape = (*resize_shape, 1)
-        self.observation_buffer = deque(maxlen=state_buffer_size)
 
     def process_frame(self, frame):
         """
@@ -52,11 +51,9 @@ class AtariPreprocessor(gym.Wrapper):
         for _ in range(self.skips):
             state, reward, done, info = self.env.step(action)
             total_reward += reward
-            self.observation_buffer.append(state)
             if done:
                 break
-        max_frame = np.max(np.stack(self.observation_buffer), axis=0)
-        return self.process_frame(max_frame), total_reward, done, info
+        return self.process_frame(state), total_reward, done, info
 
     def reset(self, **kwargs):
         """
@@ -67,9 +64,7 @@ class AtariPreprocessor(gym.Wrapper):
         Returns:
             Processed atari frame.
         """
-        self.observation_buffer.clear()
         observation = self.env.reset(**kwargs)
-        self.observation_buffer.append(observation)
         return self.process_frame(observation)
 
 
@@ -142,8 +137,7 @@ class ReplayBuffer(deque):
             A batch of observations in the form of
             [[states], [actions], [rewards], [dones], [next states]],
         """
-        indices = np.random.choice(len(self), self.batch_size, replace=False)
-        memories = [self[i] for i in indices]
+        memories = random.sample(self, self.batch_size)
         batch = [np.array(item) for item in zip(*memories)]
         return batch
 
