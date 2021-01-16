@@ -29,7 +29,6 @@ class AtariPreprocessor(gym.Wrapper):
         Resize and convert atari frame to grayscale.
         Args:
             frame: Image as numpy.ndarray
-
         Returns:
             Processed frame.
         """
@@ -42,7 +41,6 @@ class AtariPreprocessor(gym.Wrapper):
         Step respective to self.skips.
         Args:
             action: Action supported by self.env
-
         Returns:
             (state, reward, done, info)
         """
@@ -60,7 +58,6 @@ class AtariPreprocessor(gym.Wrapper):
         Reset self.env
         Args:
             **kwargs: kwargs passed to self.env.reset()
-
         Returns:
             Processed atari frame.
         """
@@ -119,7 +116,6 @@ class ReplayBuffer(deque):
         Append experience and auto-allocate to temp buffer / main buffer(self)
         Args:
             experience: state, action, reward, done, new_state
-
         Returns:
             None
         """
@@ -151,7 +147,6 @@ def create_gym_env(env_name, n=1, preprocess=True, *args, **kwargs):
         preprocess: If True, AtariPreprocessor will be used.
         *args: args to be passed to AtariPreprocessor
         **kwargs: kwargs to be passed to AtariPreprocessor
-
     Returns:
         A list of gym environments.
     """

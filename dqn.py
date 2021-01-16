@@ -11,7 +11,7 @@ from tensorflow.keras.layers import Add, Conv2D, Dense, Flatten, Input, Lambda
 from tensorflow.keras.models import Model
 from tensorflow.keras.optimizers import Adam
 
-from utils import ReplayBuffer
+from utils import ReplayBuffer, create_gym_env
 
 
 class DQN:
@@ -34,7 +34,7 @@ class DQN:
         """
         Initialize agent settings.
         Args:
-            envs: gym environment that returns states as atari frames.
+            envs: A list of gym environments that return states as atari frames.
             buffer_max_size: Replay buffer maximum size.
             buffer_batch_size: Batch size when any buffer from the given buffers
                 get_sample() method is called.
@@ -54,6 +54,7 @@ class DQN:
         assert envs, 'No Environments given'
         self.n_envs = len(envs)
         self.envs = envs
+        self.available_actions = self.envs[0].action_space.n
         self.env_ids = [id(env) for env in self.envs]
         replay_buffers = [
             ReplayBuffer(
@@ -108,13 +109,13 @@ class DQN:
         x = Flatten()(x)
         fc1 = Dense(units=fc_units, activation='relu')(x)
         if not duel:
-            output = Dense(units=self.envs[0].action_space.n)(fc1)
+            output = Dense(units=self.available_actions)(fc1)
         else:
             fc2 = Dense(units=fc_units, activation='relu')(x)
-            advantage = Dense(units=self.envs[0].action_space.n)(fc1)
-            advantage = Lambda(
-                lambda a: a - tf.expand_dims(tf.reduce_mean(a, axis=1), -1)
-            )(advantage)
+            advantage = Dense(units=self.available_actions)(fc1)
+            advantage = Lambda(lambda a: a - tf.expand_dims(tf.reduce_mean(a, 1), -1))(
+                advantage
+            )
             value = Dense(units=1)(fc2)
             output = Add()([advantage, value])
         model = Model(x0, output)
@@ -294,17 +295,12 @@ class DQN:
         model.optimizer.minimize(loss, model.trainable_variables, tape=tape)
         model.compiled_metrics.update_state(y, y_pred, sample_weight)
 
-    def get_training_batch(self, done_envs):
+    def step_envs(self, done_envs):
         """
-        Join batches for each environment in self.envs
+        Play 1 step for each env in self.envs
         Args:
             done_envs: A flag list for marking episode ends.
-
-        Returns:
-            batch: A batch of observations in the form of
-                [[states], [actions], [rewards], [dones], [next states]]
         """
-        batches = []
         for env_id, env in zip(self.env_ids, self.envs):
             state = self.states[env_id]
             action = self.get_action(state)
@@ -320,6 +316,18 @@ class DQN:
                 self.games += 1
                 self.episode_rewards[env_id] = 0
                 self.states[env_id] = env.reset()
+
+    def get_training_batch(self):
+        """
+        Join batches sampled from each environment in self.envs
+
+        Returns:
+            batch: A batch of observations in the form of
+                [[states], [actions], [rewards], [dones], [next states]]
+        """
+        batches = []
+        for env_id, env in zip(self.env_ids, self.envs):
+            buffer = self.buffers[env_id]
             batch = buffer.get_sample()
             batches.append(batch)
         if len(batches) > 1:
@@ -375,7 +383,8 @@ class DQN:
             self.epsilon = max(
                 self.epsilon_end, self.epsilon_start - self.steps / decay_n_steps
             )
-            training_batch = self.get_training_batch(done_envs)
+            self.step_envs(done_envs)
+            training_batch = self.get_training_batch()
             targets = self.get_targets(training_batch)
             self.train_on_batch(self.main_model, training_batch[0], targets)
             if self.steps % update_target_steps == 0:
@@ -425,11 +434,9 @@ class DQN:
 
 
 if __name__ == '__main__':
-    from utils import create_gym_env
-
-    ens = create_gym_env('PongNoFrameskip-v4')
-    agn = DQN(ens, reward_buffer_size=1000)
-    agn.fit(19, max_steps=40000)
+    gym_envs = create_gym_env('PongNoFrameskip-v4')
+    agn = DQN(gym_envs, 1000)
+    agn.fit(19)
     # agn.play(
     #     '/Users/emadboctor/Desktop/code/dqn-pong-19-model/pong_test.tf',
     #     render=True,
