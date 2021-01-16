@@ -1,6 +1,8 @@
+from collections import deque
+from time import perf_counter
+
 import numpy as np
 import tensorflow as tf
-import tqdm
 from tensorflow.keras.layers import Conv2D, Dense, Flatten, Input
 from tensorflow.keras.losses import Huber
 from tensorflow.keras.models import Model
@@ -9,20 +11,35 @@ from utils import create_gym_env
 
 
 class A2C:
-    def __init__(self, env, seed=None, fc_units=512, gamma=0.99):
-        self.env = env
-        self.available_actions = env.action_space.n
+    def __init__(
+        self,
+        envs,
+        seed=None,
+        fc_units=512,
+        gamma=0.99,
+        reward_buffer_size=100,
+        max_episode_steps=10000,
+    ):
+        self.envs = envs
+        self.available_actions = envs[0].action_space.n
         self.model = self.create_model(fc_units)
-        self.env.seed(seed)
+        for env in self.envs:
+            env.seed(seed)
         tf.random.set_seed(seed)
         np.random.seed(seed)
+        self.total_rewards = deque(maxlen=reward_buffer_size)
+        self.mean_reward = -float('inf')
+        self.best_reward = -float('inf')
         self.division_eps = np.finfo(np.float32).eps.item()
         self.optimizer = tf.keras.optimizers.Adam(learning_rate=0.01)
         self.gamma = gamma
         self.steps = 0
+        self.games = 0
+        self.start_state = None
+        self.max_episode_steps = max_episode_steps
 
     def create_model(self, fc_units):
-        x0 = Input(self.env.observation_space.shape)
+        x0 = Input(self.envs[0].observation_space.shape)
         x = Conv2D(32, 8, 4, activation='relu')(x0)
         x = Conv2D(64, 4, 2, activation='relu')(x)
         x = Conv2D(32, 3, 1, activation='relu')(x)
@@ -35,7 +52,8 @@ class A2C:
         return model
 
     def env_step(self, action):
-        state, reward, done, _ = self.env.step(action)
+        state, reward, done, _ = self.envs[0].step(action)
+        self.steps += 1
         return (
             state.astype(np.float32),
             np.array(reward, np.int32),
@@ -43,20 +61,19 @@ class A2C:
         )
 
     def tf_env_step(self, action):
-        self.steps += 1
         return tf.numpy_function(
             self.env_step, [action], [tf.float32, tf.int32, tf.int32]
         )
 
-    def play_episode(self, initial_state, model, max_steps):
+    def play_episode(self):
         action_probs = tf.TensorArray(dtype=tf.float32, size=0, dynamic_size=True)
         values = tf.TensorArray(dtype=tf.float32, size=0, dynamic_size=True)
         rewards = tf.TensorArray(dtype=tf.int32, size=0, dynamic_size=True)
-        initial_state_shape = initial_state.shape
-        state = initial_state
-        for t in tf.range(max_steps):
+        initial_state_shape = self.start_state.shape
+        state = self.start_state
+        for t in tf.range(self.max_episode_steps):
             state = tf.expand_dims(state, 0)
-            action_logits_t, value = model(state)
+            action_logits_t, value = self.model(state)
             action = tf.random.categorical(action_logits_t, 1)[0, 0]
             action_probs_t = tf.nn.softmax(action_logits_t)
             values = values.write(t, tf.squeeze(value))
@@ -97,13 +114,9 @@ class A2C:
     @tf.function
     def train_step(
         self,
-        initial_state,
-        max_steps_per_episode,
     ):
         with tf.GradientTape() as tape:
-            action_probs, values, rewards = self.play_episode(
-                initial_state, self.model, max_steps_per_episode
-            )
+            action_probs, values, rewards = self.play_episode()
             returns = self.get_returns(rewards, self.gamma)
             action_probs, values, returns = [
                 tf.expand_dims(x, 1) for x in [action_probs, values, returns]
@@ -111,34 +124,46 @@ class A2C:
             loss = self.compute_loss(action_probs, values, returns)
         grads = tape.gradient(loss, self.model.trainable_variables)
         self.optimizer.apply_gradients(zip(grads, self.model.trainable_variables))
-        episode_reward = tf.math.reduce_sum(rewards)
-        return episode_reward
+        return tf.math.reduce_sum(rewards)
 
-    def fit(self, target_reward, max_episodes=10000, max_steps_per_episode=10000):
-        running_reward = 0
-        with tqdm.trange(max_episodes) as t:
-            for i in t:
-                initial_state = tf.constant(self.env.reset(), dtype=tf.float32)
-                episode_reward = int(
-                    self.train_step(
-                        initial_state,
-                        max_steps_per_episode,
-                    )
-                )
-
-                running_reward = episode_reward * 0.01 + running_reward * 0.99
-
-                t.set_description(f'Episode {i}')
-                t.set_postfix(
-                    episode_reward=episode_reward, running_reward=running_reward
-                )
-                if running_reward >= target_reward:
-                    break
-
-        print(f'\nSolved at episode {i}: average reward: {running_reward:.2f}!')
+    def fit(self, target_reward):
+        display_titles = (
+            'frame',
+            'games',
+            'speed',
+            'mean reward',
+            'best reward',
+            'episode reward',
+        )
+        while True:
+            start_steps = self.steps
+            t0 = perf_counter()
+            self.start_state = tf.constant(self.envs[0].reset(), dtype=tf.float32)
+            episode_reward = int(self.train_step())
+            self.games += 1
+            self.total_rewards.append(episode_reward)
+            self.mean_reward = np.around(np.mean(self.total_rewards), 2)
+            self.best_reward = max(episode_reward, self.best_reward)
+            speed = (self.steps - start_steps) // (perf_counter() - t0)
+            display_values = (
+                self.steps,
+                self.games,
+                f'{speed} steps/s',
+                self.mean_reward,
+                self.best_reward,
+                episode_reward,
+            )
+            display = (
+                f'{title}: {value}'
+                for title, value in zip(display_titles, display_values)
+            )
+            print(', '.join(display))
+            if self.mean_reward >= target_reward:
+                break
+        print(f'\nSolved in {self.steps} steps.')
 
 
 if __name__ == '__main__':
-    en = create_gym_env('PongNoFrameskip-v4')[0]
+    en = create_gym_env('PongNoFrameskip-v4')
     ac = A2C(en)
     ac.fit(18)
