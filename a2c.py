@@ -19,6 +19,7 @@ class A2C:
         gamma=0.99,
         reward_buffer_size=100,
         max_episode_steps=10000,
+        learning_rate=7e-4,
     ):
         self.envs = envs
         self.available_actions = envs[0].action_space.n
@@ -31,7 +32,7 @@ class A2C:
         self.mean_reward = -float('inf')
         self.best_reward = -float('inf')
         self.division_eps = np.finfo(np.float32).eps.item()
-        self.optimizer = tf.keras.optimizers.Adam(learning_rate=0.01)
+        self.optimizer = tf.keras.optimizers.Adam(learning_rate)
         self.gamma = gamma
         self.steps = 0
         self.games = 0
