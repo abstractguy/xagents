@@ -7,7 +7,13 @@ from tensorflow_probability.python.distributions import Categorical
 
 class CNNA2C(Model):
     def __init__(
-        self, input_shape, n_actions, relu_gain=tf.math.sqrt(2.0), fc_units=512
+        self,
+        input_shape,
+        n_actions,
+        relu_gain=tf.math.sqrt(2.0),
+        fc_units=512,
+        actor_gain=0.01,
+        critic_gain=1.0,
     ):
         relu_initializer = tf.initializers.Orthogonal(gain=relu_gain)
         super(CNNA2C, self).__init__()
@@ -38,9 +44,9 @@ class CNNA2C(Model):
         self.common = Sequential([l1, l2, l3, l4, l5])
         self.critic = Dense(
             1,
-            kernel_initializer=Orthogonal(1.0),
+            kernel_initializer=Orthogonal(critic_gain),
         )
-        self.actor = Dense(n_actions, kernel_initializer=Orthogonal(gain=0.01))
+        self.actor = Dense(n_actions, kernel_initializer=Orthogonal(gain=actor_gain))
 
     @tf.function
     def call(self, inputs, training=True, mask=None, actions=None):

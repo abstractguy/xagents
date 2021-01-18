@@ -1,6 +1,10 @@
 from collections import deque
+from time import perf_counter
 
 import numpy as np
+import tensorflow as tf
+from tensorflow.keras.losses import Huber
+from tensorflow.keras.optimizers import RMSprop
 
 from models import CNNA2C
 from utils import create_gym_env
@@ -25,6 +29,8 @@ class A2C:
         self.games = 0
         self.gamma = gamma
         self.episode_rewards = np.zeros(self.n_envs)
+        self.last_reset_step = 0
+        self.frame_speed = 0
 
     def reset_envs(self):
         for i, env in enumerate(self.envs):
@@ -52,13 +58,12 @@ class A2C:
                 done_envs.append(1)
         return [np.array(item) for item in zip(*observations)]
 
-    def play_steps(self):
+    def play_steps(self, done_envs):
         state_b, action_b, log_prob_b, value_b, reward_b, mask_b = [
             [] for _ in range(6)
         ]
         state_b.append(self.states)
         mask_b.append(self.masks)
-        done_envs = []
         for step in range(self.transition_steps):
             actions, log_probs, entropies, values = self.model(self.states)
             states, rewards, dones = self.step_envs(actions, done_envs)
@@ -71,25 +76,84 @@ class A2C:
             reward_b.append(rewards)
             mask_b.append(self.masks)
         *_, new_values = self.model(state_b[-1])
-        return new_values, state_b, action_b, log_prob_b, value_b, reward_b, mask_b
+        results = new_values, state_b, action_b, log_prob_b, value_b, reward_b, mask_b
+        return [np.array(item) for item in results]
 
-    def fit(self):
-        returns = np.zeros((self.n_actions, self.n_envs))
-        new_values, *buffers = self.play_steps()
-        state_b, action_b, log_prob_b, value_b, reward_b, mask_b = buffers
-        self.update_returns(new_values, returns, mask_b, reward_b)
-        actions, log_probs, entropies, values = self.model(
-            np.array(state_b[:-1]).reshape(-1, *self.input_shape),
-            actions=np.array(action_b).reshape(-1),
+    @tf.function
+    def train_step(self, states, actions, returns):
+        with tf.GradientTape() as tape:
+            actions, log_probs, entropies, values = self.model(
+                states, actions=actions, training=True
+            )
+            advantages = returns - values
+            actor_loss = -tf.reduce_mean(advantages * log_probs)
+            critic_loss = Huber()(values, returns)
+            loss = actor_loss + critic_loss
+        grads = tape.gradient(loss, self.model.trainable_variables)
+        self.model.optimizer.apply_gradients(zip(grads, self.model.trainable_variables))
+
+    def display_metrics(self):
+        display_titles = (
+            'frame',
+            'games',
+            'speed',
+            'mean reward',
+            'best reward',
+            'episode rewards',
         )
-        print(actions)
-        print(log_probs)
-        print(entropies)
-        print(values)
-        pass
+        display_values = (
+            self.steps,
+            self.games,
+            f'{round(self.frame_speed)} steps/s',
+            self.mean_reward,
+            self.best_reward,
+            list(self.total_rewards)[-self.n_envs :],
+        )
+        display = (
+            f'{title}: {value}' for title, value in zip(display_titles, display_values)
+        )
+        print(', '.join(display))
+
+    def update_metrics(self, start_time):
+        """
+        Update progress metrics.
+        Args:
+            start_time: Episode start time, used for calculating fps.
+        Returns:
+            None
+        """
+        self.frame_speed = (self.steps - self.last_reset_step) / (
+            perf_counter() - start_time
+        )
+        self.last_reset_step = self.steps
+        self.mean_reward = np.around(np.mean(self.total_rewards), 2)
+        self.best_reward = max(self.mean_reward, self.best_reward)
+
+    def fit(self, target_reward, learning_rate=7e-4):
+        self.model.compile(RMSprop(learning_rate))
+        returns = np.zeros((self.transition_steps + 1, self.n_envs), np.float32)
+        done_envs = []
+        start_time = perf_counter()
+        while True:
+            if len(done_envs) == self.n_envs:
+                self.update_metrics(start_time)
+                start_time = perf_counter()
+                self.display_metrics()
+                done_envs.clear()
+            if self.mean_reward >= target_reward:
+                print(f'Reward achieved in {self.steps} steps!')
+                break
+            new_values, *buffers = self.play_steps(done_envs)
+            state_b, action_b, log_prob_b, value_b, reward_b, mask_b = buffers
+            self.update_returns(new_values, returns, mask_b, reward_b)
+            self.train_step(
+                state_b[:-1].reshape(-1, *self.input_shape),
+                action_b.reshape(-1),
+                returns[:-1].reshape(-1),
+            )
 
 
 if __name__ == '__main__':
     en = create_gym_env('PongNoFrameskip-v4', 16)
     agn = A2C(en)
-    agn.fit()
+    agn.fit(18)
