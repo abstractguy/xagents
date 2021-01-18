@@ -46,13 +46,16 @@ class CNNA2C(Model):
             1,
             kernel_initializer=Orthogonal(critic_gain),
         )
-        self.actor = Dense(n_actions, kernel_initializer=Orthogonal(gain=actor_gain))
+        self.actor = Dense(
+            n_actions,
+            kernel_initializer=Orthogonal(gain=actor_gain),
+        )
 
     @tf.function
     def call(self, inputs, training=True, mask=None, actions=None):
-        main = self.common(inputs, training=training)
-        value = tf.squeeze(self.critic(main), axis=1)
-        actor_features = self.actor(main)
+        common = self.common(inputs, training=training)
+        value = tf.squeeze(self.critic(common), axis=1)
+        actor_features = self.actor(common)
         distribution = Categorical(logits=actor_features)
         if actions is None:
             actions = distribution.sample()
@@ -60,7 +63,7 @@ class CNNA2C(Model):
         return (
             actions,
             action_log_probs,
-            tf.reduce_mean(distribution.entropy()),
+            distribution.entropy(),
             value,
         )
 

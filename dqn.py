@@ -73,7 +73,7 @@ class DQN:
         self.target_model = self.create_cnn_model(duel, cnn_fc_units)
         self.buffer_batch_size = buffer_batch_size
         self.checkpoint_path = checkpoint
-        self.total_rewards = deque(maxlen=reward_buffer_size * self.n_envs)
+        self.total_rewards = deque(maxlen=reward_buffer_size)
         self.best_reward = -float('inf')
         self.mean_reward = -float('inf')
         self.states = {}
