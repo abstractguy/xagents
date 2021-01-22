@@ -30,6 +30,8 @@ class DQN:
         double=False,
         duel=False,
         cnn_fc_units=512,
+        epsilon_decay_steps=150000,
+        target_sync_steps=1000,
     ):
         """
         Initialize agent settings.
@@ -50,6 +52,8 @@ class DQN:
             double: If True, DDQN is used for gradient updates.
             duel: If True, a dueling extension will be added to the model.
             cnn_fc_units: Number of units passed to Dense layer.
+            epsilon_decay_steps: Maximum steps that determine epsilon decay rate.
+            target_sync_steps: Update target model every n steps.
         """
         assert envs, 'No Environments given'
         self.n_envs = len(envs)
@@ -89,6 +93,8 @@ class DQN:
         )[:, tf.newaxis]
         self.episode_rewards = np.zeros(self.n_envs)
         self.done_envs = []
+        self.epsilon_decay_steps = epsilon_decay_steps
+        self.target_sync_steps = target_sync_steps
 
     def create_cnn_model(self, duel=False, fc_units=512):
         """
@@ -137,17 +143,22 @@ class DQN:
         Returns:
             A random action or Q argmax.
         """
-        actions = self.main_model(np.array(self.states))[1].numpy()
-        if training:
-            random_mask = np.random.choice(
-                [1, 0], self.n_envs, p=[self.epsilon, 1 - self.epsilon]
-            )
-            random_indices = np.where(random_mask)
-            random_actions = np.random.randint(
-                0, self.available_actions, random_indices[0].shape[0]
-            )
-            actions[random_indices] = random_actions
-        return actions
+        if training and np.random.random() < self.epsilon:
+            return np.random.randint(0, self.available_actions, self.n_envs)
+        return self.main_model(np.array(self.states))[1]
+
+        # if training:
+        #     random_mask = np.random.choice(
+        #         [1, 0], self.n_envs, p=[self.epsilon, 1 - self.epsilon]
+        #     )
+        #     random_indices = tf.constant(np.expand_dims(np.where(random_mask)[0], -1))
+        #     random_actions = tf.random.uniform(
+        #         [random_indices.shape[0]], 0, self.available_actions, tf.int64
+        #     )
+        #     actions = tf.tensor_scatter_nd_update(
+        #         actions, random_indices, random_actions
+        #     )
+        # return actions
 
     def get_action_indices(self, actions):
         """
@@ -303,43 +314,32 @@ class DQN:
         Args:
             actions: numpy array / list of actions.
         """
+        batches = []
         for (i, env), action in zip(enumerate(self.envs), actions):
             state = self.states[i]
             new_state, reward, done, _ = env.step(action)
             self.steps += 1
             self.episode_rewards[i] += reward
-            if hasattr(self, 'buffers'):
-                self.buffers[i].append((state, action, reward, done, new_state))
             self.states[i] = new_state
+            if hasattr(self, 'buffers'):
+                buffer = self.buffers[i]
+                buffer.append((state, action, reward, done, new_state))
+                batch = buffer.get_sample()
+                batches.append(batch)
             if done:
                 self.done_envs.append(1)
                 self.total_rewards.append(self.episode_rewards[i])
                 self.games += 1
                 self.episode_rewards[i] = 0
                 self.states[i] = env.reset()
-
-    def get_training_batch(self):
-        """
-        Join batches sampled from each environment in self.envs
-        Returns:
-            batch: A batch of observations in the form of
-                [[states], [actions], [rewards], [dones], [next states]]
-        """
-        batches = []
-        for i, env in enumerate(self.envs):
-            buffer = self.buffers[i]
-            batch = buffer.get_sample()
-            batches.append(batch)
-        if len(batches) > 1:
-            return [np.concatenate(item) for item in zip(*batches)]
-        return batches[0]
+        if len(batches) == 1:
+            return batches[0]
+        return [np.concatenate(item) for item in zip(*batches)]
 
     def fit(
         self,
         target_reward,
-        decay_n_steps=150000,
         learning_rate=1e-4,
-        update_target_steps=1000,
         monitor_session=None,
         weights=None,
         max_steps=None,
@@ -348,9 +348,7 @@ class DQN:
         Train agent on a supported environment
         Args:
             target_reward: Target reward, if achieved, the training will stop
-            decay_n_steps: Maximum steps that determine epsilon decay rate.
             learning_rate: Model learning rate shared by both main and target networks.
-            update_target_steps: Update target model every n steps.
             monitor_session: Session name to use for monitoring the training with wandb.
             weights: Path to .tf trained model weights to continue training.
             max_steps: Maximum number of steps, if reached the training will stop.
@@ -379,15 +377,15 @@ class DQN:
             if max_steps and self.steps >= max_steps:
                 print(f'Maximum steps exceeded')
                 break
-            self.epsilon = max(
-                self.epsilon_end, self.epsilon_start - self.steps / decay_n_steps
-            )
             actions = self.get_actions()
-            self.step_envs(actions)
-            training_batch = self.get_training_batch()
+            self.epsilon = max(
+                self.epsilon_end,
+                self.epsilon_start - self.steps / self.epsilon_decay_steps,
+            )
+            training_batch = self.step_envs(actions)
             targets = self.get_targets(training_batch)
             self.train_on_batch(training_batch[0], targets)
-            if self.steps % update_target_steps == 0:
+            if self.steps % self.target_sync_steps == 0:
                 self.target_model.set_weights(self.main_model.get_weights())
 
     def play(
@@ -397,6 +395,7 @@ class DQN:
         render=False,
         frame_dir=None,
         frame_delay=0.0,
+        env_idx=0,
     ):
         """
         Play and display a game.
@@ -407,15 +406,16 @@ class DQN:
             render: If True, the game will be displayed.
             frame_dir: Path to directory to save game frames.
             frame_delay: Delay between rendered frames.
+            env_idx: env index in self.envs
         Returns:
             None
         """
-        env_in_use = self.envs[0]
+        self.reset_envs()
+        env_in_use = self.envs[env_idx]
         if weights:
             self.main_model.load_weights(weights)
         if video_dir:
             env_in_use = gym.wrappers.Monitor(env_in_use, video_dir)
-        state = env_in_use.reset()
         steps = 0
         for dir_name in (video_dir, frame_dir):
             os.makedirs(dir_name or '.', exist_ok=True)
@@ -425,7 +425,7 @@ class DQN:
             if frame_dir:
                 frame = env_in_use.render(mode='rgb_array')
                 cv2.imwrite(os.path.join(frame_dir, f'{steps:05d}.jpg'), frame)
-            action = self.get_actions(state, False)
+            action = self.get_actions(False)
             state, reward, done, _ = env_in_use.step(action)
             if done:
                 break
