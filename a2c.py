@@ -69,7 +69,6 @@ class A2C:
                 self.games += 1
                 self.episode_rewards[i] = 0
                 self.states[i] = env.reset()
-
         return [np.array(item, np.float32) for item in zip(*observations)]
 
     @tf.function
@@ -82,10 +81,10 @@ class A2C:
         obs = tf.numpy_function(func=self.get_states, inp=[], Tout=tf.float32)
         with tf.GradientTape() as tape:
             for j in range(self.transition_steps):
-                action, log_prob, entropy, value = self.model(obs)
+                actions, log_prob, entropy, value = self.model(obs)
                 obs, reward, done = tf.numpy_function(
                     func=self.step_envs,
-                    inp=[action],
+                    inp=[actions],
                     Tout=(tf.float32, tf.float32, tf.float32),
                 )
                 mask = 1 - done

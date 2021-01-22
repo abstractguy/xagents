@@ -106,7 +106,7 @@ class DQN:
         x = Flatten()(x)
         fc1 = Dense(units=fc_units, activation='relu')(x)
         if not duel:
-            output = Dense(units=self.available_actions)(fc1)
+            q_values = Dense(units=self.available_actions)(fc1)
         else:
             fc2 = Dense(units=fc_units, activation='relu')(x)
             advantage = Dense(units=self.available_actions)(fc1)
@@ -114,8 +114,9 @@ class DQN:
                 advantage
             )
             value = Dense(units=1)(fc2)
-            output = Add()([advantage, value])
-        model = Model(x0, output)
+            q_values = Add()([advantage, value])
+        actions = tf.argmax(q_values, axis=1)
+        model = Model(x0, [q_values, actions])
         model.call = tf.function(model.call)
         return model
 
@@ -128,19 +129,25 @@ class DQN:
         for i, env in enumerate(self.envs):
             self.states[i] = env.reset()
 
-    def get_action(self, state, training=True):
+    def get_actions(self, training=True):
         """
         Generate action following an epsilon-greedy policy.
         Args:
-            state: Atari frame that needs an action.
             training: If False, no use of randomness will apply.
         Returns:
             A random action or Q argmax.
         """
-        if training and np.random.random() < self.epsilon:
-            return self.envs[0].action_space.sample()
-        q_values = self.main_model(np.expand_dims(state, 0)).numpy()
-        return np.argmax(q_values)
+        actions = self.main_model(np.array(self.states))[1].numpy()
+        if training:
+            random_mask = np.random.choice(
+                [1, 0], self.n_envs, p=[self.epsilon, 1 - self.epsilon]
+            )
+            random_indices = np.where(random_mask)
+            random_actions = np.random.randint(
+                0, self.available_actions, random_indices[0].shape[0]
+            )
+            actions[random_indices] = random_actions
+        return actions
 
     def get_action_indices(self, actions):
         """
@@ -165,14 +172,14 @@ class DQN:
             None
         """
         states, actions, rewards, dones, new_states = batch
-        q_states = self.main_model(states)
+        q_states = self.main_model(states)[0]
         if self.double:
-            new_state_actions = tf.argmax(self.main_model(new_states), 1)
-            new_state_q_values = self.target_model(new_states)
+            new_state_actions = self.main_model(new_states)[1]
+            new_state_q_values = self.target_model(new_states)[0]
             a = self.get_action_indices(new_state_actions)
             new_state_values = tf.gather_nd(new_state_q_values, a)
         else:
-            new_state_values = tf.reduce_max(self.target_model(new_states), axis=1)
+            new_state_values = tf.reduce_max(self.target_model(new_states)[0], axis=1)
         new_state_values = tf.where(
             dones, tf.constant(0, new_state_values.dtype), new_state_values
         )
@@ -281,7 +288,7 @@ class DQN:
             None
         """
         with tf.GradientTape() as tape:
-            y_pred = self.main_model(x, training=True)
+            y_pred = self.main_model(x, training=True)[0]
             loss = self.main_model.compiled_loss(
                 y, y_pred, sample_weight, regularization_losses=self.main_model.losses
             )
@@ -375,7 +382,7 @@ class DQN:
             self.epsilon = max(
                 self.epsilon_end, self.epsilon_start - self.steps / decay_n_steps
             )
-            actions = [self.get_action(state) for state in self.states]
+            actions = self.get_actions()
             self.step_envs(actions)
             training_batch = self.get_training_batch()
             targets = self.get_targets(training_batch)
@@ -418,7 +425,7 @@ class DQN:
             if frame_dir:
                 frame = env_in_use.render(mode='rgb_array')
                 cv2.imwrite(os.path.join(frame_dir, f'{steps:05d}.jpg'), frame)
-            action = self.get_action(state, False)
+            action = self.get_actions(state, False)
             state, reward, done, _ = env_in_use.step(action)
             if done:
                 break

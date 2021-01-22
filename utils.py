@@ -134,8 +134,7 @@ class ReplayBuffer(deque):
             [[states], [actions], [rewards], [dones], [next states]],
         """
         memories = random.sample(self, self.batch_size)
-        batch = [np.array(item) for item in zip(*memories)]
-        return batch
+        return [np.array(item) for item in zip(*memories)]
 
 
 def create_gym_env(env_name, n=1, preprocess=True, *args, **kwargs):
