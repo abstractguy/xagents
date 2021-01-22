@@ -30,7 +30,9 @@ class A2C:
         self.total_rewards = deque(maxlen=reward_buffer_size * self.n_envs)
         self.best_reward = -float('inf')
         self.mean_reward = -float('inf')
-        self.states = np.zeros((self.n_envs, *self.input_shape), np.float32)
+        self.states = [
+            None
+        ] * self.n_envs  # np.zeros((self.n_envs, *self.input_shape), np.float32)
         self.masks = np.ones(self.n_envs)
         self.reset_envs()
         self.steps = 0
@@ -51,21 +53,23 @@ class A2C:
             self.states[i] = env.reset()
 
     def get_states(self):
-        return self.states
+        return np.array(self.states, np.float32)
 
     def step_envs(self, actions):
         observations = []
         for (i, env), action in zip(enumerate(self.envs), actions):
             state, reward, done, _ = env.step(action)
+            self.states[i] = state
             self.steps += 1
             observations.append((state, reward, done))
             self.episode_rewards[i] += reward
             if done:
-                self.states[i] = env.reset()
-                self.games += 1
-                self.total_rewards.append(self.episode_rewards[i])
-                self.episode_rewards[i] *= 0
                 self.done_envs.append(1)
+                self.total_rewards.append(self.episode_rewards[i])
+                self.games += 1
+                self.episode_rewards[i] = 0
+                self.states[i] = env.reset()
+
         return [np.array(item, np.float32) for item in zip(*observations)]
 
     @tf.function

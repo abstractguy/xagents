@@ -5,6 +5,34 @@ from tensorflow.keras.models import Model, Sequential
 from tensorflow_probability.python.distributions import Categorical
 
 
+def get_cnn_layers(input_shape, relu_initializer, fc_units):
+    l1 = Conv2D(
+        filters=32,
+        input_shape=input_shape,
+        kernel_size=8,
+        strides=4,
+        activation='relu',
+        kernel_initializer=relu_initializer,
+    )
+    l2 = Conv2D(
+        filters=64,
+        kernel_size=4,
+        activation='relu',
+        strides=2,
+        kernel_initializer=relu_initializer,
+    )
+    l3 = Conv2D(
+        filters=64,
+        kernel_size=3,
+        activation='relu',
+        strides=1,
+        kernel_initializer=relu_initializer,
+    )
+    l4 = Flatten()
+    l5 = Dense(fc_units, activation='relu', kernel_initializer=relu_initializer)
+    return [l1, l2, l3, l4, l5]
+
+
 class CNNA2C(Model):
     def __init__(
         self,
@@ -15,33 +43,11 @@ class CNNA2C(Model):
         actor_gain=0.01,
         critic_gain=1.0,
     ):
-        relu_initializer = tf.initializers.Orthogonal(gain=relu_gain)
         super(CNNA2C, self).__init__()
-        l1 = Conv2D(
-            filters=32,
-            input_shape=input_shape,
-            kernel_size=8,
-            strides=4,
-            activation='relu',
-            kernel_initializer=relu_initializer,
+        relu_initializer = tf.initializers.Orthogonal(gain=relu_gain)
+        self.common = Sequential(
+            get_cnn_layers(input_shape, relu_initializer, fc_units)
         )
-        l2 = Conv2D(
-            filters=64,
-            kernel_size=4,
-            activation='relu',
-            strides=2,
-            kernel_initializer=relu_initializer,
-        )
-        l3 = Conv2D(
-            filters=64,
-            kernel_size=3,
-            activation='relu',
-            strides=1,
-            kernel_initializer=relu_initializer,
-        )
-        l4 = Flatten()
-        l5 = Dense(fc_units, activation='relu', kernel_initializer=relu_initializer)
-        self.common = Sequential([l1, l2, l3, l4, l5])
         self.critic = Dense(
             1,
             kernel_initializer=Orthogonal(critic_gain),
@@ -53,7 +59,7 @@ class CNNA2C(Model):
 
     @tf.function
     def call(self, inputs, training=True, mask=None, actions=None):
-        common = self.common(inputs, training=training)
+        common = self.common(inputs, training=training, mask=mask)
         value = tf.squeeze(self.critic(common), axis=1)
         actor_features = self.actor(common)
         distribution = Categorical(logits=actor_features)

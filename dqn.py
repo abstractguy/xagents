@@ -1,5 +1,5 @@
 import os
-from collections import defaultdict, deque
+from collections import deque
 from time import perf_counter, sleep
 
 import cv2
@@ -54,9 +54,9 @@ class DQN:
         assert envs, 'No Environments given'
         self.n_envs = len(envs)
         self.envs = envs
+        self.input_shape = self.envs[0].observation_space.shape
         self.available_actions = self.envs[0].action_space.n
-        self.env_ids = [id(env) for env in self.envs]
-        replay_buffers = [
+        self.buffers = [
             ReplayBuffer(
                 buffer_max_size,
                 buffer_initial_size,
@@ -66,9 +66,6 @@ class DQN:
             )
             for _ in range(self.n_envs)
         ]
-        self.buffers = {
-            env_id: buffer for (env_id, buffer) in zip(self.env_ids, replay_buffers)
-        }
         self.main_model = self.create_cnn_model(duel, cnn_fc_units)
         self.target_model = self.create_cnn_model(duel, cnn_fc_units)
         self.buffer_batch_size = buffer_batch_size
@@ -76,7 +73,7 @@ class DQN:
         self.total_rewards = deque(maxlen=reward_buffer_size)
         self.best_reward = -float('inf')
         self.mean_reward = -float('inf')
-        self.states = {}
+        self.states = [None] * self.n_envs
         self.reset_envs()
         self.steps = 0
         self.frame_speed = 0
@@ -90,7 +87,8 @@ class DQN:
         self.batch_indices = tf.range(
             self.buffer_batch_size * self.n_envs, dtype=tf.int64
         )[:, tf.newaxis]
-        self.episode_rewards = defaultdict(lambda: 0)
+        self.episode_rewards = np.zeros(self.n_envs)
+        self.done_envs = []
 
     def create_cnn_model(self, duel=False, fc_units=512):
         """
@@ -98,7 +96,6 @@ class DQN:
         Args:
             duel: If True, a dueling extension will be added to the model.
             fc_units: Number of units passed to Dense layer.
-
         Returns:
             tf.keras.models.Model
         """
@@ -128,8 +125,8 @@ class DQN:
         Returns:
             None
         """
-        for env_id, env in zip(self.env_ids, self.envs):
-            self.states[env_id] = env.reset()
+        for i, env in enumerate(self.envs):
+            self.states[i] = env.reset()
 
     def get_action(self, state, training=True):
         """
@@ -150,7 +147,6 @@ class DQN:
         Get indices that will be passed to tf.gather_nd()
         Args:
             actions: Action tensor of shape self.batch_size
-
         Returns:
             Indices.
         """
@@ -250,12 +246,11 @@ class DQN:
         """
         Fill self.buffer up to its initial size.
         """
-        total_size = sum(buffer.initial_size for buffer in self.buffers.values())
+        total_size = sum(buffer.initial_size for buffer in self.buffers)
         sizes = {}
-        for i, env in enumerate(self.envs, 1):
-            env_id = id(env)
-            buffer = self.buffers[env_id]
-            state = self.states[env_id]
+        for i, env in enumerate(self.envs):
+            buffer = self.buffers[i]
+            state = self.states[i]
             while len(buffer) < buffer.initial_size:
                 action = env.action_space.sample()
                 new_state, reward, done, _ = env.step(action)
@@ -263,11 +258,11 @@ class DQN:
                 state = new_state
                 if done:
                     state = env.reset()
-                sizes[env_id] = len(buffer)
+                sizes[i] = len(buffer)
                 filled = sum(sizes.values())
                 complete = round((filled / total_size) * 100, 2)
                 print(
-                    f'\rFilling replay buffer {i}/{self.n_envs} ==> {complete}% | '
+                    f'\rFilling replay buffer {i + 1}/{self.n_envs} ==> {complete}% | '
                     f'{filled}/{total_size}',
                     end='',
                 )
@@ -275,59 +270,57 @@ class DQN:
         self.reset_envs()
 
     @tf.function
-    def train_on_batch(self, model, x, y, sample_weight=None):
+    def train_on_batch(self, x, y, sample_weight=None):
         """
         Train on a given batch.
         Args:
-            model: tf.keras.Model
             x: States tensor
             y: Targets tensor
             sample_weight: sample_weight passed to model.compiled_loss()
-
         Returns:
             None
         """
         with tf.GradientTape() as tape:
-            y_pred = model(x, training=True)
-            loss = model.compiled_loss(
-                y, y_pred, sample_weight, regularization_losses=model.losses
+            y_pred = self.main_model(x, training=True)
+            loss = self.main_model.compiled_loss(
+                y, y_pred, sample_weight, regularization_losses=self.main_model.losses
             )
-        model.optimizer.minimize(loss, model.trainable_variables, tape=tape)
-        model.compiled_metrics.update_state(y, y_pred, sample_weight)
+        self.main_model.optimizer.minimize(
+            loss, self.main_model.trainable_variables, tape=tape
+        )
+        self.main_model.compiled_metrics.update_state(y, y_pred, sample_weight)
 
-    def step_envs(self, done_envs):
+    def step_envs(self, actions):
         """
         Play 1 step for each env in self.envs
         Args:
-            done_envs: A flag list for marking episode ends.
+            actions: numpy array / list of actions.
         """
-        for env_id, env in zip(self.env_ids, self.envs):
-            state = self.states[env_id]
-            action = self.get_action(state)
-            buffer = self.buffers[env_id]
+        for (i, env), action in zip(enumerate(self.envs), actions):
+            state = self.states[i]
             new_state, reward, done, _ = env.step(action)
             self.steps += 1
-            self.episode_rewards[env_id] += reward
-            buffer.append((state, action, reward, done, new_state))
-            self.states[env_id] = new_state
+            self.episode_rewards[i] += reward
+            if hasattr(self, 'buffers'):
+                self.buffers[i].append((state, action, reward, done, new_state))
+            self.states[i] = new_state
             if done:
-                done_envs.append(1)
-                self.total_rewards.append(self.episode_rewards[env_id])
+                self.done_envs.append(1)
+                self.total_rewards.append(self.episode_rewards[i])
                 self.games += 1
-                self.episode_rewards[env_id] = 0
-                self.states[env_id] = env.reset()
+                self.episode_rewards[i] = 0
+                self.states[i] = env.reset()
 
     def get_training_batch(self):
         """
         Join batches sampled from each environment in self.envs
-
         Returns:
             batch: A batch of observations in the form of
                 [[states], [actions], [rewards], [dones], [next states]]
         """
         batches = []
-        for env_id, env in zip(self.env_ids, self.envs):
-            buffer = self.buffers[env_id]
+        for i, env in enumerate(self.envs):
+            buffer = self.buffers[i]
             batch = buffer.get_sample()
             batches.append(batch)
         if len(batches) > 1:
@@ -366,14 +359,13 @@ class DQN:
         self.main_model.compile(optimizer, loss='mse')
         self.target_model.compile(optimizer, loss='mse')
         self.fill_buffers()
-        done_envs = []
         start_time = perf_counter()
         while True:
-            if len(done_envs) == self.n_envs:
+            if len(self.done_envs) == self.n_envs:
                 self.update_metrics(start_time)
                 start_time = perf_counter()
                 self.display_metrics()
-                done_envs.clear()
+                self.done_envs.clear()
             if self.mean_reward >= target_reward:
                 print(f'Reward achieved in {self.steps} steps!')
                 break
@@ -383,10 +375,11 @@ class DQN:
             self.epsilon = max(
                 self.epsilon_end, self.epsilon_start - self.steps / decay_n_steps
             )
-            self.step_envs(done_envs)
+            actions = [self.get_action(state) for state in self.states]
+            self.step_envs(actions)
             training_batch = self.get_training_batch()
             targets = self.get_targets(training_batch)
-            self.train_on_batch(self.main_model, training_batch[0], targets)
+            self.train_on_batch(training_batch[0], targets)
             if self.steps % update_target_steps == 0:
                 self.target_model.set_weights(self.main_model.get_weights())
 
@@ -434,10 +427,6 @@ class DQN:
 
 
 if __name__ == '__main__':
-    gym_envs = create_gym_env('PongNoFrameskip-v4')
-    agn = DQN(gym_envs, 1000)
+    gym_envs = create_gym_env('PongNoFrameskip-v4', 3)
+    agn = DQN(gym_envs, 10000)
     agn.fit(19)
-    # agn.play(
-    #     '/Users/emadboctor/Desktop/code/dqn-pong-19-model/pong_test.tf',
-    #     render=True,
-    # )
