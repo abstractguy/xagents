@@ -105,7 +105,7 @@ class BaseAgent:
             return True
         return False
 
-    def episodes_done(self):
+    def check_episodes(self):
         if len(self.done_envs) == self.n_envs:
             self.update_metrics()
             self.last_reset_time = perf_counter()
@@ -144,7 +144,3 @@ class BaseAgent:
                 return buffer_samples[0]
             return [np.concatenate(item) for item in zip(*buffer_samples)]
         return [np.array(item, np.float32) for item in zip(*observations)]
-
-
-if __name__ == '__main__':
-    bb = BaseAgent(create_gym_env('PongNoFrameskip-v4'), '', 1, 1, 0.99, None)

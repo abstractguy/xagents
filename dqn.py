@@ -6,12 +6,11 @@ import gym
 import numpy as np
 import tensorflow as tf
 import wandb
-from tensorflow.keras.layers import Add, Conv2D, Dense, Flatten, Input, Lambda
-from tensorflow.keras.models import Model
 from tensorflow.keras.optimizers import Adam
 
-from utils import ReplayBuffer, create_gym_env
 from base_agent import BaseAgent
+from models import create_cnn_dqn
+from utils import ReplayBuffer, create_gym_env
 
 
 class DQN(BaseAgent):
@@ -35,22 +34,20 @@ class DQN(BaseAgent):
         Initialize agent settings.
         Args:
             envs: A list of gym environments that return states as atari frames.
+            model: tf.keras.models.Model used for training.
+            target_reward: A scalar when reached, training will stop.
             buffer_max_size: Replay buffer maximum size.
+            buffer_initial_size: Replay buffer size to fill before training.
             buffer_batch_size: Batch size when any buffer from the given buffers
                 get_sample() method is called.
-            checkpoint: Path to .tf filename under which the trained model will be saved.
-            reward_buffer_size: Size of the reward buffer that will hold the last n total
-                rewards which will be used for calculating the mean reward.
             epsilon_start: Start value of epsilon that regulates exploration during training.
             epsilon_end: End value of epsilon which represents the minimum value of epsilon
                 which will not be decayed further when reached.
-            transition_steps: n-step transition for example given s1, s2, s3, s4 and n_step = 4,
-                transition will be s1 -> s4 (defaults to 1, s1 -> s2)
-            gamma: Discount factor used for gradient updates.
             double: If True, DDQN is used for gradient updates.
-            duel: If True, a dueling extension will be added to the model.
             epsilon_decay_steps: Maximum steps that determine epsilon decay rate.
             target_sync_steps: Update target model every n steps.
+            args: args that will be passed to BaseAgent()
+            kwargs: kwargs that will be passed to BaseAgent()
         """
         super(DQN, self).__init__(envs, model, target_reward, *args, **kwargs)
         self.buffers = [
@@ -73,45 +70,6 @@ class DQN(BaseAgent):
         )[:, tf.newaxis]
         self.epsilon_decay_steps = epsilon_decay_steps
         self.target_sync_steps = target_sync_steps
-
-    def create_cnn_model(self, duel=False, fc_units=512):
-        """
-        Create convolutional model.
-        Args:
-            duel: If True, a dueling extension will be added to the model.
-            fc_units: Number of units passed to Dense layer.
-        Returns:
-            tf.keras.models.Model
-        """
-        x0 = Input(self.envs[0].observation_space.shape)
-        x = Conv2D(32, 8, 4, activation='relu')(x0)
-        x = Conv2D(64, 4, 2, activation='relu')(x)
-        x = Conv2D(64, 3, 1, activation='relu')(x)
-        x = Flatten()(x)
-        fc1 = Dense(units=fc_units, activation='relu')(x)
-        if not duel:
-            q_values = Dense(units=self.available_actions)(fc1)
-        else:
-            fc2 = Dense(units=fc_units, activation='relu')(x)
-            advantage = Dense(units=self.available_actions)(fc1)
-            advantage = Lambda(lambda a: a - tf.expand_dims(tf.reduce_mean(a, 1), -1))(
-                advantage
-            )
-            value = Dense(units=1)(fc2)
-            q_values = Add()([advantage, value])
-        actions = tf.argmax(q_values, axis=1)
-        model = Model(x0, [q_values, actions])
-        model.call = tf.function(model.call)
-        return model
-
-    def reset_envs(self):
-        """
-        Reset all environments in self.envs
-        Returns:
-            None
-        """
-        for i, env in enumerate(self.envs):
-            self.states[i] = env.reset()
 
     def get_actions(self, training=True):
         """
@@ -169,62 +127,6 @@ class DQN(BaseAgent):
         )
         return target_values
 
-    def checkpoint(self):
-        """
-        Save model weights if current reward > best reward.
-        Returns:
-            None
-        """
-        if self.best_reward < self.mean_reward:
-            print(f'Best reward updated: {self.best_reward} -> {self.mean_reward}')
-            if self.checkpoint_path:
-                self.model.save_weights(self.checkpoint_path)
-        self.best_reward = max(self.mean_reward, self.best_reward)
-
-    def display_metrics(self):
-        """
-        Display progress metrics to the console.
-        Returns:
-            None
-        """
-        display_titles = (
-            'frame',
-            'games',
-            'speed',
-            'mean reward',
-            'best reward',
-            'epsilon',
-            'episode rewards',
-        )
-        display_values = (
-            self.steps,
-            self.games,
-            f'{round(self.frame_speed)} steps/s',
-            self.mean_reward,
-            self.best_reward,
-            np.around(self.epsilon, 2),
-            list(self.total_rewards)[-self.n_envs :],
-        )
-        display = (
-            f'{title}: {value}' for title, value in zip(display_titles, display_values)
-        )
-        print(', '.join(display))
-
-    def update_metrics(self, start_time):
-        """
-        Update progress metrics.
-        Args:
-            start_time: Episode start time, used for calculating fps.
-        Returns:
-            None
-        """
-        self.checkpoint()
-        self.frame_speed = (self.steps - self.last_reset_step) / (
-            perf_counter() - start_time
-        )
-        self.last_reset_step = self.steps
-        self.mean_reward = np.around(np.mean(self.total_rewards), 2)
-
     def fill_buffers(self):
         """
         Fill self.buffer up to its initial size.
@@ -271,51 +173,15 @@ class DQN(BaseAgent):
         self.model.optimizer.minimize(loss, self.model.trainable_variables, tape=tape)
         self.model.compiled_metrics.update_state(y, y_pred, sample_weight)
 
-    def step_envs(self, actions):
-        """
-        Play 1 step for each env in self.envs
-        Args:
-            actions: numpy array / list of actions.
-        """
-        buffer_samples = []
-        observations = []
-        for (i, env), action in zip(enumerate(self.envs), actions):
-            state = self.states[i]
-            new_state, reward, done, _ = env.step(action)
-            self.steps += 1
-            self.episode_rewards[i] += reward
-            self.states[i] = new_state
-            if hasattr(self, 'buffers'):
-                buffer = self.buffers[i]
-                buffer.append((state, action, reward, done, new_state))
-                buffer_sample = buffer.get_sample()
-                buffer_samples.append(buffer_sample)
-            else:
-                observations.append((state, reward, done))
-            if done:
-                self.done_envs.append(1)
-                self.total_rewards.append(self.episode_rewards[i])
-                self.games += 1
-                self.episode_rewards[i] = 0
-                self.states[i] = env.reset()
-        if buffer_samples:
-            if len(buffer_samples) == 1:
-                return buffer_samples[0]
-            return [np.concatenate(item) for item in zip(*buffer_samples)]
-        return [np.array(item, np.float32) for item in zip(*observations)]
-
     def fit(
         self,
-        target_reward,
         learning_rate=1e-4,
         monitor_session=None,
         weights=None,
-        max_steps=None,
     ):
         """
         Train agent on a supported environment
         Args:
-            target_reward: Target reward, if achieved, the training will stop
             learning_rate: Model learning rate shared by both main and target networks.
             monitor_session: Session name to use for monitoring the training with wandb.
             weights: Path to .tf trained model weights to continue training.
@@ -332,18 +198,11 @@ class DQN(BaseAgent):
         self.model.compile(optimizer, loss='mse')
         self.target_model.compile(optimizer, loss='mse')
         self.fill_buffers()
-        start_time = perf_counter()
+        self.training_start_time = perf_counter()
+        self.last_reset_time = self.training_start_time
         while True:
-            if len(self.done_envs) == self.n_envs:
-                self.update_metrics(start_time)
-                start_time = perf_counter()
-                self.display_metrics()
-                self.done_envs.clear()
-            if self.mean_reward >= target_reward:
-                print(f'Reward achieved in {self.steps} steps!')
-                break
-            if max_steps and self.steps >= max_steps:
-                print(f'Maximum steps exceeded')
+            self.last_reset_time = perf_counter()
+            if self.training_done():
                 break
             actions = self.get_actions()
             self.epsilon = max(
@@ -403,5 +262,6 @@ class DQN(BaseAgent):
 
 if __name__ == '__main__':
     gym_envs = create_gym_env('PongNoFrameskip-v4', 3)
-    agn = DQN(gym_envs, 10000)
+    m = create_cnn_dqn(gym_envs[0].observation_space.shape, gym_envs[0].action_space.n)
+    agn = DQN(gym_envs, m, 18)
     agn.fit(19)

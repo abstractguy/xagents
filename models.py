@@ -1,6 +1,6 @@
 import tensorflow as tf
 from tensorflow.keras.initializers import Orthogonal
-from tensorflow.keras.layers import Conv2D, Dense, Flatten
+from tensorflow.keras.layers import Add, Conv2D, Dense, Flatten, Input, Lambda
 from tensorflow.keras.models import Model, Sequential
 from tensorflow_probability.python.distributions import Categorical
 
@@ -75,3 +75,34 @@ class CNNA2C(Model):
 
     def get_config(self):
         super(CNNA2C, self).get_config()
+
+
+def create_cnn_dqn(input_shape, n_actions, duel=False, fc_units=512):
+    """
+    Create convolutional model.
+    Args:
+        duel: If True, a dueling extension will be added to the model.
+        fc_units: Number of units passed to Dense layer.
+    Returns:
+        tf.keras.models.Model
+    """
+    x0 = Input(input_shape)
+    x = Conv2D(32, 8, 4, activation='relu')(x0)
+    x = Conv2D(64, 4, 2, activation='relu')(x)
+    x = Conv2D(64, 3, 1, activation='relu')(x)
+    x = Flatten()(x)
+    fc1 = Dense(units=fc_units, activation='relu')(x)
+    if not duel:
+        q_values = Dense(units=n_actions)(fc1)
+    else:
+        fc2 = Dense(units=fc_units, activation='relu')(x)
+        advantage = Dense(units=n_actions)(fc1)
+        advantage = Lambda(lambda a: a - tf.expand_dims(tf.reduce_mean(a, 1), -1))(
+            advantage
+        )
+        value = Dense(units=1)(fc2)
+        q_values = Add()([advantage, value])
+    actions = tf.argmax(q_values, axis=1)
+    model = Model(x0, [q_values, actions])
+    model.call = tf.function(model.call)
+    return model
