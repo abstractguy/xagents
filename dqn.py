@@ -1,5 +1,4 @@
 import os
-from collections import deque
 from time import perf_counter, sleep
 
 import cv2
@@ -12,26 +11,25 @@ from tensorflow.keras.models import Model
 from tensorflow.keras.optimizers import Adam
 
 from utils import ReplayBuffer, create_gym_env
+from base_agent import BaseAgent
 
 
-class DQN:
+class DQN(BaseAgent):
     def __init__(
         self,
         envs,
+        model,
+        target_reward,
         buffer_max_size=10000,
         buffer_initial_size=None,
         buffer_batch_size=32,
-        checkpoint=None,
-        reward_buffer_size=100,
         epsilon_start=1.0,
         epsilon_end=0.02,
-        transition_steps=1,
-        gamma=0.99,
         double=False,
-        duel=False,
-        cnn_fc_units=512,
         epsilon_decay_steps=150000,
         target_sync_steps=1000,
+        *args,
+        **kwargs,
     ):
         """
         Initialize agent settings.
@@ -51,48 +49,28 @@ class DQN:
             gamma: Discount factor used for gradient updates.
             double: If True, DDQN is used for gradient updates.
             duel: If True, a dueling extension will be added to the model.
-            cnn_fc_units: Number of units passed to Dense layer.
             epsilon_decay_steps: Maximum steps that determine epsilon decay rate.
             target_sync_steps: Update target model every n steps.
         """
-        assert envs, 'No Environments given'
-        self.n_envs = len(envs)
-        self.envs = envs
-        self.input_shape = self.envs[0].observation_space.shape
-        self.available_actions = self.envs[0].action_space.n
+        super(DQN, self).__init__(envs, model, target_reward, *args, **kwargs)
         self.buffers = [
             ReplayBuffer(
                 buffer_max_size,
                 buffer_initial_size,
-                transition_steps,
-                gamma,
+                self.transition_steps,
+                self.gamma,
                 buffer_batch_size,
             )
             for _ in range(self.n_envs)
         ]
-        self.main_model = self.create_cnn_model(duel, cnn_fc_units)
-        self.target_model = self.create_cnn_model(duel, cnn_fc_units)
+        self.target_model = tf.keras.models.clone_model(self.model)
         self.buffer_batch_size = buffer_batch_size
-        self.checkpoint_path = checkpoint
-        self.total_rewards = deque(maxlen=reward_buffer_size)
-        self.best_reward = -float('inf')
-        self.mean_reward = -float('inf')
-        self.states = [None] * self.n_envs
-        self.reset_envs()
-        self.steps = 0
-        self.frame_speed = 0
-        self.last_reset_step = 0
         self.epsilon_start = self.epsilon = epsilon_start
         self.epsilon_end = epsilon_end
-        self.games = 0
-        self.transition_steps = transition_steps
-        self.gamma = gamma
         self.double = double
         self.batch_indices = tf.range(
             self.buffer_batch_size * self.n_envs, dtype=tf.int64
         )[:, tf.newaxis]
-        self.episode_rewards = np.zeros(self.n_envs)
-        self.done_envs = []
         self.epsilon_decay_steps = epsilon_decay_steps
         self.target_sync_steps = target_sync_steps
 
@@ -145,20 +123,7 @@ class DQN:
         """
         if training and np.random.random() < self.epsilon:
             return np.random.randint(0, self.available_actions, self.n_envs)
-        return self.main_model(np.array(self.states))[1]
-
-        # if training:
-        #     random_mask = np.random.choice(
-        #         [1, 0], self.n_envs, p=[self.epsilon, 1 - self.epsilon]
-        #     )
-        #     random_indices = tf.constant(np.expand_dims(np.where(random_mask)[0], -1))
-        #     random_actions = tf.random.uniform(
-        #         [random_indices.shape[0]], 0, self.available_actions, tf.int64
-        #     )
-        #     actions = tf.tensor_scatter_nd_update(
-        #         actions, random_indices, random_actions
-        #     )
-        # return actions
+        return self.model(np.array(self.states))[1]
 
     def get_action_indices(self, actions):
         """
@@ -183,9 +148,9 @@ class DQN:
             None
         """
         states, actions, rewards, dones, new_states = batch
-        q_states = self.main_model(states)[0]
+        q_states = self.model(states)[0]
         if self.double:
-            new_state_actions = self.main_model(new_states)[1]
+            new_state_actions = self.model(new_states)[1]
             new_state_q_values = self.target_model(new_states)[0]
             a = self.get_action_indices(new_state_actions)
             new_state_values = tf.gather_nd(new_state_q_values, a)
@@ -213,7 +178,7 @@ class DQN:
         if self.best_reward < self.mean_reward:
             print(f'Best reward updated: {self.best_reward} -> {self.mean_reward}')
             if self.checkpoint_path:
-                self.main_model.save_weights(self.checkpoint_path)
+                self.model.save_weights(self.checkpoint_path)
         self.best_reward = max(self.mean_reward, self.best_reward)
 
     def display_metrics(self):
@@ -299,14 +264,12 @@ class DQN:
             None
         """
         with tf.GradientTape() as tape:
-            y_pred = self.main_model(x, training=True)[0]
-            loss = self.main_model.compiled_loss(
-                y, y_pred, sample_weight, regularization_losses=self.main_model.losses
+            y_pred = self.model(x, training=True)[0]
+            loss = self.model.compiled_loss(
+                y, y_pred, sample_weight, regularization_losses=self.model.losses
             )
-        self.main_model.optimizer.minimize(
-            loss, self.main_model.trainable_variables, tape=tape
-        )
-        self.main_model.compiled_metrics.update_state(y, y_pred, sample_weight)
+        self.model.optimizer.minimize(loss, self.model.trainable_variables, tape=tape)
+        self.model.compiled_metrics.update_state(y, y_pred, sample_weight)
 
     def step_envs(self, actions):
         """
@@ -314,7 +277,8 @@ class DQN:
         Args:
             actions: numpy array / list of actions.
         """
-        batches = []
+        buffer_samples = []
+        observations = []
         for (i, env), action in zip(enumerate(self.envs), actions):
             state = self.states[i]
             new_state, reward, done, _ = env.step(action)
@@ -324,17 +288,21 @@ class DQN:
             if hasattr(self, 'buffers'):
                 buffer = self.buffers[i]
                 buffer.append((state, action, reward, done, new_state))
-                batch = buffer.get_sample()
-                batches.append(batch)
+                buffer_sample = buffer.get_sample()
+                buffer_samples.append(buffer_sample)
+            else:
+                observations.append((state, reward, done))
             if done:
                 self.done_envs.append(1)
                 self.total_rewards.append(self.episode_rewards[i])
                 self.games += 1
                 self.episode_rewards[i] = 0
                 self.states[i] = env.reset()
-        if len(batches) == 1:
-            return batches[0]
-        return [np.concatenate(item) for item in zip(*batches)]
+        if buffer_samples:
+            if len(buffer_samples) == 1:
+                return buffer_samples[0]
+            return [np.concatenate(item) for item in zip(*buffer_samples)]
+        return [np.array(item, np.float32) for item in zip(*observations)]
 
     def fit(
         self,
@@ -359,9 +327,9 @@ class DQN:
             wandb.init(name=monitor_session)
         optimizer = Adam(learning_rate)
         if weights:
-            self.main_model.load_weights(weights)
+            self.model.load_weights(weights)
             self.target_model.load_weights(weights)
-        self.main_model.compile(optimizer, loss='mse')
+        self.model.compile(optimizer, loss='mse')
         self.target_model.compile(optimizer, loss='mse')
         self.fill_buffers()
         start_time = perf_counter()
@@ -386,7 +354,7 @@ class DQN:
             targets = self.get_targets(training_batch)
             self.train_on_batch(training_batch[0], targets)
             if self.steps % self.target_sync_steps == 0:
-                self.target_model.set_weights(self.main_model.get_weights())
+                self.target_model.set_weights(self.model.get_weights())
 
     def play(
         self,
@@ -413,7 +381,7 @@ class DQN:
         self.reset_envs()
         env_in_use = self.envs[env_idx]
         if weights:
-            self.main_model.load_weights(weights)
+            self.model.load_weights(weights)
         if video_dir:
             env_in_use = gym.wrappers.Monitor(env_in_use, video_dir)
         steps = 0
