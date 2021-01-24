@@ -58,11 +58,11 @@ class A2C:
     def step_envs(self, actions):
         observations = []
         for (i, env), action in zip(enumerate(self.envs), actions):
-            state, reward, done, _ = env.step(action)
-            self.states[i] = state
+            new_state, reward, done, _ = env.step(action)
+            self.states[i] = new_state
             self.steps += 1
-            observations.append((state, reward, done))
             self.episode_rewards[i] += reward
+            observations.append((new_state, reward, done))
             if done:
                 self.done_envs.append(1)
                 self.total_rewards.append(self.episode_rewards[i])
