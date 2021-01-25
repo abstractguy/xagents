@@ -1,7 +1,10 @@
+import os
 from collections import deque
 from datetime import timedelta
-from time import perf_counter
+from time import perf_counter, sleep
 
+import cv2
+import gym
 import numpy as np
 import wandb
 
@@ -222,3 +225,49 @@ class BaseAgent:
             None
         """
         raise NotImplementedError('fit() should be implemented by subclasses')
+
+    def play(
+        self,
+        weights=None,
+        video_dir=None,
+        render=False,
+        frame_dir=None,
+        frame_delay=0.0,
+        env_idx=0,
+        action_idx=0,
+    ):
+        """
+        Play and display a game.
+        Args:
+            weights: Path to trained weights, if not specified, the most recent
+                model weights will be used.
+            video_dir: Path to directory to save the resulting game video.
+            render: If True, the game will be displayed.
+            frame_dir: Path to directory to save game frames.
+            frame_delay: Delay between rendered frames.
+            env_idx: env index in self.envs
+            action_idx: Index of action output by self.model
+        Returns:
+            None
+        """
+        self.reset_envs()
+        env_in_use = self.envs[env_idx]
+        if weights:
+            self.model.load_weights(weights)
+        if video_dir:
+            env_in_use = gym.wrappers.Monitor(env_in_use, video_dir)
+        steps = 0
+        for dir_name in (video_dir, frame_dir):
+            os.makedirs(dir_name or '.', exist_ok=True)
+        while True:
+            if render:
+                env_in_use.render()
+            if frame_dir:
+                frame = env_in_use.render(mode='rgb_array')
+                cv2.imwrite(os.path.join(frame_dir, f'{steps:05d}.jpg'), frame)
+            action = self.model(np.array(self.states))[action_idx][env_idx]
+            self.states[env_idx], reward, done, _ = env_in_use.step(action)
+            if done:
+                break
+            steps += 1
+            sleep(frame_delay)

@@ -95,6 +95,6 @@ def create_cnn_dqn(input_shape, n_actions, duel=False, fc_units=512):
         value = Dense(units=1)(fc2)
         q_values = Add()([advantage, value])
     actions = tf.argmax(q_values, axis=1)
-    model = Model(x0, [q_values, actions])
+    model = Model(x0, [actions, q_values])
     model.call = tf.function(model.call)
     return model

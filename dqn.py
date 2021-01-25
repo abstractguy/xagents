@@ -1,8 +1,3 @@
-import os
-from time import sleep
-
-import cv2
-import gym
 import numpy as np
 import tensorflow as tf
 from tensorflow.keras.optimizers import Adam
@@ -71,7 +66,7 @@ class DQN(BaseAgent):
         """
         if training and np.random.random() < self.epsilon:
             return np.random.randint(0, self.available_actions, self.n_envs)
-        return self.model(np.array(self.states))[1]
+        return self.model(np.array(self.states))[0]
 
     def get_action_indices(self, actions):
         """
@@ -95,14 +90,14 @@ class DQN(BaseAgent):
             target values used as y_true in gradient update.
         """
         states, actions, rewards, dones, new_states = batch
-        q_states = self.model(states)[0]
+        q_states = self.model(states)[1]
         if self.double:
-            new_state_actions = self.model(new_states)[1]
-            new_state_q_values = self.target_model(new_states)[0]
+            new_state_actions = self.model(new_states)[0]
+            new_state_q_values = self.target_model(new_states)[1]
             a = self.get_action_indices(new_state_actions)
             new_state_values = tf.gather_nd(new_state_q_values, a)
         else:
-            new_state_values = tf.reduce_max(self.target_model(new_states)[0], axis=1)
+            new_state_values = tf.reduce_max(self.target_model(new_states)[1], axis=1)
         new_state_values = tf.where(
             dones, tf.constant(0, new_state_values.dtype), new_state_values
         )
@@ -154,7 +149,7 @@ class DQN(BaseAgent):
             None
         """
         with tf.GradientTape() as tape:
-            y_pred = self.model(x, training=True)[0]
+            y_pred = self.model(x, training=True)[1]
             loss = self.model.compiled_loss(
                 y, y_pred, sample_weight, regularization_losses=self.model.losses
             )
@@ -186,7 +181,6 @@ class DQN(BaseAgent):
         Do 1 training step.
         Args:
             actions: A numpy array of actions to perform by self.envs
-
         Returns:
             None
         """
@@ -241,50 +235,6 @@ class DQN(BaseAgent):
             if self.steps % update_target_steps == 0:
                 self.target_model.set_weights(self.model.get_weights())
 
-    def play(
-        self,
-        weights=None,
-        video_dir=None,
-        render=False,
-        frame_dir=None,
-        frame_delay=0.0,
-        env_idx=0,
-    ):
-        """
-        Play and display a game.
-        Args:
-            weights: Path to trained weights, if not specified, the most recent
-                model weights will be used.
-            video_dir: Path to directory to save the resulting game video.
-            render: If True, the game will be displayed.
-            frame_dir: Path to directory to save game frames.
-            frame_delay: Delay between rendered frames.
-            env_idx: env index in self.envs
-        Returns:
-            None
-        """
-        self.reset_envs()
-        env_in_use = self.envs[env_idx]
-        if weights:
-            self.model.load_weights(weights)
-        if video_dir:
-            env_in_use = gym.wrappers.Monitor(env_in_use, video_dir)
-        steps = 0
-        for dir_name in (video_dir, frame_dir):
-            os.makedirs(dir_name or '.', exist_ok=True)
-        while True:
-            if render:
-                env_in_use.render()
-            if frame_dir:
-                frame = env_in_use.render(mode='rgb_array')
-                cv2.imwrite(os.path.join(frame_dir, f'{steps:05d}.jpg'), frame)
-            action = self.get_actions(False)[env_idx]
-            self.states[env_idx], reward, done, _ = env_in_use.step(action)
-            if done:
-                break
-            steps += 1
-            sleep(frame_delay)
-
 
 if __name__ == '__main__':
     gym_envs = create_gym_env('PongNoFrameskip-v4', 3)
@@ -292,8 +242,8 @@ if __name__ == '__main__':
 
     m = create_cnn_dqn(gym_envs[0].observation_space.shape, gym_envs[0].action_space.n)
     agn = DQN(gym_envs, m, 1000)
-    agn.fit(18)
-    # agn.play(
-    #     '/Users/emadboctor/Desktop/code/dqn-pong-19-model/pong_test.tf',
-    #     render=True,
-    # )
+    # agn.fit(18)
+    agn.play(
+        '/Users/emadboctor/Desktop/code/drl-models/dqn-pong-19-model/pong_test.tf',
+        render=True,
+    )

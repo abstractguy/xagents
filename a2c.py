@@ -136,7 +136,6 @@ class A2C(BaseAgent):
                 masks, rewards, values, log_probs, entropies
             )
             loss = self.calculate_loss(returns, values, log_probs, entropies)
-            print(loss)
         gradients = tape.gradient(loss, self.model.trainable_variables)
         gradients, _ = tf.clip_by_global_norm(gradients, clip_norm)
         self.model.optimizer.apply_gradients(
@@ -175,7 +174,7 @@ class A2C(BaseAgent):
             optimizer, target_reward, max_steps, monitor_session, weights, None
         )
         while True:
-            self.check_episodes()
+            self.check_episodes()M
             if self.training_done():
                 break
             self.train_step()
@@ -186,5 +185,9 @@ if __name__ == '__main__':
     from models import CNNA2C
 
     m = CNNA2C(ens[0].observation_space.shape, ens[0].action_space.n)
-    ac = A2C(ens, m)
-    ac.fit(18)
+    ac = A2C(ens, m, checkpoint='a2c-pong.tf')
+    # ac.fit(19, weights='a2c-pong.tf')
+    ac.play(
+        '/Users/emadboctor/Desktop/code/drl-models/a2c-pong-17-model/a2c-pong.tf',
+        render=True,
+    )
