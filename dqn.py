@@ -183,6 +183,14 @@ class DQN(BaseAgent):
 
     @tf.function
     def train_step(self, actions):
+        """
+        Do 1 training step.
+        Args:
+            actions: A numpy array of actions to perform by self.envs
+
+        Returns:
+            None
+        """
         tf.numpy_function(
             super(DQN, self).step_envs, [actions], (tf.float32, tf.float32, tf.bool)
         )
@@ -217,19 +225,11 @@ class DQN(BaseAgent):
         Returns:
             None
         """
-        self.target_reward = target_reward
-        self.max_steps = max_steps
-        if monitor_session:
-            wandb.init(name=monitor_session)
-        optimizer = Adam(learning_rate)
-        if weights:
-            self.model.load_weights(weights)
-            self.target_model.load_weights(weights)
-        self.model.compile(optimizer, loss='mse')
-        self.target_model.compile(optimizer, loss='mse')
         self.fill_buffers()
-        self.training_start_time = perf_counter()
-        self.last_reset_time = perf_counter()
+        optimizer = Adam(learning_rate)
+        self.init_training(
+            optimizer, target_reward, max_steps, monitor_session, weights, 'mse'
+        )
         while True:
             self.check_episodes()
             if self.training_done():

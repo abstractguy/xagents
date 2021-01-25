@@ -3,6 +3,7 @@ from datetime import timedelta
 from time import perf_counter
 
 import numpy as np
+import wandb
 
 
 class BaseAgent:
@@ -179,3 +180,20 @@ class BaseAgent:
                 np.array([1], np.bool),
             ]
         return [np.array(item, np.float32) for item in zip(*observations)]
+
+    def init_training(
+        self, optimizer, target_reward, max_steps, monitor_session, weights, loss
+    ):
+        self.target_reward = target_reward
+        self.max_steps = max_steps
+        if monitor_session:
+            wandb.init(name=monitor_session)
+        if weights:
+            self.model.load_weights(weights)
+            if hasattr(self, 'target_model'):
+                self.target_model.load_weights(weights)
+        self.model.compile(optimizer, loss=loss)
+        if hasattr(self, 'target_model'):
+            self.target_model.compile(optimizer, loss=loss)
+        self.training_start_time = perf_counter()
+        self.last_reset_time = perf_counter()

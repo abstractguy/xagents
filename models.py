@@ -59,9 +59,9 @@ class CNNA2C(Model):
 
     @tf.function
     def call(self, inputs, training=True, mask=None, actions=None):
-        common = self.common(inputs, training=training, mask=mask)
-        value = tf.squeeze(self.critic(common), axis=1)
-        actor_features = self.actor(common)
+        conv_out = self.common(inputs, training=training, mask=mask)
+        value = tf.squeeze(self.critic(conv_out), axis=1)
+        actor_features = self.actor(conv_out)
         distribution = Categorical(logits=actor_features)
         if actions is None:
             actions = distribution.sample()
@@ -78,14 +78,6 @@ class CNNA2C(Model):
 
 
 def create_cnn_dqn(input_shape, n_actions, duel=False, fc_units=512):
-    """
-    Create convolutional model.
-    Args:
-        duel: If True, a dueling extension will be added to the model.
-        fc_units: Number of units passed to Dense layer.
-    Returns:
-        tf.keras.models.Model
-    """
     x0 = Input(input_shape)
     x = Conv2D(32, 8, 4, activation='relu')(x0)
     x = Conv2D(64, 4, 2, activation='relu')(x)
