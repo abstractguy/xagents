@@ -174,7 +174,7 @@ class A2C(BaseAgent):
             optimizer, target_reward, max_steps, monitor_session, weights, None
         )
         while True:
-            self.check_episodes()M
+            self.check_episodes()
             if self.training_done():
                 break
             self.train_step()
