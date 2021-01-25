@@ -1,11 +1,10 @@
 import os
-from time import perf_counter, sleep
+from time import sleep
 
 import cv2
 import gym
 import numpy as np
 import tensorflow as tf
-import wandb
 from tensorflow.keras.optimizers import Adam
 
 from base_agent import BaseAgent
@@ -206,22 +205,22 @@ class DQN(BaseAgent):
         self,
         target_reward,
         max_steps=None,
-        decay_n_steps=150000,
-        learning_rate=1e-4,
-        update_target_steps=1000,
         monitor_session=None,
+        learning_rate=1e-4,
         weights=None,
+        update_target_steps=1000,
+        decay_n_steps=150000,
     ):
         """
-        Train agent on a supported environment
+        Train DQN agent on a supported environment.
         Args:
             target_reward: Target reward, if achieved, the training will stop
             max_steps: Maximum number of steps, if reached the training will stop.
-            decay_n_steps: Maximum steps that determine epsilon decay rate.
+            monitor_session: Session name to use for monitoring the training with wandb.
             learning_rate: Model learning rate shared by both main and target networks.
             update_target_steps: Update target model every n steps.
-            monitor_session: Session name to use for monitoring the training with wandb.
             weights: Path to .tf trained model weights to continue training.
+            decay_n_steps: Maximum steps that determine epsilon decay rate.
         Returns:
             None
         """
@@ -293,7 +292,7 @@ if __name__ == '__main__':
 
     m = create_cnn_dqn(gym_envs[0].observation_space.shape, gym_envs[0].action_space.n)
     agn = DQN(gym_envs, m, 1000)
-    agn.fit(18, max_steps=100000)
+    agn.fit(18)
     # agn.play(
     #     '/Users/emadboctor/Desktop/code/dqn-pong-19-model/pong_test.tf',
     #     render=True,

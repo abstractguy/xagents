@@ -72,7 +72,7 @@ class BaseAgent:
         Returns:
             None
         """
-        if self.best_reward < self.mean_reward:
+        if self.mean_reward > self.best_reward:
             print(f'Best reward updated: {self.best_reward} -> {self.mean_reward}')
             if self.checkpoint_path:
                 self.model.save_weights(self.checkpoint_path)
@@ -184,6 +184,19 @@ class BaseAgent:
     def init_training(
         self, optimizer, target_reward, max_steps, monitor_session, weights, loss
     ):
+        """
+        Initialize training start time, wandb session & models (self.model / self.target_model)
+        Args:
+            optimizer: Optimizer passed to tf.keras.models.Model.compile(optimizer=optimizer)
+            target_reward: Scalar values whenever achieved, the training will stop.
+            max_steps: Maximum steps, if exceeded, the training will stop.
+            monitor_session: Wandb session name.
+            weights: Path to .tf weights file compatible with self.model
+            loss: loss passed to tf.keras.models.Model.compile(loss=loss)
+
+        Returns:
+            None
+        """
         self.target_reward = target_reward
         self.max_steps = max_steps
         if monitor_session:
@@ -197,3 +210,15 @@ class BaseAgent:
             self.target_model.compile(optimizer, loss=loss)
         self.training_start_time = perf_counter()
         self.last_reset_time = perf_counter()
+
+    def fit(self, *args, **kwargs):
+        """
+        Method that should be implemented by subclasses and contains training code.
+        Args:
+            *args: Subclass args.
+            **kwargs: Subclass kwargs.
+
+        Returns:
+            None
+        """
+        raise NotImplementedError('fit() should be implemented by subclasses')
