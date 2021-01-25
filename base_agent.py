@@ -32,14 +32,14 @@ class BaseAgent:
         assert envs, 'No Environments given'
         self.n_envs = len(envs)
         self.envs = envs
+        self.model = model
         self.checkpoint_path = checkpoint
         self.total_rewards = deque(maxlen=reward_buffer_size)
         self.transition_steps = transition_steps
         self.gamma = gamma
-        self.model = model
+        self.metric_digits = metric_digits
         self.target_reward = None
         self.max_steps = None
-        self.metric_digits = metric_digits
         self.input_shape = self.envs[0].observation_space.shape
         self.available_actions = self.envs[0].action_space.n
         self.best_reward = -float('inf')
@@ -84,20 +84,20 @@ class BaseAgent:
             None
         """
         display_titles = (
+            'time',
             'steps',
             'games',
             'speed',
             'mean reward',
-            'time',
             'best reward',
             'episode rewards',
         )
         display_values = (
+            timedelta(seconds=perf_counter() - self.training_start_time),
             self.steps,
             self.games,
             f'{round(self.frame_speed)} steps/s',
             self.mean_reward,
-            timedelta(seconds=perf_counter() - self.training_start_time),
             self.best_reward,
             [*self.episode_scores],
         )

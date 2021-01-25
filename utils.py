@@ -11,7 +11,7 @@ class AtariPreprocessor(gym.Wrapper):
     gym wrapper for preprocessing atari frames.
     """
 
-    def __init__(self, env, frame_skips=4, resize_shape=(84, 84)):
+    def __init__(self, env, frame_skips=4, resize_shape=(84, 84), state_buffer_size=2):
         """
         Initialize preprocessing settings.
         Args:
@@ -19,10 +19,12 @@ class AtariPreprocessor(gym.Wrapper):
             frame_skips: Number of frame skips to use per environment step.
             resize_shape: (m, n) output frame size.
         """
+        assert frame_skips > 1, 'frame_skips must be >= 1'
         super(AtariPreprocessor, self).__init__(env)
         self.skips = frame_skips
         self.frame_shape = resize_shape
         self.observation_space.shape = (*resize_shape, 1)
+        self.observation_buffer = deque(maxlen=state_buffer_size)
 
     def process_frame(self, frame):
         """
@@ -46,12 +48,15 @@ class AtariPreprocessor(gym.Wrapper):
         """
         total_reward = 0
         state, done, info = 3 * [None]
+        max_frame = None
         for _ in range(self.skips):
             state, reward, done, info = self.env.step(action)
+            self.observation_buffer.append(state)
+            max_frame = np.max(np.stack(self.observation_buffer), axis=0)
             total_reward += reward
             if done:
                 break
-        return self.process_frame(state), total_reward, done, info
+        return self.process_frame(max_frame), total_reward, done, info
 
     def reset(self, **kwargs):
         """
@@ -61,7 +66,9 @@ class AtariPreprocessor(gym.Wrapper):
         Returns:
             Processed atari frame.
         """
+        self.observation_buffer.clear()
         observation = self.env.reset(**kwargs)
+        self.observation_buffer.append(observation)
         return self.process_frame(observation)
 
 

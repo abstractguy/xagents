@@ -26,6 +26,22 @@ class DQN(BaseAgent):
         *args,
         **kwargs,
     ):
+        """
+        Initialize DQN agent.
+        Args:
+            envs: A list of gym environments.
+            model: tf.keras.models.Model
+            buffer_max_size: Maximum size for each replay buffer used by its
+                respective environment.
+            buffer_initial_size: Initial replay buffer size, if not specified,
+                buffer_max_size is used
+            buffer_batch_size: Sample size returned by each replay buffer sample() call.
+            epsilon_start: Epsilon value at training start.
+            epsilon_end: Epsilon value at training end.
+            double: If True, DDQN is used.
+            *args: args Passed to BaseAgent
+            **kwargs: kwargs Passed to BaseAgent
+        """
         super(DQN, self).__init__(envs, model, *args, **kwargs)
         self.buffers = [
             ReplayBuffer(
@@ -77,7 +93,7 @@ class DQN(BaseAgent):
             batch: A batch of observations in the form of
                 [[states], [actions], [rewards], [dones], [next states]]
         Returns:
-            None
+            target values used as y_true in gradient update.
         """
         states, actions, rewards, dones, new_states = batch
         q_states = self.model(states)[0]
@@ -276,8 +292,8 @@ if __name__ == '__main__':
     from models import create_cnn_dqn
 
     m = create_cnn_dqn(gym_envs[0].observation_space.shape, gym_envs[0].action_space.n)
-    agn = DQN(gym_envs, m, 10000, checkpoint='pong_base_class.tf')
-    agn.fit(18, monitor_session='pong base class')
+    agn = DQN(gym_envs, m, 1000)
+    agn.fit(18, max_steps=100000)
     # agn.play(
     #     '/Users/emadboctor/Desktop/code/dqn-pong-19-model/pong_test.tf',
     #     render=True,
