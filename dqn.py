@@ -184,9 +184,7 @@ class DQN(BaseAgent):
         Returns:
             None
         """
-        tf.numpy_function(
-            super(DQN, self).step_envs, [actions], (tf.float32, tf.float32, tf.bool)
-        )
+        tf.numpy_function(self.step_envs, [actions], (tf.float32, tf.float32, tf.bool))
         training_batch = tf.numpy_function(
             self.get_training_batch,
             [],
@@ -242,8 +240,8 @@ if __name__ == '__main__':
 
     m = create_cnn_dqn(gym_envs[0].observation_space.shape, gym_envs[0].action_space.n)
     agn = DQN(gym_envs, m, 1000)
-    # agn.fit(18)
-    agn.play(
-        '/Users/emadboctor/Desktop/code/drl-models/dqn-pong-19-model/pong_test.tf',
-        render=True,
-    )
+    agn.fit(18)
+    # agn.play(
+    #     '/Users/emadboctor/Desktop/code/drl-models/dqn-pong-19-model/pong_test.tf',
+    #     render=True,
+    # )

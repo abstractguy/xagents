@@ -14,6 +14,7 @@ class A2C(BaseAgent):
         entropy_coef=0.01,
         value_loss_coef=0.5,
         transition_steps=5,
+        clip_norm=0.5,
         *args,
         **kwargs,
     ):
@@ -26,15 +27,16 @@ class A2C(BaseAgent):
             value_loss_coef: Value coefficient used for value loss calculation.
             transition_steps: n-step transition for example given s1, s2, s3, s4 and n_step = 4,
                 transition will be s1 -> s4 (defaults to 1, s1 -> s2)
+            clip_norm: Gradient clipping value passed to tf.clip_by_global_norm()
             *args: args Passed to BaseAgent.
             **kwargs: kwargs Passed to BaseAgent.
         """
         super(A2C, self).__init__(
             envs, model, *args, transition_steps=transition_steps, **kwargs
         )
-        self.model = model
         self.entropy_coef = entropy_coef
         self.value_loss_coef = value_loss_coef
+        self.clip_norm = clip_norm
 
     def get_states(self):
         """
@@ -43,6 +45,23 @@ class A2C(BaseAgent):
             self.states as numpy array
         """
         return np.array(self.states, np.float32)
+
+    def step_transitions(self, log_probs, values, rewards, masks, entropies):
+        states = tf.numpy_function(func=self.get_states, inp=[], Tout=tf.float32)
+        for step in range(self.transition_steps):
+            actions, step_log_probs, step_entropies, step_values = self.model(states)
+            states, step_rewards, step_dones = tf.numpy_function(
+                func=self.step_envs,
+                inp=[actions],
+                Tout=(tf.float32, tf.float32, tf.float32),
+            )
+            step_masks = 1 - step_dones
+            log_probs.append(step_log_probs)
+            values.append(step_values)
+            rewards.append(step_rewards)
+            masks.append(step_masks)
+            entropies.append(step_entropies)
+        return states
 
     def calculate_returns(self, masks, rewards, values, log_probs, entropies):
         """
@@ -62,20 +81,7 @@ class A2C(BaseAgent):
         Returns:
             returns (a list that has most recent values after performing n steps)
         """
-        states = tf.numpy_function(func=self.get_states, inp=[], Tout=tf.float32)
-        for step in range(self.transition_steps):
-            actions, step_log_probs, step_entropies, step_values = self.model(states)
-            states, step_rewards, step_dones = tf.numpy_function(
-                func=self.step_envs,
-                inp=[actions],
-                Tout=(tf.float32, tf.float32, tf.float32),
-            )
-            step_masks = 1 - step_dones
-            log_probs.append(step_log_probs)
-            values.append(step_values)
-            rewards.append(step_rewards)
-            masks.append(step_masks)
-            entropies.append(step_entropies)
+        states = self.step_transitions(log_probs, values, rewards, masks, entropies)
         next_values = self.model(states)[-1]
         returns = [next_values]
         for step in reversed(range(self.transition_steps)):
@@ -117,11 +123,9 @@ class A2C(BaseAgent):
         )
 
     @tf.function
-    def train_step(self, clip_norm=0.5):
+    def train_step(self):
         """
         Do 1 training step.
-        Args:
-            clip_norm: Gradient clipping value passed to tf.clip_by_global_norm()
 
         Returns:
             None
@@ -185,9 +189,9 @@ if __name__ == '__main__':
     from models import CNNA2C
 
     m = CNNA2C(ens[0].observation_space.shape, ens[0].action_space.n)
-    ac = A2C(ens, m, checkpoint='a2c-pong.tf')
-    # ac.fit(19, weights='a2c-pong.tf')
-    ac.play(
-        '/Users/emadboctor/Desktop/code/drl-models/a2c-pong-17-model/a2c-pong.tf',
-        render=True,
-    )
+    ac = A2C(ens, m)
+    ac.fit(19)
+    # ac.play(
+    #     '/Users/emadboctor/Desktop/code/drl-models/a2c-pong-17-model/a2c-pong.tf',
+    #     render=True,
+    # )
