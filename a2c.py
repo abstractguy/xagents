@@ -46,24 +46,31 @@ class A2C(BaseAgent):
         """
         return np.array(self.states, np.float32)
 
-    def step_transitions(self, log_probs, values, rewards, masks, entropies):
-        states = tf.numpy_function(func=self.get_states, inp=[], Tout=tf.float32)
+    def step_transitions(
+        self, states, actions, log_probs, values, rewards, masks, entropies
+    ):
+        step_states = tf.numpy_function(func=self.get_states, inp=[], Tout=tf.float32)
         for step in range(self.transition_steps):
-            actions, step_log_probs, step_entropies, step_values = self.model(states)
-            states, step_rewards, step_dones = tf.numpy_function(
+            step_actions, step_log_probs, step_entropies, step_values = self.model(
+                step_states
+            )
+            step_states, step_rewards, step_dones = tf.numpy_function(
                 func=self.step_envs,
-                inp=[actions],
+                inp=[step_actions],
                 Tout=(tf.float32, tf.float32, tf.float32),
             )
             step_masks = 1 - step_dones
+            states.append(step_states)
+            actions.append(step_actions)
             log_probs.append(step_log_probs)
             values.append(step_values)
             rewards.append(step_rewards)
             masks.append(step_masks)
             entropies.append(step_entropies)
-        return states
 
-    def calculate_returns(self, masks, rewards, values, log_probs, entropies):
+    def calculate_returns(
+        self, states, actions, masks, rewards, values, log_probs, entropies
+    ):
         """
         Calculate returns to be used for loss calculation and gradient update.
         Args:
@@ -81,8 +88,10 @@ class A2C(BaseAgent):
         Returns:
             returns (a list that has most recent values after performing n steps)
         """
-        states = self.step_transitions(log_probs, values, rewards, masks, entropies)
-        next_values = self.model(states)[-1]
+        self.step_transitions(
+            states, actions, log_probs, values, rewards, masks, entropies
+        )
+        next_values = self.model(states[-1])[-1]
         returns = [next_values]
         for step in reversed(range(self.transition_steps)):
             returns.insert(0, rewards[step] + masks[step] * self.gamma * returns[0])
@@ -130,6 +139,8 @@ class A2C(BaseAgent):
         Returns:
             None
         """
+        states = []
+        actions = []
         masks = []
         rewards = []
         values = []
@@ -137,11 +148,11 @@ class A2C(BaseAgent):
         entropies = []
         with tf.GradientTape() as tape:
             returns = self.calculate_returns(
-                masks, rewards, values, log_probs, entropies
+                states, actions, masks, rewards, values, log_probs, entropies
             )
             loss = self.calculate_loss(returns, values, log_probs, entropies)
         gradients = tape.gradient(loss, self.model.trainable_variables)
-        gradients, _ = tf.clip_by_global_norm(gradients, clip_norm)
+        gradients, _ = tf.clip_by_global_norm(gradients, self.clip_norm)
         self.model.optimizer.apply_gradients(
             zip(gradients, self.model.trainable_variables)
         )
@@ -151,11 +162,7 @@ class A2C(BaseAgent):
         target_reward,
         max_steps=None,
         monitor_session=None,
-        learning_rate=7e-4,
         weights=None,
-        epsilon=1e-5,
-        beta_1=0.0,
-        beta_2=0.99,
     ):
         """
         Train agent on a supported environment
@@ -163,20 +170,11 @@ class A2C(BaseAgent):
             target_reward: Target reward, if achieved, the training will stop
             max_steps: Maximum number of steps, if reached the training will stop.
             monitor_session: Session name to use for monitoring the training with wandb.
-            learning_rate: Model learning rate shared by both main and target networks.
             weights: Path to .tf trained model weights to continue training.
-            epsilon: epsilon parameter passed to tfa.optimizers.RectifiedAdam()
-            beta_1: beta_1 parameter passed tfa.optimizers.RectifiedAdam()
-            beta_2: beta_2 parameter passed to tfa.optimizers.RectifiedAdam()
         Returns:
             None
         """
-        optimizer = tfa.optimizers.RectifiedAdam(
-            learning_rate=learning_rate, epsilon=epsilon, beta_1=beta_1, beta_2=beta_2
-        )
-        self.init_training(
-            optimizer, target_reward, max_steps, monitor_session, weights, None
-        )
+        self.init_training(target_reward, max_steps, monitor_session, weights, None)
         while True:
             self.check_episodes()
             if self.training_done():
@@ -188,8 +186,11 @@ if __name__ == '__main__':
     ens = create_gym_env('PongNoFrameskip-v4', 16)
     from models import CNNA2C
 
+    o = tfa.optimizers.RectifiedAdam(
+        learning_rate=7e-4, epsilon=1e-5, beta_1=0.0, beta_2=0.99
+    )
     m = CNNA2C(ens[0].observation_space.shape, ens[0].action_space.n)
-    ac = A2C(ens, m)
+    ac = A2C(ens, m, optimizer=o)
     ac.fit(19)
     # ac.play(
     #     '/Users/emadboctor/Desktop/code/drl-models/a2c-pong-17-model/a2c-pong.tf',

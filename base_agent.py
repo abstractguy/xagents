@@ -7,6 +7,7 @@ import cv2
 import gym
 import numpy as np
 import wandb
+from tensorflow.keras.optimizers import Adam
 
 
 class BaseAgent:
@@ -14,6 +15,7 @@ class BaseAgent:
         self,
         envs,
         model,
+        optimizer=None,
         checkpoint=None,
         reward_buffer_size=100,
         transition_steps=1,
@@ -37,6 +39,7 @@ class BaseAgent:
         self.n_envs = len(envs)
         self.envs = envs
         self.model = model
+        self.optimizer = optimizer or Adam()
         self.checkpoint_path = checkpoint
         self.total_rewards = deque(maxlen=reward_buffer_size)
         self.transition_steps = transition_steps
@@ -129,7 +132,7 @@ class BaseAgent:
         Returns:
             None
         """
-        if len(self.done_envs) == self.n_envs:
+        if len(self.done_envs) >= self.n_envs:
             self.update_metrics()
             self.last_reset_time = perf_counter()
             self.display_metrics()
@@ -184,13 +187,10 @@ class BaseAgent:
             ]
         return [np.array(item, np.float32) for item in zip(*observations)]
 
-    def init_training(
-        self, optimizer, target_reward, max_steps, monitor_session, weights, loss
-    ):
+    def init_training(self, target_reward, max_steps, monitor_session, weights, loss):
         """
         Initialize training start time, wandb session & models (self.model / self.target_model)
         Args:
-            optimizer: Optimizer passed to tf.keras.models.Model.compile(optimizer=optimizer)
             target_reward: Scalar values whenever achieved, the training will stop.
             max_steps: Maximum steps, if exceeded, the training will stop.
             monitor_session: Wandb session name.
@@ -208,9 +208,9 @@ class BaseAgent:
             self.model.load_weights(weights)
             if hasattr(self, 'target_model'):
                 self.target_model.load_weights(weights)
-        self.model.compile(optimizer, loss=loss)
+        self.model.compile(self.optimizer, loss=loss)
         if hasattr(self, 'target_model'):
-            self.target_model.compile(optimizer, loss=loss)
+            self.target_model.compile(self.optimizer, loss=loss)
         self.training_start_time = perf_counter()
         self.last_reset_time = perf_counter()
 

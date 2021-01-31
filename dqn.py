@@ -1,6 +1,5 @@
 import numpy as np
 import tensorflow as tf
-from tensorflow.keras.optimizers import Adam
 
 from base_agent import BaseAgent
 from utils import ReplayBuffer, create_gym_env
@@ -198,7 +197,6 @@ class DQN(BaseAgent):
         target_reward,
         max_steps=None,
         monitor_session=None,
-        learning_rate=1e-4,
         weights=None,
         update_target_steps=1000,
         decay_n_steps=150000,
@@ -209,7 +207,6 @@ class DQN(BaseAgent):
             target_reward: Target reward, if achieved, the training will stop
             max_steps: Maximum number of steps, if reached the training will stop.
             monitor_session: Session name to use for monitoring the training with wandb.
-            learning_rate: Model learning rate shared by both main and target networks.
             update_target_steps: Update target model every n steps.
             weights: Path to .tf trained model weights to continue training.
             decay_n_steps: Maximum steps that determine epsilon decay rate.
@@ -217,9 +214,12 @@ class DQN(BaseAgent):
             None
         """
         self.fill_buffers()
-        optimizer = Adam(learning_rate)
         self.init_training(
-            optimizer, target_reward, max_steps, monitor_session, weights, 'mse'
+            target_reward,
+            max_steps,
+            monitor_session,
+            weights,
+            'mse',
         )
         while True:
             self.check_episodes()
@@ -236,10 +236,12 @@ class DQN(BaseAgent):
 
 if __name__ == '__main__':
     gym_envs = create_gym_env('PongNoFrameskip-v4', 3)
+    from tensorflow.keras.optimizers import Adam
+
     from models import create_cnn_dqn
 
     m = create_cnn_dqn(gym_envs[0].observation_space.shape, gym_envs[0].action_space.n)
-    agn = DQN(gym_envs, m, 1000)
+    agn = DQN(gym_envs, m, optimizer=Adam(1e-4))
     agn.fit(18)
     # agn.play(
     #     '/Users/emadboctor/Desktop/code/drl-models/dqn-pong-19-model/pong_test.tf',
