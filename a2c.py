@@ -14,7 +14,7 @@ class A2C(BaseAgent):
         entropy_coef=0.01,
         value_loss_coef=0.5,
         transition_steps=5,
-        clip_norm=0.5,
+        grad_norm=0.5,
         *args,
         **kwargs,
     ):
@@ -27,7 +27,7 @@ class A2C(BaseAgent):
             value_loss_coef: Value coefficient used for value loss calculation.
             transition_steps: n-step transition for example given s1, s2, s3, s4 and n_step = 4,
                 transition will be s1 -> s4 (defaults to 1, s1 -> s2)
-            clip_norm: Gradient clipping value passed to tf.clip_by_global_norm()
+            grad_norm: Gradient clipping value passed to tf.clip_by_global_norm()
             *args: args Passed to BaseAgent.
             **kwargs: kwargs Passed to BaseAgent.
         """
@@ -36,7 +36,7 @@ class A2C(BaseAgent):
         )
         self.entropy_coef = entropy_coef
         self.value_loss_coef = value_loss_coef
-        self.clip_norm = clip_norm
+        self.grad_norm = grad_norm
 
     def get_states(self):
         """
@@ -46,9 +46,10 @@ class A2C(BaseAgent):
         """
         return np.array(self.states, np.float32)
 
-    def step_transitions(
-        self, states, actions, log_probs, values, rewards, masks, entropies
-    ):
+    def step_transitions(self):
+        transitions = states, actions, log_probs, values, rewards, masks, entropies = [
+            [] for _ in range(7)
+        ]
         step_states = tf.numpy_function(func=self.get_states, inp=[], Tout=tf.float32)
         for step in range(self.transition_steps):
             step_actions, step_log_probs, step_entropies, step_values = self.model(
@@ -67,35 +68,7 @@ class A2C(BaseAgent):
             rewards.append(step_rewards)
             masks.append(step_masks)
             entropies.append(step_entropies)
-
-    def calculate_returns(
-        self, states, actions, masks, rewards, values, log_probs, entropies
-    ):
-        """
-        Calculate returns to be used for loss calculation and gradient update.
-        Args:
-            masks: Empty list that will be the same size as self.transition_steps
-                and will contain done masks.
-            rewards: Empty list that will be the same size as self.transition_steps
-                and will contain self.step_envs() rewards.
-            values: Empty list that will be the same size as self.transition_steps
-                and will contain self.step_envs() values.
-            log_probs: Empty list that will be the same size as self.transition_steps
-                and will contain self.step_envs() log_probs.
-            entropies: Empty list that will be the same size as self.transition_steps
-                and will contain self.step_envs() entropies.
-
-        Returns:
-            returns (a list that has most recent values after performing n steps)
-        """
-        self.step_transitions(
-            states, actions, log_probs, values, rewards, masks, entropies
-        )
-        next_values = self.model(states[-1])[-1]
-        returns = [next_values]
-        for step in reversed(range(self.transition_steps)):
-            returns.insert(0, rewards[step] + masks[step] * self.gamma * returns[0])
-        return returns
+        return transitions
 
     def calculate_loss(self, returns, values, log_probs, entropies):
         """
@@ -139,20 +112,23 @@ class A2C(BaseAgent):
         Returns:
             None
         """
-        states = []
-        actions = []
-        masks = []
-        rewards = []
-        values = []
-        log_probs = []
-        entropies = []
         with tf.GradientTape() as tape:
-            returns = self.calculate_returns(
-                states, actions, masks, rewards, values, log_probs, entropies
-            )
+            (
+                states,
+                actions,
+                log_probs,
+                values,
+                rewards,
+                masks,
+                entropies,
+            ) = self.step_transitions()
+            next_values = self.model(states[-1])[-1]
+            returns = [next_values]
+            for step in reversed(range(self.transition_steps)):
+                returns.insert(0, rewards[step] + masks[step] * self.gamma * returns[0])
             loss = self.calculate_loss(returns, values, log_probs, entropies)
         gradients = tape.gradient(loss, self.model.trainable_variables)
-        gradients, _ = tf.clip_by_global_norm(gradients, self.clip_norm)
+        gradients, _ = tf.clip_by_global_norm(gradients, self.grad_norm)
         self.model.optimizer.apply_gradients(
             zip(gradients, self.model.trainable_variables)
         )

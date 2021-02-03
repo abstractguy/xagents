@@ -13,138 +13,118 @@ class PPO(A2C):
         gae_lambda=0.95,
         ppo_epochs=4,
         mini_batches=4,
+        advantage_epsilon=1e-5,
+        clip_norm=0.1,
         *args,
         **kwargs,
     ):
-        """
-        Initialize PPO agent.
-        Args:
-            envs: A list of gym environments.
-            model: tf.keras.models.Model
-            *args: args Passed to BaseAgent.
-            **kwargs: kwargs Passed to BaseAgent.
-        """
         super(PPO, self).__init__(
             envs, model, transition_steps=transition_steps, *args, **kwargs
         )
         self.gae_lambda = gae_lambda
         self.ppo_epochs = ppo_epochs
         self.mini_batches = mini_batches
-
-    def calculate_returns(
-        self, states, actions, masks, rewards, values, log_probs, entropies
-    ):
-        """
-        Calculate returns to be used for loss calculation and gradient update.
-        Args:
-            masks: Empty list that will be the same size as self.transition_steps
-                and will contain done masks.
-            rewards: Empty list that will be the same size as self.transition_steps
-                and will contain self.step_envs() rewards.
-            values: Empty list that will be the same size as self.transition_steps
-                and will contain self.step_envs() values.
-            log_probs: Empty list that will be the same size as self.transition_steps
-                and will contain self.step_envs() log_probs.
-            entropies: Empty list that will be the same size as self.transition_steps
-                and will contain self.step_envs() entropies.
-
-        Returns:
-            returns (a list that has most recent values after performing n steps)
-        """
-        self.step_transitions(
-            states, actions, log_probs, values, rewards, masks, entropies
-        )
-        next_values = self.model(states[-1])[-1]
-        values.append(next_values)
-        gae = 0
-        returns = []
-        for step in reversed(range(self.transition_steps)):
-            delta = (
-                rewards[step]
-                + self.gamma * values[step + 1] * masks[step]
-                - values[step]
-            )
-            gae = delta + self.gamma * self.gae_lambda * masks[step] * gae
-            returns.insert(0, gae + values[step])
-        return returns
+        self.advantage_epsilon = advantage_epsilon
+        self.clip_norm = clip_norm
 
     @tf.function
     def train_step(self):
-        """
-        Do 1 training step.
-
-        Returns:
-            None
-        """
-        states = []
-        actions = []
-        masks = []
-        rewards = []
-        values = []
-        log_probs = []
-        entropies = []
-        returns = self.calculate_returns(
-            states, actions, masks, rewards, values, log_probs, entropies
-        )
-        tf_returns = tf.concat(returns, axis=0)
-        tf_observations = tf.concat(states[:-1], axis=0)
-        tf_actions = tf.concat(actions, axis=0)
-        tf_old_log_probs = tf.concat(log_probs, axis=0)
-        tf_values = tf.concat(values[:-1], axis=0)
-        tf_adv_target = tf_returns - tf_values
-        tf_adv_target = (tf_adv_target - tf.reduce_mean(tf_adv_target)) / (
-            tf.math.reduce_std(tf_adv_target) + 1e-5
+        state_buffer = [tf.numpy_function(self.get_states, [], tf.float32)]
+        rewards_buffer = []
+        value_buffer = []
+        returns_buffer = []
+        lp_buffer = []
+        action_buffer = []
+        masks_buffer = []
+        for step in range(self.transition_steps):
+            actions, log_probs, _, values = self.model(state_buffer[step])
+            states, rewards, dones = tf.numpy_function(
+                self.step_envs, [actions], [tf.float32 for _ in range(3)]
+            )
+            masks = 1 - dones
+            state_buffer.append(states)
+            action_buffer.append(actions)
+            lp_buffer.append(log_probs)
+            value_buffer.append(values)
+            rewards_buffer.append(rewards)
+            masks_buffer.append(masks)
+        *_, next_values = self.model(state_buffer[-1])
+        value_buffer.append(next_values)
+        gae = 0
+        for step in reversed(range(self.transition_steps)):
+            delta = (
+                rewards_buffer[step]
+                + self.gamma * value_buffer[step + 1] * masks_buffer[step] * gae
+            )
+            gae = delta + self.gamma * self.gae_lambda * masks_buffer[step] * gae
+            returns_buffer.insert(0, gae + value_buffer[step])
+        (state_b, rewards_b, value_b, returns_b, lp_b, action_b, masks_b) = [
+            tf.concat(item, 0)
+            for item in [
+                state_buffer,
+                rewards_buffer,
+                value_buffer[:-1],
+                returns_buffer,
+                lp_buffer,
+                action_buffer,
+                masks_buffer,
+            ]
+        ]
+        advantages = returns_b - value_b
+        advantages = (advantages - tf.reduce_mean(advantages)) / (
+            tf.math.reduce_std(advantages) + self.advantage_epsilon
         )
         batch_size = self.n_envs * self.transition_steps
         mini_batch_size = batch_size // self.mini_batches
-        value_loss_epoch = 0.0
-        action_loss_epoch = 0.0
-        entropy_loss_epoch = 0.0
-        for _ in range(self.ppo_epochs):
-            indx = tf.random.shuffle(tf.range(batch_size))
-            indx = tf.reshape(indx, (-1, mini_batch_size))
-            for sample in indx:
-                obs_batch = tf.gather(tf_observations, sample)
-                returns_batch = tf.gather(tf_returns, sample)
-                adv_target_batch = tf.gather(tf_adv_target, sample)
-                action_batch = tf.gather(tf_actions, sample)
-                old_log_probs_batch = tf.gather(tf_old_log_probs, sample)
-                values_batch = tf.gather(tf_values, sample)
+        for epoch in range(self.ppo_epochs):
+            indices = tf.random.shuffle(tf.range(batch_size))
+            indices = tf.reshape(indices, (-1, mini_batch_size))
+            for mini_batch_indices in indices:
+                advantage_mb = tf.gather(
+                    tf.reshape(advantages, (-1, 1)), mini_batch_indices
+                )
+                state_mb = tf.gather(
+                    tf.reshape(state_b[:-1], (-1, *self.input_shape)),
+                    mini_batch_indices,
+                )
+                action_mb = tf.gather(tf.reshape(action_b, (-1, 1)), mini_batch_indices)
+                value_mb = tf.gather(
+                    tf.reshape(value_b[:-1], (-1, 1)), mini_batch_indices
+                )
+                return_mb = tf.gather(
+                    tf.reshape(returns_b, (-1, 1)), mini_batch_indices
+                )
+                lb_mb = tf.gather(tf.reshape(lp_b, (-1, 1)), mini_batch_indices)
                 with tf.GradientTape() as tape:
-                    _, action_log_probs, dist_entropy, value = self.model(
-                        obs_batch, action_batch
+                    _, mb_lb, mb_entropy, mb_value = self.model(
+                        state_mb, actions=action_mb
                     )
-                    ratio = tf.exp(action_log_probs - old_log_probs_batch)
-                    surr1 = -ratio * adv_target_batch
-                    surr2 = (
-                        -tf.clip_by_value(
-                            ratio, 1.0 - self.clip_norm, 1.0 + self.clip_norm
-                        )
-                        * adv_target_batch
+                    mb_entropy = tf.reduce_mean(mb_entropy)
+                    ratio = tf.exp(mb_lb - lb_mb)
+                    s1 = ratio * advantage_mb
+                    s2 = (
+                        tf.clip_by_value(ratio, 1 - self.clip_norm, 1 + self.clip_norm)
+                        * advantage_mb
                     )
-                    action_loss = tf.reduce_mean(tf.maximum(surr1, surr2))
-                    value_pred_clipped = values_batch + tf.clip_by_value(
-                        value - values_batch, -self.clip_norm, self.clip_norm
+                    action_loss = -tf.reduce_mean(tf.minimum(s1, s2))
+                    value_mb_clipped = value_mb + tf.clip_by_value(
+                        mb_value - value_mb, -self.clip_norm, self.clip_norm
                     )
-                    value_losses = tf.square(value - returns_batch)
-                    value_losses_clipped = tf.square(value_pred_clipped - returns_batch)
+                    value_loss = tf.square(mb_value - return_mb)
+                    value_loss_clipped = tf.square(value_mb_clipped - return_mb)
                     value_loss = 0.5 * tf.reduce_mean(
-                        tf.maximum(value_losses, value_losses_clipped)
+                        tf.maximum(value_loss, value_loss_clipped)
                     )
-                    entropy_loss = tf.reduce_mean(dist_entropy)
                     loss = (
-                        self.value_loss_coef * value_loss
+                        value_loss * self.value_loss_coef
                         + action_loss
-                        - entropy_loss * self.entropy_coef
+                        - mb_entropy * self.entropy_coef
                     )
                 gradients = tape.gradient(loss, self.model.trainable_variables)
-                gradients, _ = tf.clip_by_global_norm(gradients, 0.5)
+                gradients, _ = tf.clip_by_global_norm(gradients, self.grad_norm)
                 self.model.optimizer.apply_gradients(
                     zip(gradients, self.model.trainable_variables)
                 )
-                value_loss_epoch += value_loss
-                action_loss_epoch += action_loss
-                entropy_loss_epoch += entropy_loss
 
 
 if __name__ == '__main__':
@@ -154,5 +134,5 @@ if __name__ == '__main__':
     from models import CNNA2C
 
     m = CNNA2C(ens[0].observation_space.shape, ens[0].action_space.n)
-    ac = PPO(ens, m, optimizer=Adam(25e-5, epsilon=1e-5))
+    ac = PPO(ens, m, optimizer=Adam(2.5e-4, epsilon=1e-5))
     ac.fit(19)
