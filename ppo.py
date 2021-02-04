@@ -1,3 +1,4 @@
+import numpy as np
 import tensorflow as tf
 
 from a2c import A2C
@@ -26,51 +27,56 @@ class PPO(A2C):
         self.mini_batches = mini_batches
         self.advantage_epsilon = advantage_epsilon
         self.clip_norm = clip_norm
+        self.last_states = self.get_states()
+        self.last_masks = np.ones(self.n_envs)
+
+    def update_lasts(self, states, masks):
+        self.last_states = states
+        self.last_masks = masks
+        return True
 
     @tf.function
     def train_step(self):
-        state_buffer = [tf.numpy_function(self.get_states, [], tf.float32)]
-        rewards_buffer = []
-        value_buffer = []
-        returns_buffer = []
-        lp_buffer = []
-        action_buffer = []
-        masks_buffer = []
+        transitions = states, rewards, values, returns, log_probs, actions, masks = [
+            [] for _ in range(7)
+        ]
+        states.append(self.last_states)
+        masks.append(self.last_masks)
         for step in range(self.transition_steps):
-            actions, log_probs, _, values = self.model(state_buffer[step])
-            states, rewards, dones = tf.numpy_function(
-                self.step_envs, [actions], [tf.float32 for _ in range(3)]
+            step_actions, step_log_probs, _, step_values = self.model(states[step])
+            step_states, step_rewards, step_dones = tf.numpy_function(
+                func=self.step_envs,
+                inp=[step_actions],
+                Tout=(tf.float32, tf.float32, tf.float32),
             )
-            masks = 1 - dones
-            state_buffer.append(states)
-            action_buffer.append(actions)
-            lp_buffer.append(log_probs)
-            value_buffer.append(values)
-            rewards_buffer.append(rewards)
-            masks_buffer.append(masks)
-        *_, next_values = self.model(state_buffer[-1])
-        value_buffer.append(next_values)
+            step_masks = 1 - step_dones
+            states.append(step_states)
+            actions.append(step_actions)
+            log_probs.append(step_log_probs)
+            values.append(step_values)
+            rewards.append(step_rewards)
+            masks.append(step_masks)
+        *_, next_values = self.model(states[-1])
+        values.append(next_values)
         gae = 0
         for step in reversed(range(self.transition_steps)):
             delta = (
-                rewards_buffer[step]
-                + self.gamma * value_buffer[step + 1] * masks_buffer[step] * gae
+                rewards[step]
+                + self.gamma * values[step + 1] * masks[step + 1]
+                - values[step]
             )
-            gae = delta + self.gamma * self.gae_lambda * masks_buffer[step] * gae
-            returns_buffer.insert(0, gae + value_buffer[step])
-        (state_b, rewards_b, value_b, returns_b, lp_b, action_b, masks_b) = [
-            tf.concat(item, 0)
-            for item in [
-                state_buffer,
-                rewards_buffer,
-                value_buffer[:-1],
-                returns_buffer,
-                lp_buffer,
-                action_buffer,
-                masks_buffer,
-            ]
+            gae = delta + self.gamma * self.gae_lambda * masks[step + 1] * gae
+            returns.append(gae + values[step])
+        returns.reverse()
+        tf.py_function(self.update_lasts, [states[-1], masks[-1]], tf.bool)
+        states = tf.reshape(tf.concat(states[:-1], 0), (-1, *self.input_shape))
+        rewards, values, returns, log_probs, actions, masks = [
+            tf.reshape(tf.concat(item, 0), (-1, 1))
+            if len(item) == self.transition_steps
+            else tf.reshape(tf.concat(item[:-1], 0), (-1, 1))
+            for item in transitions[1:]
         ]
-        advantages = returns_b - value_b
+        advantages = returns - values
         advantages = (advantages - tf.reduce_mean(advantages)) / (
             tf.math.reduce_std(advantages) + self.advantage_epsilon
         )
@@ -79,46 +85,50 @@ class PPO(A2C):
         for epoch in range(self.ppo_epochs):
             indices = tf.random.shuffle(tf.range(batch_size))
             indices = tf.reshape(indices, (-1, mini_batch_size))
-            for mini_batch_indices in indices:
-                advantage_mb = tf.gather(
-                    tf.reshape(advantages, (-1, 1)), mini_batch_indices
+            for idx in indices:
+                batches = (
+                    states,
+                    rewards,
+                    values,
+                    returns,
+                    log_probs,
+                    actions,
+                    masks,
+                    advantages,
                 )
-                state_mb = tf.gather(
-                    tf.reshape(state_b[:-1], (-1, *self.input_shape)),
-                    mini_batch_indices,
-                )
-                action_mb = tf.gather(tf.reshape(action_b, (-1, 1)), mini_batch_indices)
-                value_mb = tf.gather(
-                    tf.reshape(value_b[:-1], (-1, 1)), mini_batch_indices
-                )
-                return_mb = tf.gather(
-                    tf.reshape(returns_b, (-1, 1)), mini_batch_indices
-                )
-                lb_mb = tf.gather(tf.reshape(lp_b, (-1, 1)), mini_batch_indices)
+                (
+                    states_mb,
+                    rewards_mb,
+                    values_mb,
+                    returns_mb,
+                    log_probs_mb,
+                    actions_mb,
+                    masks_mb,
+                    advantages_mb,
+                ) = [tf.gather(item, idx) for item in batches]
                 with tf.GradientTape() as tape:
-                    _, mb_lb, mb_entropy, mb_value = self.model(
-                        state_mb, actions=action_mb
+                    _, new_log_probs, entropy, new_values = self.model(
+                        states_mb, actions=actions_mb
                     )
-                    mb_entropy = tf.reduce_mean(mb_entropy)
-                    ratio = tf.exp(mb_lb - lb_mb)
-                    s1 = ratio * advantage_mb
+                    ratio = tf.exp(new_log_probs - log_probs_mb)
+                    s1 = ratio * advantages_mb
                     s2 = (
                         tf.clip_by_value(ratio, 1 - self.clip_norm, 1 + self.clip_norm)
-                        * advantage_mb
+                        * advantages_mb
                     )
-                    action_loss = -tf.reduce_mean(tf.minimum(s1, s2))
-                    value_mb_clipped = value_mb + tf.clip_by_value(
-                        mb_value - value_mb, -self.clip_norm, self.clip_norm
+                    action_loss = tf.reduce_mean(-tf.minimum(s1, s2))
+                    clipped_values = values_mb + tf.clip_by_value(
+                        new_values - values_mb, -self.clip_norm, self.clip_norm
                     )
-                    value_loss = tf.square(mb_value - return_mb)
-                    value_loss_clipped = tf.square(value_mb_clipped - return_mb)
+                    value_loss = tf.square(new_values - returns_mb)
+                    clipped_value_loss = tf.square(clipped_values - returns_mb)
                     value_loss = 0.5 * tf.reduce_mean(
-                        tf.maximum(value_loss, value_loss_clipped)
+                        tf.maximum(value_loss, clipped_value_loss)
                     )
                     loss = (
                         value_loss * self.value_loss_coef
                         + action_loss
-                        - mb_entropy * self.entropy_coef
+                        - entropy * self.entropy_coef
                     )
                 gradients = tape.gradient(loss, self.model.trainable_variables)
                 gradients, _ = tf.clip_by_global_norm(gradients, self.grad_norm)
@@ -128,11 +138,11 @@ class PPO(A2C):
 
 
 if __name__ == '__main__':
-    ens = create_gym_env('PongNoFrameskip-v4', 16)
+    ens = create_gym_env('PongNoFrameskip-v4', 8)
     from tensorflow.keras.optimizers import Adam
 
     from models import CNNA2C
 
     m = CNNA2C(ens[0].observation_space.shape, ens[0].action_space.n)
-    ac = PPO(ens, m, optimizer=Adam(2.5e-4, epsilon=1e-5))
+    ac = PPO(ens, m, optimizer=Adam(25e-5, epsilon=1e-5))
     ac.fit(19)
