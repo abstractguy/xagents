@@ -52,6 +52,7 @@ class BaseAgent:
         self.best_reward = -float('inf')
         self.mean_reward = -float('inf')
         self.states = [None] * self.n_envs
+        self.dones = [False] * self.n_envs
         self.steps = 0
         self.frame_speed = 0
         self.last_reset_step = 0
@@ -166,6 +167,7 @@ class BaseAgent:
             state = self.states[i]
             new_state, reward, done, _ = env.step(action)
             self.states[i] = new_state
+            self.dones[i] = done
             self.steps += 1
             self.episode_rewards[i] += reward
             if hasattr(self, 'buffers'):

@@ -68,7 +68,7 @@ class CNNA2C(Model):
         action_log_probs = distribution.log_prob(actions)
         return (
             actions,
-            action_log_probs,
+            -action_log_probs,
             distribution.entropy(),
             value,
         )
