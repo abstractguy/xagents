@@ -24,6 +24,7 @@ class PPO(BaseAgent):
         super(PPO, self).__init__(
             envs, model, transition_steps=transition_steps, *args, **kwargs
         )
+        assert self.model.neg_log_probs, 'PPO model neg_log_probs should be set to True'
         self.lam = lam
         self.ppo_epochs = ppo_epochs
         self.mini_batches = mini_batches
@@ -118,12 +119,6 @@ class PPO(BaseAgent):
                         ratio, 1 - self.clip_norm, 1 + self.clip_norm
                     )
                     pg_loss = tf.reduce_mean(tf.maximum(pg_loss1, pg_loss2))
-                    # kl = 0.5 * tf.reduce_mean(tf.square(log_probs - old_log_probs))
-                    # clip_frac = tf.reduce_mean(
-                    #     tf.cast(
-                    #         tf.greater(tf.abs(ratio - 1.0), self.clip_norm), tf.float32
-                    #     )
-                    # )
                     loss = (
                         pg_loss - entropy * self.entropy_coef + vf_loss * self.vf_coef
                     )
@@ -178,7 +173,9 @@ if __name__ == '__main__':
     from models import CNNA2C
     from utils import create_gym_env
 
-    envi = create_gym_env('PongNoFrameskip-v4', 2)
-    mod = CNNA2C(envi[0].observation_space.shape, envi[0].action_space.n)
+    envi = create_gym_env('PongNoFrameskip-v4', 16)
+    mod = CNNA2C(
+        envi[0].observation_space.shape, envi[0].action_space.n, neg_log_probs=True
+    )
     agn = PPO(envi, mod, optimizer=Adam(25e-5))
     agn.fit(19, 2e7)
