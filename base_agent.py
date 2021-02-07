@@ -18,7 +18,7 @@ class BaseAgent:
         optimizer=None,
         checkpoint=None,
         reward_buffer_size=100,
-        transition_steps=1,
+        n_steps=1,
         gamma=0.99,
         metric_digits=2,
     ):
@@ -30,7 +30,7 @@ class BaseAgent:
             checkpoint: Path to .tf filename under which the trained model will be saved.
             reward_buffer_size: Size of the reward buffer that will hold the last n total
                 rewards which will be used for calculating the mean reward.
-            transition_steps: n-step transition for example given s1, s2, s3, s4 and n_step = 4,
+            n_steps: n-step transition for example given s1, s2, s3, s4 and n_step = 4,
                 transition will be s1 -> s4 (defaults to 1, s1 -> s2)
             gamma: Discount factor used for gradient updates.
             metric_digits: Rounding decimals for display purposes.
@@ -42,7 +42,7 @@ class BaseAgent:
         self.optimizer = optimizer or Adam()
         self.checkpoint_path = checkpoint
         self.total_rewards = deque(maxlen=reward_buffer_size)
-        self.transition_steps = transition_steps
+        self.n_steps = n_steps
         self.gamma = gamma
         self.metric_digits = metric_digits
         self.target_reward = None
@@ -216,17 +216,56 @@ class BaseAgent:
         self.training_start_time = perf_counter()
         self.last_reset_time = perf_counter()
 
-    def fit(self, *args, **kwargs):
-        """
-        Method that should be implemented by subclasses and contains training code.
-        Args:
-            *args: Subclass args.
-            **kwargs: Subclass kwargs.
+    def train_step(self):
+        raise NotImplementedError(
+            'train_step() should be implemented by BaseAgent subclasses'
+        )
 
+    def at_step_start(self):
+        pass
+
+    def at_step_end(self):
+        pass
+
+    def get_states(self):
+        return np.array(self.states, np.float32)
+
+    def get_dones(self):
+        return np.array(self.dones, np.float32)
+
+    def fit(
+        self,
+        target_reward,
+        max_steps=None,
+        monitor_session=None,
+        weights=None,
+    ):
+        """
+        Train DQN agent on a supported environment.
+        Args:
+            target_reward: Target reward, if achieved, the training will stop
+            max_steps: Maximum number of steps, if reached the training will stop.
+            monitor_session: Session name to use for monitoring the training with wandb.
+            weights: Path to .tf trained model weights to continue training.
         Returns:
             None
         """
-        raise NotImplementedError('fit() should be implemented by subclasses')
+        if hasattr(self, 'fill_buffers'):
+            self.fill_buffers()
+        self.init_training(
+            target_reward,
+            max_steps,
+            monitor_session,
+            weights,
+            'mse',
+        )
+        while True:
+            self.check_episodes()
+            if self.training_done():
+                break
+            self.at_step_start()
+            self.train_step()
+            self.at_step_end()
 
     def play(
         self,
@@ -267,7 +306,7 @@ class BaseAgent:
             if frame_dir:
                 frame = env_in_use.render(mode='rgb_array')
                 cv2.imwrite(os.path.join(frame_dir, f'{steps:05d}.jpg'), frame)
-            action = self.model(np.array(self.states))[action_idx][env_idx]
+            action = self.model(self.get_states())[action_idx][env_idx]
             self.states[env_idx], reward, done, _ = env_in_use.step(action)
             if done:
                 break

@@ -1,83 +1,45 @@
 import numpy as np
 import tensorflow as tf
 
-from base_agent import BaseAgent
+from a2c import A2C
 
 
-class PPO(BaseAgent):
+class PPO(A2C):
     def __init__(
         self,
         envs,
         model,
-        transition_steps=128,
+        n_steps=128,
         lam=0.95,
         ppo_epochs=4,
         mini_batches=4,
         advantage_epsilon=1e-5,
         clip_norm=0.1,
-        entropy_coef=0.01,
-        vf_coef=0.5,
-        grad_norm=0.5,
         *args,
         **kwargs,
     ):
-        super(PPO, self).__init__(
-            envs, model, transition_steps=transition_steps, *args, **kwargs
-        )
+        super(PPO, self).__init__(envs, model, n_steps=n_steps, *args, **kwargs)
         assert self.model.neg_log_probs, 'PPO model neg_log_probs should be set to True'
         self.lam = lam
         self.ppo_epochs = ppo_epochs
         self.mini_batches = mini_batches
         self.advantage_epsilon = advantage_epsilon
         self.clip_norm = clip_norm
-        self.entropy_coef = entropy_coef
-        self.vf_coef = vf_coef
-        self.grad_norm = grad_norm
-        self.batch_size = self.n_envs * self.transition_steps
+        self.batch_size = self.n_envs * self.n_steps
         self.mini_batch_size = self.batch_size // self.mini_batches
 
-    def get_states(self):
-        """
-        Get self.states
-        Returns:
-            self.states as numpy array
-        """
-        return np.array(self.states, np.float32)
-
-    def get_dones(self):
-        return np.array(self.dones, np.float32)
-
     @staticmethod
-    def sf01(arr):
-        s = arr.shape
-        return arr.swapaxes(0, 1).reshape(s[0] * s[1], *s[2:])
-
-    def get_batch(self):
-        batch = states, rewards, actions, values, dones, log_probs = [
-            [] for _ in range(6)
-        ]
-        step_states = tf.numpy_function(self.get_states, [], tf.float32)
-        step_dones = tf.numpy_function(self.get_dones, [], tf.float32)
-        for _ in range(self.transition_steps):
-            step_actions, step_log_probs, _, step_values = self.model(step_states)
-            states.append(step_states)
-            actions.append(step_actions)
-            values.append(step_values)
-            log_probs.append(step_log_probs)
-            dones.append(step_dones)
-            step_states, step_rewards, step_dones = tf.numpy_function(
-                self.step_envs, [step_actions], [tf.float32 for _ in range(3)]
-            )
-            rewards.append(step_rewards)
-        return [np.asarray(item, np.float32) for item in batch]
+    def squeeze_transition_item(a):
+        shape = a.shape
+        return a.swapaxes(0, 1).reshape(shape[0] * shape[1], *shape[2:])
 
     def calculate_returns(self, batch):
         states, rewards, actions, values, dones, log_probs = batch
         next_values = self.model(states[-1])[-1].numpy()
         advantages = np.zeros_like(rewards)
         last_lam = 0
-        for step in reversed(range(self.transition_steps)):
-            if step == self.transition_steps - 1:
+        for step in reversed(range(self.n_steps)):
+            if step == self.n_steps - 1:
                 next_non_terminal = 1 - dones[-1]
             else:
                 next_non_terminal = 1.0 - dones[step + 1]
@@ -130,23 +92,30 @@ class PPO(BaseAgent):
                 )
 
     def step_transitions(self):
-        batch = states, rewards, actions, values, dones, log_probs = self.get_batch()
-        returns = self.calculate_returns(batch)
+        batch = (
+            states,
+            rewards,
+            actions,
+            values,
+            dones,
+            log_probs,
+            entropies,
+        ) = [np.asarray(item, np.float32) for item in self.get_batch()]
+        returns = self.calculate_returns(batch[:-1])
         ppo_batch = [
-            self.sf01(item)
+            self.squeeze_transition_item(item)
             for item in [states, actions, returns, dones, values, log_probs]
         ]
         self.run_ppo_epochs(ppo_batch)
-        return True
 
     @tf.function
     def train_step(self):
-        tf.numpy_function(self.step_transitions, [], tf.bool)
+        tf.numpy_function(self.step_transitions, [], [])
 
     def fit(
         self,
         target_reward,
-        time_steps,
+        time_steps=2e7,
         max_steps=None,
         monitor_session=None,
         weights=None,
@@ -178,4 +147,4 @@ if __name__ == '__main__':
         envi[0].observation_space.shape, envi[0].action_space.n, neg_log_probs=True
     )
     agn = PPO(envi, mod, optimizer=Adam(25e-5))
-    agn.fit(19, 2e7)
+    agn.fit(19)

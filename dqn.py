@@ -16,6 +16,8 @@ class DQN(BaseAgent):
         epsilon_start=1.0,
         epsilon_end=0.02,
         double=False,
+        update_target_steps=1000,
+        decay_n_steps=150000,
         *args,
         **kwargs,
     ):
@@ -40,7 +42,7 @@ class DQN(BaseAgent):
             ReplayBuffer(
                 buffer_max_size,
                 buffer_initial_size,
-                self.transition_steps,
+                self.n_steps,
                 self.gamma,
                 buffer_batch_size,
             )
@@ -51,21 +53,21 @@ class DQN(BaseAgent):
         self.epsilon_start = self.epsilon = epsilon_start
         self.epsilon_end = epsilon_end
         self.double = double
+        self.update_target_steps = update_target_steps
+        self.decay_n_steps = decay_n_steps
         self.batch_indices = tf.range(
             self.buffer_batch_size * self.n_envs, dtype=tf.int64
         )[:, tf.newaxis]
 
-    def get_actions(self, training=True):
+    def get_actions(self):
         """
         Generate action following an epsilon-greedy policy.
-        Args:
-            training: If False, no use of randomness will apply.
         Returns:
             A random action or Q argmax.
         """
-        if training and np.random.random() < self.epsilon:
+        if np.random.random() < self.epsilon:
             return np.random.randint(0, self.available_actions, self.n_envs)
-        return self.model(np.array(self.states))[0]
+        return self.model(self.get_states())[0]
 
     def get_action_indices(self, actions):
         """
@@ -101,9 +103,9 @@ class DQN(BaseAgent):
             dones, tf.constant(0, new_state_values.dtype), new_state_values
         )
         target_values = tf.identity(q_states)
-        target_value_update = new_state_values * (
-            self.gamma ** self.transition_steps
-        ) + tf.cast(rewards, tf.float32)
+        target_value_update = new_state_values * (self.gamma ** self.n_steps) + tf.cast(
+            rewards, tf.float32
+        )
         indices = self.get_action_indices(actions)
         target_values = tf.tensor_scatter_nd_update(
             target_values, indices, target_value_update
@@ -174,15 +176,23 @@ class DQN(BaseAgent):
         joined[-2] = joined[-2].astype(np.bool)
         return joined
 
+    def at_step_start(self):
+        self.epsilon = max(
+            self.epsilon_end, self.epsilon_start - self.steps / self.decay_n_steps
+        )
+
+    def at_step_end(self):
+        if self.steps % self.update_target_steps == 0:
+            self.target_model.set_weights(self.model.get_weights())
+
     @tf.function
-    def train_step(self, actions):
+    def train_step(self):
         """
         Do 1 training step.
-        Args:
-            actions: A numpy array of actions to perform by self.envs
         Returns:
             None
         """
+        actions = tf.numpy_function(self.get_actions, [], tf.int64)
         tf.numpy_function(self.step_envs, [actions], (tf.float32, tf.float32, tf.bool))
         training_batch = tf.numpy_function(
             self.get_training_batch,
@@ -192,47 +202,6 @@ class DQN(BaseAgent):
         targets = self.get_targets(training_batch)
         self.train_on_batch(training_batch[0], targets)
 
-    def fit(
-        self,
-        target_reward,
-        max_steps=None,
-        monitor_session=None,
-        weights=None,
-        update_target_steps=1000,
-        decay_n_steps=150000,
-    ):
-        """
-        Train DQN agent on a supported environment.
-        Args:
-            target_reward: Target reward, if achieved, the training will stop
-            max_steps: Maximum number of steps, if reached the training will stop.
-            monitor_session: Session name to use for monitoring the training with wandb.
-            update_target_steps: Update target model every n steps.
-            weights: Path to .tf trained model weights to continue training.
-            decay_n_steps: Maximum steps that determine epsilon decay rate.
-        Returns:
-            None
-        """
-        self.fill_buffers()
-        self.init_training(
-            target_reward,
-            max_steps,
-            monitor_session,
-            weights,
-            'mse',
-        )
-        while True:
-            self.check_episodes()
-            if self.training_done():
-                break
-            self.epsilon = max(
-                self.epsilon_end, self.epsilon_start - self.steps / decay_n_steps
-            )
-            actions = self.get_actions()
-            self.train_step(actions)
-            if self.steps % update_target_steps == 0:
-                self.target_model.set_weights(self.model.get_weights())
-
 
 if __name__ == '__main__':
     gym_envs = create_gym_env('PongNoFrameskip-v4', 3)
@@ -241,7 +210,7 @@ if __name__ == '__main__':
     from models import create_cnn_dqn
 
     m = create_cnn_dqn(gym_envs[0].observation_space.shape, gym_envs[0].action_space.n)
-    agn = DQN(gym_envs, m, optimizer=Adam(1e-4))
+    agn = DQN(gym_envs, m, optimizer=Adam(1e-4), buffer_max_size=10000)
     agn.fit(18)
     # agn.play(
     #     '/Users/emadboctor/Desktop/code/drl-models/dqn-pong-19-model/pong_test.tf',

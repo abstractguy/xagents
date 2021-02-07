@@ -81,7 +81,7 @@ class ReplayBuffer(deque):
         self,
         max_size,
         initial_size=None,
-        transition_steps=1,
+        n_steps=1,
         gamma=0.99,
         batch_size=32,
     ):
@@ -90,13 +90,13 @@ class ReplayBuffer(deque):
         Args:
             max_size: Maximum transitions to store.
             initial_size: Maximum transitions to store before starting the training.
-            transition_steps: Steps separating start and end frames.
+            n_steps: Steps separating start and end frames.
             gamma: Discount factor.
             batch_size: Size of the sampling method batch.
         """
         super(ReplayBuffer, self).__init__(maxlen=max_size)
         self.initial_size = initial_size or max_size
-        self.transition_steps = transition_steps
+        self.n_steps = n_steps
         self.gamma = gamma
         self.temp_buffer = []
         self.batch_size = batch_size
@@ -128,7 +128,7 @@ class ReplayBuffer(deque):
         """
         if (self.temp_buffer and self.temp_buffer[-1][3]) or len(
             self.temp_buffer
-        ) == self.transition_steps:
+        ) == self.n_steps:
             adjusted_sample = self.reset_temp_history()
             super(ReplayBuffer, self).append(adjusted_sample)
         self.temp_buffer.append(experience)
