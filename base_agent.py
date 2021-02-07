@@ -21,12 +21,14 @@ class BaseAgent:
         n_steps=1,
         gamma=0.99,
         metric_digits=2,
+        custom_loss=None,
     ):
         """
         Base class for various types of agents.
         Args:
-            envs: A list of gym environments that return states as atari frames.
+            envs: A list of gym environments.
             model: tf.keras.models.Model used for training.
+            optimizer: tf.keras.optimizers.Optimizer.
             checkpoint: Path to .tf filename under which the trained model will be saved.
             reward_buffer_size: Size of the reward buffer that will hold the last n total
                 rewards which will be used for calculating the mean reward.
@@ -34,6 +36,7 @@ class BaseAgent:
                 transition will be s1 -> s4 (defaults to 1, s1 -> s2)
             gamma: Discount factor used for gradient updates.
             metric_digits: Rounding decimals for display purposes.
+            custom_loss: Loss passed to tf.keras.models.Model.compile()
         """
         assert envs, 'No Environments given'
         self.n_envs = len(envs)
@@ -45,6 +48,7 @@ class BaseAgent:
         self.n_steps = n_steps
         self.gamma = gamma
         self.metric_digits = metric_digits
+        self.custom_loss = custom_loss
         self.target_reward = None
         self.max_steps = None
         self.input_shape = self.envs[0].observation_space.shape
@@ -54,6 +58,7 @@ class BaseAgent:
         self.states = [None] * self.n_envs
         self.dones = [False] * self.n_envs
         self.steps = 0
+        self.updates = 0
         self.frame_speed = 0
         self.last_reset_step = 0
         self.training_start_time = None
@@ -141,7 +146,7 @@ class BaseAgent:
 
     def training_done(self):
         """
-        Check if the training is done by a target reward or maximum number of steps.
+        Check whether a target reward or maximum number of steps is reached.
         Returns:
             bool
         """
@@ -189,7 +194,7 @@ class BaseAgent:
             ]
         return [np.array(item, np.float32) for item in zip(*observations)]
 
-    def init_training(self, target_reward, max_steps, monitor_session, weights, loss):
+    def init_training(self, target_reward, max_steps, monitor_session, weights):
         """
         Initialize training start time, wandb session & models (self.model / self.target_model)
         Args:
@@ -197,7 +202,6 @@ class BaseAgent:
             max_steps: Maximum steps, if exceeded, the training will stop.
             monitor_session: Wandb session name.
             weights: Path to .tf weights file compatible with self.model
-            loss: loss passed to tf.keras.models.Model.compile(loss=loss)
 
         Returns:
             None
@@ -210,27 +214,49 @@ class BaseAgent:
             self.model.load_weights(weights)
             if hasattr(self, 'target_model'):
                 self.target_model.load_weights(weights)
-        self.model.compile(self.optimizer, loss=loss)
+        self.model.compile(self.optimizer, loss=self.custom_loss)
         if hasattr(self, 'target_model'):
-            self.target_model.compile(self.optimizer, loss=loss)
+            self.target_model.compile(self.optimizer, loss=self.custom_loss)
         self.training_start_time = perf_counter()
         self.last_reset_time = perf_counter()
 
     def train_step(self):
+        """
+        Perform 1 step which controls action_selection, interaction with environments
+        in self.envs, batching and gradient updates.
+        Returns:
+            None
+        """
         raise NotImplementedError(
             'train_step() should be implemented by BaseAgent subclasses'
         )
 
     def at_step_start(self):
+        """
+        Execute steps that will run before self.train_step().
+        """
         pass
 
     def at_step_end(self):
+        """
+        Execute steps that will run after self.train_step().
+        """
         pass
 
     def get_states(self):
+        """
+        Get most recent states.
+        Returns:
+            self.states as numpy array.
+        """
         return np.array(self.states, np.float32)
 
     def get_dones(self):
+        """
+        Get most recent game statuses.
+        Returns:
+            self.dones as numpy array.
+        """
         return np.array(self.dones, np.float32)
 
     def fit(
@@ -241,7 +267,8 @@ class BaseAgent:
         weights=None,
     ):
         """
-        Train DQN agent on a supported environment.
+        Common training loop shared by subclasses, monitors training status
+        and progress, performs all training steps, updates metrics, and logs progress.
         Args:
             target_reward: Target reward, if achieved, the training will stop
             max_steps: Maximum number of steps, if reached the training will stop.
@@ -252,13 +279,7 @@ class BaseAgent:
         """
         if hasattr(self, 'fill_buffers'):
             self.fill_buffers()
-        self.init_training(
-            target_reward,
-            max_steps,
-            monitor_session,
-            weights,
-            'mse',
-        )
+        self.init_training(target_reward, max_steps, monitor_session, weights)
         while True:
             self.check_episodes()
             if self.training_done():
@@ -266,6 +287,7 @@ class BaseAgent:
             self.at_step_start()
             self.train_step()
             self.at_step_end()
+            self.updates += 1
 
     def play(
         self,

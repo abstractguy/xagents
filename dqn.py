@@ -18,6 +18,7 @@ class DQN(BaseAgent):
         double=False,
         update_target_steps=1000,
         decay_n_steps=150000,
+        custom_loss='mse',
         *args,
         **kwargs,
     ):
@@ -34,10 +35,13 @@ class DQN(BaseAgent):
             epsilon_start: Epsilon value at training start.
             epsilon_end: Epsilon value at training end.
             double: If True, DDQN is used.
+            update_target_steps: Update target network every n steps.
+            decay_n_steps: Decay epsilon for n steps.
+            custom_loss: Loss passed to tf.keras.models.Model.compile()
             *args: args Passed to BaseAgent
             **kwargs: kwargs Passed to BaseAgent
         """
-        super(DQN, self).__init__(envs, model, *args, **kwargs)
+        super(DQN, self).__init__(envs, model, custom_loss=custom_loss, *args, **kwargs)
         self.buffers = [
             ReplayBuffer(
                 buffer_max_size,
@@ -73,9 +77,9 @@ class DQN(BaseAgent):
         """
         Get indices that will be passed to tf.gather_nd()
         Args:
-            actions: Action tensor of shape self.batch_size
+            actions: Action tensor of shape (self.batch_size, )
         Returns:
-            Indices.
+            Indices as tf tensors.
         """
         return tf.concat(
             (self.batch_indices, tf.cast(actions[:, tf.newaxis], tf.int64)), -1
@@ -85,8 +89,9 @@ class DQN(BaseAgent):
         """
         Get target values for gradient updates.
         Args:
-            batch: A batch of observations in the form of
-                [[states], [actions], [rewards], [dones], [next states]]
+            batch: A list which contains
+                [states, actions, rewards, dones, next states]
+                as numpy arrays.
         Returns:
             target values used as y_true in gradient update.
         """
@@ -115,6 +120,8 @@ class DQN(BaseAgent):
     def fill_buffers(self):
         """
         Fill self.buffer up to its initial size.
+        Returns:
+            None
         """
         total_size = sum(buffer.initial_size for buffer in self.buffers)
         sizes = {}
@@ -161,8 +168,9 @@ class DQN(BaseAgent):
         """
         Join batches sampled from each environment in self.envs
         Returns:
-            batch: A batch of observations in the form of
-                [[states], [actions], [rewards], [dones], [next states]]
+            batch: A list which contains
+                [states, actions, rewards, dones, next states]
+                as numpy arrays.
         """
         batches = []
         for i, env in enumerate(self.envs):
@@ -177,18 +185,25 @@ class DQN(BaseAgent):
         return joined
 
     def at_step_start(self):
+        """
+        Execute steps that will run before self.train_step().
+        """
         self.epsilon = max(
             self.epsilon_end, self.epsilon_start - self.steps / self.decay_n_steps
         )
 
     def at_step_end(self):
+        """
+        Execute steps that will run after self.train_step().
+        """
         if self.steps % self.update_target_steps == 0:
             self.target_model.set_weights(self.model.get_weights())
 
     @tf.function
     def train_step(self):
         """
-        Do 1 training step.
+        Perform 1 step which controls action_selection, interaction with environments
+        in self.envs, batching and gradient updates.
         Returns:
             None
         """
@@ -210,7 +225,7 @@ if __name__ == '__main__':
     from models import create_cnn_dqn
 
     m = create_cnn_dqn(gym_envs[0].observation_space.shape, gym_envs[0].action_space.n)
-    agn = DQN(gym_envs, m, optimizer=Adam(1e-4), buffer_max_size=10000)
+    agn = DQN(gym_envs, m, optimizer=Adam(1e-4), buffer_max_size=1000)
     agn.fit(18)
     # agn.play(
     #     '/Users/emadboctor/Desktop/code/drl-models/dqn-pong-19-model/pong_test.tf',

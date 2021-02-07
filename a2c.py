@@ -24,8 +24,8 @@ class A2C(BaseAgent):
             envs: A list of gym environments.
             model: tf.keras.models.Model
             entropy_coef: Entropy coefficient used for entropy loss calculation.
-            vf_coef: Value coefficient used for value loss calculation.
-            n_steps: n-step transition for example given s1, s2, s3, s4 and n_step = 4,
+            vf_coef: Value function coefficient used for value loss calculation.
+            n_steps: n-step transitions for example given s1, s2, s3, s4 and n_step = 4,
                 transition will be s1 -> s4 (defaults to 1, s1 -> s2)
             grad_norm: Gradient clipping value passed to tf.clip_by_global_norm()
             *args: args Passed to BaseAgent.
@@ -37,6 +37,14 @@ class A2C(BaseAgent):
         self.grad_norm = grad_norm
 
     def get_batch(self):
+        """
+        Get n-step batch which is the result of running self.envs step() for
+        self.n_steps times.
+
+        Returns:
+            A list of numpy arrays which contains
+             [states, rewards, actions, values, dones, log probs, entropies]
+        """
         batch = states, rewards, actions, values, dones, log_probs, entropies = [
             [] for _ in range(7)
         ]
@@ -64,7 +72,7 @@ class A2C(BaseAgent):
         """
         Calculate total model loss.
         Args:
-            returns: A list, the result of self.calculate_returns()
+            returns: A list, the result of self.get_batch()
             values: list that will be the same size as self.n_steps and
                 contains n step values and each step contains self.n_envs values.
             log_probs: list that will be the same size as self.n_steps and

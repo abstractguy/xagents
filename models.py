@@ -42,7 +42,6 @@ class CNNA2C(Model):
         fc_units=512,
         actor_gain=0.01,
         critic_gain=1.0,
-        neg_log_probs=False,
     ):
         super(CNNA2C, self).__init__()
         relu_initializer = tf.initializers.Orthogonal(gain=relu_gain)
@@ -57,7 +56,6 @@ class CNNA2C(Model):
             n_actions,
             kernel_initializer=Orthogonal(gain=actor_gain),
         )
-        self.neg_log_probs = neg_log_probs
 
     @tf.function
     def call(self, inputs, training=True, mask=None, actions=None):
@@ -70,7 +68,7 @@ class CNNA2C(Model):
         action_log_probs = distribution.log_prob(actions)
         return (
             actions,
-            -action_log_probs if self.neg_log_probs else action_log_probs,
+            action_log_probs,
             distribution.entropy(),
             value,
         )

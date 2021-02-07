@@ -13,13 +13,27 @@ class PPO(A2C):
         lam=0.95,
         ppo_epochs=4,
         mini_batches=4,
-        advantage_epsilon=1e-5,
+        advantage_epsilon=1e-8,
         clip_norm=0.1,
         *args,
         **kwargs,
     ):
+        """
+        Initialize PPO agent.
+        Args:
+            envs: A list of gym environments.
+            model: tf.keras.models.Model used for training.
+            n_steps: n-step transition for example given s1, s2, s3, s4 and n_step = 4,
+                transition will be s1 -> s4 (defaults to 1, s1 -> s2)
+            lam: GAE-Lambda for advantage estimation
+            ppo_epochs: Gradient updates per training step.
+            mini_batches: Number of mini batches to use per gradient update.
+            advantage_epsilon: Epsilon value added to estimated advantage.
+            clip_norm: Clipping value passed to tf.clip_by_value()
+            *args: args Passed to BaseAgent
+            **kwargs: kwargs Passed to BaseAgent
+        """
         super(PPO, self).__init__(envs, model, n_steps=n_steps, *args, **kwargs)
-        assert self.model.neg_log_probs, 'PPO model neg_log_probs should be set to True'
         self.lam = lam
         self.ppo_epochs = ppo_epochs
         self.mini_batches = mini_batches
@@ -28,12 +42,15 @@ class PPO(A2C):
         self.batch_size = self.n_envs * self.n_steps
         self.mini_batch_size = self.batch_size // self.mini_batches
 
-    @staticmethod
-    def squeeze_transition_item(a):
-        shape = a.shape
-        return a.swapaxes(0, 1).reshape(shape[0] * shape[1], *shape[2:])
-
     def calculate_returns(self, batch):
+        """
+        Calculate returns given a batch which is the result of self.get_batch().
+        Args:
+            batch: A list of numpy arrays which contains
+             [states, rewards, actions, values, dones, log probs, entropies]
+        Returns:
+            returns as numpy array.
+        """
         states, rewards, actions, values, dones, log_probs = batch
         next_values = self.model(states[-1])[-1].numpy()
         advantages = np.zeros_like(rewards)
@@ -64,7 +81,7 @@ class PPO(A2C):
                 states, actions, returns, masks, old_values, old_log_probs = mini_batch
                 advantages = returns - old_values
                 (advantages - tf.reduce_mean(advantages)) / (
-                    tf.keras.backend.std(advantages) + 1e-8
+                    tf.keras.backend.std(advantages) + self.advantage_epsilon
                 )
                 with tf.GradientTape() as tape:
                     _, log_probs, entropy, values = self.model(states, actions=actions)
@@ -75,7 +92,7 @@ class PPO(A2C):
                     vf_loss1 = tf.square(values - returns)
                     vf_loss2 = tf.square(clipped_values - returns)
                     vf_loss = 0.5 * tf.reduce_mean(tf.maximum(vf_loss1, vf_loss2))
-                    ratio = tf.exp(old_log_probs - log_probs)
+                    ratio = tf.exp(log_probs - old_log_probs)
                     pg_loss1 = -advantages * ratio
                     pg_loss2 = -advantages * tf.clip_by_value(
                         ratio, 1 - self.clip_norm, 1 + self.clip_norm
@@ -99,41 +116,18 @@ class PPO(A2C):
             values,
             dones,
             log_probs,
-            entropies,
+            _,
         ) = [np.asarray(item, np.float32) for item in self.get_batch()]
         returns = self.calculate_returns(batch[:-1])
         ppo_batch = [
-            self.squeeze_transition_item(item)
-            for item in [states, actions, returns, dones, values, log_probs]
+            a.swapaxes(0, 1).reshape(a.shape[0] * a.shape[1], *a.shape[2:])
+            for a in [states, actions, returns, dones, values, log_probs]
         ]
         self.run_ppo_epochs(ppo_batch)
 
     @tf.function
     def train_step(self):
         tf.numpy_function(self.step_transitions, [], [])
-
-    def fit(
-        self,
-        target_reward,
-        time_steps=2e7,
-        max_steps=None,
-        monitor_session=None,
-        weights=None,
-    ):
-        self.init_training(target_reward, max_steps, monitor_session, weights, None)
-        updates = 0
-        n_batches = self.batch_size
-        n_updates = time_steps // n_batches
-        while True:
-            updates += 1
-            frac = 1.0 - (updates - 1.0) / n_updates
-            self.model.optimizer.learning_rate.assign(
-                self.model.optimizer.learning_rate * frac
-            )
-            self.check_episodes()
-            if self.training_done():
-                break
-            self.train_step()
 
 
 if __name__ == '__main__':
@@ -143,8 +137,6 @@ if __name__ == '__main__':
     from utils import create_gym_env
 
     envi = create_gym_env('PongNoFrameskip-v4', 16)
-    mod = CNNA2C(
-        envi[0].observation_space.shape, envi[0].action_space.n, neg_log_probs=True
-    )
+    mod = CNNA2C(envi[0].observation_space.shape, envi[0].action_space.n)
     agn = PPO(envi, mod, optimizer=Adam(25e-5))
     agn.fit(19)
