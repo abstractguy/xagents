@@ -110,7 +110,7 @@ class A2C(BaseAgent):
             next_values = self.model(states[-1])[-1]
             returns = [next_values]
             for step in reversed(range(self.n_steps)):
-                returns.append(rewards[step] + masks[step] * self.gamma * returns[0])
+                returns.append(rewards[step] + masks[step] * self.gamma * returns[-1])
             returns.reverse()
             loss = self.calculate_loss(returns, values, log_probs, entropies)
         gradients = tape.gradient(loss, self.model.trainable_variables)
