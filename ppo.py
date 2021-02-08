@@ -1,10 +1,10 @@
 import numpy as np
 import tensorflow as tf
 
-from a2c import A2C
+from base_agent import BaseAgent
 
 
-class PPO(A2C):
+class PPO(BaseAgent):
     def __init__(
         self,
         envs,
@@ -15,6 +15,9 @@ class PPO(A2C):
         mini_batches=4,
         advantage_epsilon=1e-8,
         clip_norm=0.1,
+        entropy_coef=0.01,
+        value_loss_coef=0.5,
+        grad_norm=0.5,
         *args,
         **kwargs,
     ):
@@ -39,8 +42,43 @@ class PPO(A2C):
         self.mini_batches = mini_batches
         self.advantage_epsilon = advantage_epsilon
         self.clip_norm = clip_norm
+        self.entropy_coef = entropy_coef
+        self.value_coef = value_loss_coef
+        self.grad_norm = grad_norm
         self.batch_size = self.n_envs * self.n_steps
         self.mini_batch_size = self.batch_size // self.mini_batches
+
+    def get_batch(self):
+        """
+        Get n-step batch which is the result of running self.envs step() for
+        self.n_steps times.
+
+        Returns:
+            A list of numpy arrays which contains
+             [states, rewards, actions, values, dones, log probs, entropies]
+        """
+        batch = states, rewards, actions, values, dones, log_probs, entropies = [
+            [] for _ in range(7)
+        ]
+        step_states = tf.numpy_function(self.get_states, [], tf.float32)
+        step_dones = tf.numpy_function(self.get_dones, [], tf.float32)
+        for _ in range(self.n_steps):
+            step_actions, step_log_probs, step_entropies, step_values = self.model(
+                step_states
+            )
+            states.append(step_states)
+            actions.append(step_actions)
+            values.append(step_values)
+            log_probs.append(step_log_probs)
+            dones.append(step_dones)
+            entropies.append(step_entropies)
+            step_states, step_rewards, step_dones = tf.numpy_function(
+                self.step_envs,
+                [step_actions],
+                [tf.float32 for _ in range(3)],
+            )
+            rewards.append(step_rewards)
+        return batch
 
     def calculate_returns(self, batch):
         """
@@ -55,12 +93,11 @@ class PPO(A2C):
         next_values = self.model(states[-1])[-1].numpy()
         advantages = np.zeros_like(rewards)
         last_lam = 0
+        values = np.concatenate([values, np.expand_dims(next_values, 0)])
+        dones = np.concatenate([dones, np.expand_dims(dones[-1], 0)])
         for step in reversed(range(self.n_steps)):
-            if step == self.n_steps - 1:
-                next_non_terminal = 1 - dones[-1]
-            else:
-                next_non_terminal = 1.0 - dones[step + 1]
-                next_values = values[step + 1]
+            next_non_terminal = 1.0 - dones[step + 1]
+            next_values = values[step + 1]
             delta = (
                 rewards[step]
                 + self.gamma * next_values * next_non_terminal
@@ -69,9 +106,17 @@ class PPO(A2C):
             advantages[step] = last_lam = (
                 delta + self.gamma * self.lam * next_non_terminal * last_lam
             )
-        return advantages + values
+        return advantages + values[:-1]
 
     def run_ppo_epochs(self, batch):
+        """
+        Split batch into mini-batches and run update epochs.
+        Args:
+            batch: A list of numpy arrays which contains
+             [states, rewards, actions, values, dones, log probs, entropies]
+        Returns:
+            None
+        """
         indices = np.arange(self.batch_size)
         for _ in range(self.ppo_epochs):
             np.random.shuffle(indices)
@@ -99,7 +144,9 @@ class PPO(A2C):
                     )
                     pg_loss = tf.reduce_mean(tf.maximum(pg_loss1, pg_loss2))
                     loss = (
-                        pg_loss - entropy * self.entropy_coef + vf_loss * self.vf_coef
+                        pg_loss
+                        - entropy * self.entropy_coef
+                        + vf_loss * self.value_coef
                     )
                 grads = tape.gradient(loss, self.model.trainable_variables)
                 if self.grad_norm is not None:
@@ -139,4 +186,4 @@ if __name__ == '__main__':
     envi = create_gym_env('PongNoFrameskip-v4', 16)
     mod = CNNA2C(envi[0].observation_space.shape, envi[0].action_space.n)
     agn = PPO(envi, mod, optimizer=Adam(25e-5))
-    agn.fit(19)
+    agn.fit(19, 300000)

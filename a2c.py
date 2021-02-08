@@ -1,9 +1,6 @@
-import numpy as np
 import tensorflow as tf
-import tensorflow_addons as tfa
 
 from base_agent import BaseAgent
-from utils import create_gym_env
 
 
 class A2C(BaseAgent):
@@ -12,7 +9,7 @@ class A2C(BaseAgent):
         envs,
         model,
         entropy_coef=0.01,
-        vf_coef=0.5,
+        value_loss_coef=0.5,
         n_steps=5,
         grad_norm=0.5,
         *args,
@@ -24,8 +21,8 @@ class A2C(BaseAgent):
             envs: A list of gym environments.
             model: tf.keras.models.Model
             entropy_coef: Entropy coefficient used for entropy loss calculation.
-            vf_coef: Value function coefficient used for value loss calculation.
-            n_steps: n-step transitions for example given s1, s2, s3, s4 and n_step = 4,
+            value_loss_coef: Value coefficient used for value loss calculation.
+            n_steps: n-step transition for example given s1, s2, s3, s4 and n_step = 4,
                 transition will be s1 -> s4 (defaults to 1, s1 -> s2)
             grad_norm: Gradient clipping value passed to tf.clip_by_global_norm()
             *args: args Passed to BaseAgent.
@@ -33,53 +30,44 @@ class A2C(BaseAgent):
         """
         super(A2C, self).__init__(envs, model, *args, n_steps=n_steps, **kwargs)
         self.entropy_coef = entropy_coef
-        self.vf_coef = vf_coef
+        self.value_loss_coef = value_loss_coef
         self.grad_norm = grad_norm
 
-    def get_batch(self):
-        """
-        Get n-step batch which is the result of running self.envs step() for
-        self.n_steps times.
-
-        Returns:
-            A list of numpy arrays which contains
-             [states, rewards, actions, values, dones, log probs, entropies]
-        """
-        batch = states, rewards, actions, values, dones, log_probs, entropies = [
+    def step_transitions(self):
+        transitions = states, actions, log_probs, values, rewards, masks, entropies = [
             [] for _ in range(7)
         ]
-        step_states = tf.numpy_function(self.get_states, [], tf.float32)
-        step_dones = tf.numpy_function(self.get_dones, [], tf.float32)
-        for _ in range(self.n_steps):
+        step_states = tf.numpy_function(func=self.get_states, inp=[], Tout=tf.float32)
+        for step in range(self.n_steps):
             step_actions, step_log_probs, step_entropies, step_values = self.model(
                 step_states
             )
+            step_states, step_rewards, step_dones = tf.numpy_function(
+                func=self.step_envs,
+                inp=[step_actions],
+                Tout=(tf.float32, tf.float32, tf.float32),
+            )
+            step_masks = 1 - step_dones
             states.append(step_states)
             actions.append(step_actions)
-            values.append(step_values)
             log_probs.append(step_log_probs)
-            dones.append(step_dones)
-            entropies.append(step_entropies)
-            step_states, step_rewards, step_dones = tf.numpy_function(
-                self.step_envs,
-                [step_actions],
-                [tf.float32 for _ in range(3)],
-            )
+            values.append(step_values)
             rewards.append(step_rewards)
-        return batch
+            masks.append(step_masks)
+            entropies.append(step_entropies)
+        return transitions
 
     def calculate_loss(self, returns, values, log_probs, entropies):
         """
         Calculate total model loss.
         Args:
-            returns: A list, the result of self.get_batch()
+            returns: A list, the result of self.calculate_returns()
             values: list that will be the same size as self.n_steps and
                 contains n step values and each step contains self.n_envs values.
             log_probs: list that will be the same size as self.n_steps and
                 contains n step log_probs and each step contains self.n_envs log_probs.
             entropies: list that will be the same size as self.n_steps and
                 contains n step entropies and each step contains self.n_envs entropies.
-
         Returns:
             Total loss as tf.Tensor
         """
@@ -97,32 +85,33 @@ class A2C(BaseAgent):
         action_loss /= self.n_steps
         entropy_loss /= self.n_steps
         return (
-            self.vf_coef * value_loss + action_loss - entropy_loss * self.entropy_coef
+            self.value_loss_coef * value_loss
+            + action_loss
+            - entropy_loss * self.entropy_coef
         )
 
     @tf.function
     def train_step(self):
         """
         Do 1 training step.
-
         Returns:
             None
         """
         with tf.GradientTape() as tape:
             (
                 states,
-                rewards,
                 actions,
-                values,
-                dones,
                 log_probs,
+                values,
+                rewards,
+                masks,
                 entropies,
-            ) = self.get_batch()
+            ) = self.step_transitions()
             next_values = self.model(states[-1])[-1]
             returns = [next_values]
-            masks = 1 - np.array(dones)
             for step in reversed(range(self.n_steps)):
-                returns.insert(0, rewards[step] + masks[step] * self.gamma * returns[0])
+                returns.append(rewards[step] + masks[step] * self.gamma * returns[0])
+            returns.reverse()
             loss = self.calculate_loss(returns, values, log_probs, entropies)
         gradients = tape.gradient(loss, self.model.trainable_variables)
         gradients, _ = tf.clip_by_global_norm(gradients, self.grad_norm)
@@ -132,6 +121,10 @@ class A2C(BaseAgent):
 
 
 if __name__ == '__main__':
+    import tensorflow_addons as tfa
+
+    from utils import create_gym_env
+
     ens = create_gym_env('PongNoFrameskip-v4', 16)
     from models import CNNA2C
 
