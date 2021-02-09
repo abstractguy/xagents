@@ -1,10 +1,10 @@
 import numpy as np
 import tensorflow as tf
 
-from base_agent import BaseAgent
+from a2c import A2C
 
 
-class PPO(BaseAgent):
+class PPO(A2C):
     def __init__(
         self,
         envs,
@@ -15,9 +15,6 @@ class PPO(BaseAgent):
         mini_batches=4,
         advantage_epsilon=1e-8,
         clip_norm=0.1,
-        entropy_coef=0.01,
-        value_loss_coef=0.5,
-        grad_norm=0.5,
         *args,
         **kwargs,
     ):
@@ -42,61 +39,17 @@ class PPO(BaseAgent):
         self.mini_batches = mini_batches
         self.advantage_epsilon = advantage_epsilon
         self.clip_norm = clip_norm
-        self.entropy_coef = entropy_coef
-        self.value_coef = value_loss_coef
-        self.grad_norm = grad_norm
         self.batch_size = self.n_envs * self.n_steps
         self.mini_batch_size = self.batch_size // self.mini_batches
 
-    def get_batch(self):
-        """
-        Get n-step batch which is the result of running self.envs step() for
-        self.n_steps times.
-
-        Returns:
-            A list of numpy arrays which contains
-             [states, rewards, actions, values, dones, log probs, entropies]
-        """
-        batch = states, rewards, actions, values, dones, log_probs, entropies = [
-            [] for _ in range(7)
-        ]
-        step_states = tf.numpy_function(self.get_states, [], tf.float32)
-        step_dones = tf.numpy_function(self.get_dones, [], tf.float32)
-        for _ in range(self.n_steps):
-            step_actions, step_log_probs, step_entropies, step_values = self.model(
-                step_states
-            )
-            states.append(step_states)
-            actions.append(step_actions)
-            values.append(step_values)
-            log_probs.append(step_log_probs)
-            dones.append(step_dones)
-            entropies.append(step_entropies)
-            step_states, step_rewards, step_dones = tf.numpy_function(
-                self.step_envs,
-                [step_actions],
-                [tf.float32 for _ in range(3)],
-            )
-            rewards.append(step_rewards)
-        return batch
-
-    def calculate_returns(self, batch):
-        """
-        Calculate returns given a batch which is the result of self.get_batch().
-        Args:
-            batch: A list of numpy arrays which contains
-             [states, rewards, actions, values, dones, log probs, entropies]
-        Returns:
-            returns as numpy array.
-        """
-        states, rewards, actions, values, dones, log_probs = batch
+    def calculate_returns(self, states, rewards, values, dones):
         next_values = self.model(states[-1])[-1].numpy()
         advantages = np.zeros_like(rewards)
         last_lam = 0
         values = np.concatenate([values, np.expand_dims(next_values, 0)])
         dones = np.concatenate([dones, np.expand_dims(dones[-1], 0)])
         for step in reversed(range(self.n_steps)):
-            next_non_terminal = 1.0 - dones[step + 1]
+            next_non_terminal = 1 - dones[step + 1]
             next_values = values[step + 1]
             delta = (
                 rewards[step]
@@ -108,55 +61,70 @@ class PPO(BaseAgent):
             )
         return advantages + values[:-1]
 
-    def run_ppo_epochs(self, batch):
-        """
-        Split batch into mini-batches and run update epochs.
-        Args:
-            batch: A list of numpy arrays which contains
-             [states, rewards, actions, values, dones, log probs, entropies]
-        Returns:
-            None
-        """
+    def update_step(
+        self, states, actions, old_values, returns, old_log_probs, advantages
+    ):
+        with tf.GradientTape() as tape:
+            _, log_probs, entropy, values = self.model(states, actions=actions)
+            entropy = tf.reduce_mean(entropy)
+            clipped_values = old_values + tf.clip_by_value(
+                values - old_values, -self.clip_norm, self.clip_norm
+            )
+            vf_loss1 = tf.square(values - returns)
+            vf_loss2 = tf.square(clipped_values - returns)
+            vf_loss = 0.5 * tf.reduce_mean(tf.maximum(vf_loss1, vf_loss2))
+            ratio = tf.exp(log_probs - old_log_probs)
+            pg_loss1 = -advantages * ratio
+            pg_loss2 = -advantages * tf.clip_by_value(
+                ratio, 1 - self.clip_norm, 1 + self.clip_norm
+            )
+            pg_loss = tf.reduce_mean(tf.maximum(pg_loss1, pg_loss2))
+            loss = (
+                pg_loss - entropy * self.entropy_coef + vf_loss * self.value_loss_coef
+            )
+        grads = tape.gradient(loss, self.model.trainable_variables)
+        if self.grad_norm is not None:
+            grads, _ = tf.clip_by_global_norm(grads, self.grad_norm)
+        self.model.optimizer.apply_gradients(zip(grads, self.model.trainable_variables))
+
+    def run_ppo_epochs(self, states, actions, returns, old_values, old_log_probs):
         indices = np.arange(self.batch_size)
         for _ in range(self.ppo_epochs):
             np.random.shuffle(indices)
             for i in range(0, self.batch_size, self.mini_batch_size):
                 batch_indices = indices[i : i + self.mini_batch_size]
-                mini_batch = [tf.constant(item[batch_indices]) for item in batch]
-                states, actions, returns, masks, old_values, old_log_probs = mini_batch
-                advantages = returns - old_values
-                (advantages - tf.reduce_mean(advantages)) / (
-                    tf.keras.backend.std(advantages) + self.advantage_epsilon
+                mini_batch = [
+                    tf.constant(item[batch_indices])
+                    for item in [
+                        states,
+                        actions,
+                        returns,
+                        old_values,
+                        old_log_probs,
+                    ]
+                ]
+                (
+                    states_mb,
+                    actions_mb,
+                    returns_mb,
+                    old_values_mb,
+                    old_log_probs_mb,
+                ) = mini_batch
+                advantages_mb = returns_mb - old_values_mb
+                (advantages_mb - tf.reduce_mean(advantages_mb)) / (
+                    tf.keras.backend.std(advantages_mb) + self.advantage_epsilon
                 )
-                with tf.GradientTape() as tape:
-                    _, log_probs, entropy, values = self.model(states, actions=actions)
-                    entropy = tf.reduce_mean(entropy)
-                    clipped_values = old_values + tf.clip_by_value(
-                        values - old_values, -self.clip_norm, self.clip_norm
-                    )
-                    vf_loss1 = tf.square(values - returns)
-                    vf_loss2 = tf.square(clipped_values - returns)
-                    vf_loss = 0.5 * tf.reduce_mean(tf.maximum(vf_loss1, vf_loss2))
-                    ratio = tf.exp(log_probs - old_log_probs)
-                    pg_loss1 = -advantages * ratio
-                    pg_loss2 = -advantages * tf.clip_by_value(
-                        ratio, 1 - self.clip_norm, 1 + self.clip_norm
-                    )
-                    pg_loss = tf.reduce_mean(tf.maximum(pg_loss1, pg_loss2))
-                    loss = (
-                        pg_loss
-                        - entropy * self.entropy_coef
-                        + vf_loss * self.value_coef
-                    )
-                grads = tape.gradient(loss, self.model.trainable_variables)
-                if self.grad_norm is not None:
-                    grads, _ = tf.clip_by_global_norm(grads, self.grad_norm)
-                self.model.optimizer.apply_gradients(
-                    zip(grads, self.model.trainable_variables)
+                self.update_step(
+                    states_mb,
+                    actions_mb,
+                    old_values_mb,
+                    returns_mb,
+                    old_log_probs_mb,
+                    advantages_mb,
                 )
 
     def step_transitions(self):
-        batch = (
+        (
             states,
             rewards,
             actions,
@@ -165,12 +133,12 @@ class PPO(BaseAgent):
             log_probs,
             _,
         ) = [np.asarray(item, np.float32) for item in self.get_batch()]
-        returns = self.calculate_returns(batch[:-1])
+        returns = self.calculate_returns(states, rewards, values, dones)
         ppo_batch = [
             a.swapaxes(0, 1).reshape(a.shape[0] * a.shape[1], *a.shape[2:])
-            for a in [states, actions, returns, dones, values, log_probs]
+            for a in [states, actions, returns, values, log_probs]
         ]
-        self.run_ppo_epochs(ppo_batch)
+        self.run_ppo_epochs(*ppo_batch)
 
     @tf.function
     def train_step(self):
@@ -186,4 +154,4 @@ if __name__ == '__main__':
     envi = create_gym_env('PongNoFrameskip-v4', 16)
     mod = CNNA2C(envi[0].observation_space.shape, envi[0].action_space.n)
     agn = PPO(envi, mod, optimizer=Adam(25e-5))
-    agn.fit(19, 300000)
+    agn.fit(19)

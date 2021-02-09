@@ -1,3 +1,4 @@
+import numpy as np
 import tensorflow as tf
 
 from base_agent import BaseAgent
@@ -33,29 +34,36 @@ class A2C(BaseAgent):
         self.value_loss_coef = value_loss_coef
         self.grad_norm = grad_norm
 
-    def step_transitions(self):
-        transitions = states, actions, log_probs, values, rewards, masks, entropies = [
+    def get_batch(self):
+        """
+        Get n-step batch which is the result of running self.envs step() for
+        self.n_steps times.
+        Returns:
+            A list of numpy arrays which contains
+             [states, rewards, actions, values, dones, log probs, entropies]
+        """
+        batch = states, rewards, actions, values, dones, log_probs, entropies = [
             [] for _ in range(7)
         ]
-        step_states = tf.numpy_function(func=self.get_states, inp=[], Tout=tf.float32)
-        for step in range(self.n_steps):
+        step_states = tf.numpy_function(self.get_states, [], tf.float32)
+        step_dones = tf.numpy_function(self.get_dones, [], tf.float32)
+        for _ in range(self.n_steps):
             step_actions, step_log_probs, step_entropies, step_values = self.model(
                 step_states
             )
-            step_states, step_rewards, step_dones = tf.numpy_function(
-                func=self.step_envs,
-                inp=[step_actions],
-                Tout=(tf.float32, tf.float32, tf.float32),
-            )
-            step_masks = 1 - step_dones
             states.append(step_states)
             actions.append(step_actions)
-            log_probs.append(step_log_probs)
             values.append(step_values)
-            rewards.append(step_rewards)
-            masks.append(step_masks)
+            log_probs.append(step_log_probs)
+            dones.append(step_dones)
             entropies.append(step_entropies)
-        return transitions
+            step_states, step_rewards, step_dones = tf.numpy_function(
+                self.step_envs,
+                [step_actions],
+                [tf.float32 for _ in range(3)],
+            )
+            rewards.append(step_rewards)
+        return batch
 
     def calculate_loss(self, returns, values, log_probs, entropies):
         """
@@ -100,17 +108,21 @@ class A2C(BaseAgent):
         with tf.GradientTape() as tape:
             (
                 states,
-                actions,
-                log_probs,
-                values,
                 rewards,
-                masks,
+                actions,
+                values,
+                dones,
+                log_probs,
                 entropies,
-            ) = self.step_transitions()
+            ) = self.get_batch()
+            dones.append(dones[-1])
+            masks = 1 - np.array(dones)
             next_values = self.model(states[-1])[-1]
             returns = [next_values]
             for step in reversed(range(self.n_steps)):
-                returns.append(rewards[step] + masks[step] * self.gamma * returns[-1])
+                returns.append(
+                    rewards[step] + masks[step + 1] * self.gamma * returns[-1]
+                )
             returns.reverse()
             loss = self.calculate_loss(returns, values, log_probs, entropies)
         gradients = tape.gradient(loss, self.model.trainable_variables)
