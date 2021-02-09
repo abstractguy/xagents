@@ -66,6 +66,7 @@ class DQN(BaseAgent):
     def get_actions(self):
         """
         Generate action following an epsilon-greedy policy.
+
         Returns:
             A random action or Q argmax.
         """
@@ -77,7 +78,8 @@ class DQN(BaseAgent):
         """
         Get indices that will be passed to tf.gather_nd()
         Args:
-            actions: Action tensor of shape (self.batch_size, )
+            actions: Action tensor of shape (self.batch_size,)
+
         Returns:
             Indices as tf tensors.
         """
@@ -92,6 +94,7 @@ class DQN(BaseAgent):
             batch: A list which contains
                 [states, actions, rewards, dones, next states]
                 as numpy arrays.
+
         Returns:
             target values used as y_true in gradient update.
         """
@@ -120,6 +123,7 @@ class DQN(BaseAgent):
     def fill_buffers(self):
         """
         Fill self.buffer up to its initial size.
+
         Returns:
             None
         """
@@ -153,6 +157,7 @@ class DQN(BaseAgent):
             x: States tensor
             y: Targets tensor
             sample_weight: sample_weight passed to model.compiled_loss()
+
         Returns:
             None
         """
@@ -167,6 +172,7 @@ class DQN(BaseAgent):
     def get_training_batch(self):
         """
         Join batches sampled from each environment in self.envs
+
         Returns:
             batch: A list which contains
                 [states, actions, rewards, dones, next states]
@@ -187,6 +193,9 @@ class DQN(BaseAgent):
     def at_step_start(self):
         """
         Execute steps that will run before self.train_step().
+
+        Returns:
+            None
         """
         self.epsilon = max(
             self.epsilon_end, self.epsilon_start - self.steps / self.decay_n_steps
@@ -195,6 +204,9 @@ class DQN(BaseAgent):
     def at_step_end(self):
         """
         Execute steps that will run after self.train_step().
+
+        Returns:
+            None
         """
         if self.steps % self.update_target_steps == 0:
             self.target_model.set_weights(self.model.get_weights())
@@ -204,6 +216,7 @@ class DQN(BaseAgent):
         """
         Perform 1 step which controls action_selection, interaction with environments
         in self.envs, batching and gradient updates.
+
         Returns:
             None
         """

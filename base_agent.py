@@ -72,6 +72,7 @@ class BaseAgent:
     def reset_envs(self):
         """
         Reset all environments in self.envs
+
         Returns:
             None
         """
@@ -81,6 +82,7 @@ class BaseAgent:
     def checkpoint(self):
         """
         Save model weights if current reward > best reward.
+
         Returns:
             None
         """
@@ -93,6 +95,7 @@ class BaseAgent:
     def display_metrics(self):
         """
         Display progress metrics to the console.
+
         Returns:
             None
         """
@@ -122,6 +125,7 @@ class BaseAgent:
     def update_metrics(self):
         """
         Update progress metrics.
+
         Returns:
             None
         """
@@ -135,6 +139,7 @@ class BaseAgent:
     def check_episodes(self):
         """
         Check environment done counts to display progress and update metrics.
+
         Returns:
             None
         """
@@ -147,6 +152,7 @@ class BaseAgent:
     def training_done(self):
         """
         Check whether a target reward or maximum number of steps is reached.
+
         Returns:
             bool
         """
@@ -163,6 +169,7 @@ class BaseAgent:
         Play 1 step for each env in self.envs
         Args:
             actions: numpy array / list of actions.
+
         Returns:
             numpy array of [[states], [rewards], [dones]] or a numpy placeholder
             for compatibility with tf.numpy_function()
@@ -224,6 +231,7 @@ class BaseAgent:
         """
         Perform 1 step which controls action_selection, interaction with environments
         in self.envs, batching and gradient updates.
+
         Returns:
             None
         """
@@ -234,18 +242,25 @@ class BaseAgent:
     def at_step_start(self):
         """
         Execute steps that will run before self.train_step().
+
+        Returns:
+            None
         """
         pass
 
     def at_step_end(self):
         """
         Execute steps that will run after self.train_step().
+
+        Returns:
+            None
         """
         pass
 
     def get_states(self):
         """
         Get most recent states.
+
         Returns:
             self.states as numpy array.
         """
@@ -254,6 +269,7 @@ class BaseAgent:
     def get_dones(self):
         """
         Get most recent game statuses.
+
         Returns:
             self.dones as numpy array.
         """
@@ -274,6 +290,7 @@ class BaseAgent:
             max_steps: Maximum number of steps, if reached the training will stop.
             monitor_session: Session name to use for monitoring the training with wandb.
             weights: Path to .tf trained model weights to continue training.
+
         Returns:
             None
         """
@@ -310,6 +327,7 @@ class BaseAgent:
             frame_delay: Delay between rendered frames.
             env_idx: env index in self.envs
             action_idx: Index of action output by self.model
+
         Returns:
             None
         """

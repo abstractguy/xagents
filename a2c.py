@@ -38,6 +38,7 @@ class A2C(BaseAgent):
         """
         Get n-step batch which is the result of running self.envs step() for
         self.n_steps times.
+
         Returns:
             A list of numpy arrays which contains
              [states, rewards, actions, values, dones, log probs, entropies]
@@ -76,6 +77,7 @@ class A2C(BaseAgent):
                 contains n step log_probs and each step contains self.n_envs log_probs.
             entropies: list that will be the same size as self.n_steps and
                 contains n step entropies and each step contains self.n_envs entropies.
+
         Returns:
             Total loss as tf.Tensor
         """
@@ -102,6 +104,7 @@ class A2C(BaseAgent):
     def train_step(self):
         """
         Do 1 training step.
+
         Returns:
             None
         """

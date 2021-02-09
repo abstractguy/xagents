@@ -43,6 +43,17 @@ class PPO(A2C):
         self.mini_batch_size = self.batch_size // self.mini_batches
 
     def calculate_returns(self, states, rewards, values, dones):
+        """
+        Get a batch of returns.
+        Args:
+            states: states as numpy array of shape (self.n_steps, self.n_envs, *self.input_shape)
+            rewards: rewards as numpy array of shape (self.n_steps, self.n_envs)
+            values: values as numpy array of shape (self.n_steps, self.n_envs)
+            dones: dones as numpy array of shape (self.n_steps, self.n_envs)
+
+        Returns:
+            returns as numpy array.
+        """
         next_values = self.model(states[-1])[-1].numpy()
         advantages = np.zeros_like(rewards)
         last_lam = 0
@@ -64,6 +75,19 @@ class PPO(A2C):
     def update_step(
         self, states, actions, old_values, returns, old_log_probs, advantages
     ):
+        """
+        Perform gradient updates.
+        Args:
+            states: states as numpy array of shape (self.mini_batch_size, *self.input_shape)
+            actions: actions as numpy array of shape (self.mini_batch_size,)
+            old_values: old values as numpy array of shape (self.mini_batch_size,)
+            returns: returns as numpy array of shape (self.mini_batch_size,)
+            old_log_probs: old log probs as numpy array of shape (self.mini_batch_size,)
+            advantages: advantages as numpy array of shape (self.mini_batch_size,)
+
+        Returns:
+            None
+        """
         with tf.GradientTape() as tape:
             _, log_probs, entropy, values = self.model(states, actions=actions)
             entropy = tf.reduce_mean(entropy)
@@ -88,6 +112,18 @@ class PPO(A2C):
         self.model.optimizer.apply_gradients(zip(grads, self.model.trainable_variables))
 
     def run_ppo_epochs(self, states, actions, returns, old_values, old_log_probs):
+        """
+        Split batch into mini batches and perform gradient updates.
+        Args:
+            states: states as numpy array of shape (self.n_steps * self.n_envs, *self.input_shape)
+            actions: actions as numpy array of shape (self.n_steps * self.n_envs,)
+            returns: returns as numpy array of shape (self.n_steps * self.n_envs,)
+            old_values: old values as numpy array of shape (self.n_steps * self.n_envs,)
+            old_log_probs: old log probs as numpy array of shape (self.n_steps * self.n_envs,)
+
+        Returns:
+            None
+        """
         indices = np.arange(self.batch_size)
         for _ in range(self.ppo_epochs):
             np.random.shuffle(indices)
@@ -123,7 +159,13 @@ class PPO(A2C):
                     advantages_mb,
                 )
 
-    def step_transitions(self):
+    def np_train_step(self):
+        """
+        Perform numpy operations of training.
+
+        Returns:
+            None
+        """
         (
             states,
             rewards,
@@ -142,7 +184,14 @@ class PPO(A2C):
 
     @tf.function
     def train_step(self):
-        tf.numpy_function(self.step_transitions, [], [])
+        """
+        Perform 1 step which controls action_selection, interaction with environments
+        in self.envs, batching and gradient updates.
+
+        Returns:
+            None
+        """
+        tf.numpy_function(self.np_train_step, [], [])
 
 
 if __name__ == '__main__':
