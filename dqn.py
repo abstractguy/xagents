@@ -221,7 +221,7 @@ class DQN(BaseAgent):
             None
         """
         actions = tf.numpy_function(self.get_actions, [], tf.int64)
-        tf.numpy_function(self.step_envs, [actions], (tf.float32, tf.float32, tf.bool))
+        tf.numpy_function(self.step_envs, [actions, False], [])
         training_batch = tf.numpy_function(
             self.get_training_batch,
             [],

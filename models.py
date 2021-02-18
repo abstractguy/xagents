@@ -69,8 +69,9 @@ class CNNA2C(Model):
         return (
             actions,
             action_log_probs,
-            distribution.entropy(),
             value,
+            distribution.entropy(),
+            actor_features,
         )
 
     def get_config(self):

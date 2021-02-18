@@ -157,25 +157,31 @@ class BaseAgent:
             bool
         """
         if self.mean_reward >= self.target_reward:
-            print(f'Reward achieved in {self.steps} steps!')
+            print(f'Reward achieved in {self.steps} steps')
             return True
         if self.max_steps and self.steps >= self.max_steps:
             print(f'Maximum steps exceeded')
             return True
         return False
 
-    def step_envs(self, actions):
+    def step_envs(self, actions, get_observations: bool, *args):
         """
         Play 1 step for each env in self.envs
         Args:
             actions: numpy array / list of actions.
+            get_observations: If True, observations will be saved and returned.
+            *args: extra numpy arrays to be added to buffer (if available)
 
         Returns:
-            numpy array of [[states], [rewards], [dones]] or a numpy placeholder
-            for compatibility with tf.numpy_function()
+            A list of [[states], [rewards], [dones]] in case get_observations is True
+            is not an attribute of the subclass otherwise, an empty list.
         """
         observations = []
-        for (i, env), action in zip(enumerate(self.envs), actions):
+        for (
+            (i, env),
+            action,
+            *items,
+        ) in zip(enumerate(self.envs), actions, *args):
             state = self.states[i]
             new_state, reward, done, _ = env.step(action)
             self.states[i] = new_state
@@ -183,8 +189,8 @@ class BaseAgent:
             self.steps += 1
             self.episode_rewards[i] += reward
             if hasattr(self, 'buffers'):
-                self.buffers[i].append((state, action, reward, done, new_state))
-            else:
+                self.buffers[i].append((state, action, reward, done, new_state, *items))
+            if get_observations:
                 observations.append((new_state, reward, done))
             if done:
                 self.done_envs.append(1)
@@ -193,12 +199,6 @@ class BaseAgent:
                 self.games += 1
                 self.episode_rewards[i] = 0
                 self.states[i] = env.reset()
-        if hasattr(self, 'buffers'):
-            return [
-                np.array([1], np.float32),
-                np.array([1], np.float32),
-                np.array([1], np.bool),
-            ]
         return [np.array(item, np.float32) for item in zip(*observations)]
 
     def init_training(self, target_reward, max_steps, monitor_session, weights):

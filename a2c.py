@@ -43,24 +43,36 @@ class A2C(BaseAgent):
             A list of numpy arrays which contains
              [states, rewards, actions, values, dones, log probs, entropies]
         """
-        batch = states, rewards, actions, values, dones, log_probs, entropies = [
-            [] for _ in range(7)
-        ]
+        batch = (
+            states,
+            rewards,
+            actions,
+            values,
+            dones,
+            log_probs,
+            entropies,
+            actor_features,
+        ) = [[] for _ in range(8)]
         step_states = tf.numpy_function(self.get_states, [], tf.float32)
         step_dones = tf.numpy_function(self.get_dones, [], tf.float32)
         for _ in range(self.n_steps):
-            step_actions, step_log_probs, step_entropies, step_values = self.model(
-                step_states
-            )
+            (
+                step_actions,
+                step_log_probs,
+                step_values,
+                step_entropies,
+                step_actor_features,
+            ) = self.model(step_states)
             states.append(step_states)
             actions.append(step_actions)
             values.append(step_values)
             log_probs.append(step_log_probs)
             dones.append(step_dones)
             entropies.append(step_entropies)
+            actor_features.append(step_actor_features)
             step_states, step_rewards, step_dones = tf.numpy_function(
                 self.step_envs,
-                [step_actions],
+                [step_actions, True, step_actor_features],
                 [tf.float32 for _ in range(3)],
             )
             rewards.append(step_rewards)
@@ -117,10 +129,11 @@ class A2C(BaseAgent):
                 dones,
                 log_probs,
                 entropies,
+                _,
             ) = self.get_batch()
             dones.append(dones[-1])
             masks = 1 - np.array(dones)
-            next_values = self.model(states[-1])[-1]
+            next_values = self.model(states[-1])[2]
             returns = [next_values]
             for step in reversed(range(self.n_steps)):
                 returns.append(

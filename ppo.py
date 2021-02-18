@@ -54,7 +54,7 @@ class PPO(A2C):
         Returns:
             returns as numpy array.
         """
-        next_values = self.model(states[-1])[-1].numpy()
+        next_values = self.model(states[-1])[2].numpy()
         advantages = np.zeros_like(rewards)
         last_lam = 0
         values = np.concatenate([values, np.expand_dims(next_values, 0)])
@@ -89,7 +89,7 @@ class PPO(A2C):
             None
         """
         with tf.GradientTape() as tape:
-            _, log_probs, entropy, values = self.model(states, actions=actions)
+            _, log_probs, values, entropy, _ = self.model(states, actions=actions)
             entropy = tf.reduce_mean(entropy)
             clipped_values = old_values + tf.clip_by_value(
                 values - old_values, -self.clip_norm, self.clip_norm
@@ -173,7 +173,7 @@ class PPO(A2C):
             values,
             dones,
             log_probs,
-            _,
+            *_,
         ) = [np.asarray(item, np.float32) for item in self.get_batch()]
         returns = self.calculate_returns(states, rewards, values, dones)
         ppo_batch = [
