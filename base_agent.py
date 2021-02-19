@@ -6,6 +6,7 @@ from time import perf_counter, sleep
 import cv2
 import gym
 import numpy as np
+import tensorflow as tf
 import wandb
 from tensorflow.keras.optimizers import Adam
 
@@ -274,6 +275,19 @@ class BaseAgent:
             self.dones as numpy array.
         """
         return np.array(self.dones, np.float32)
+
+    @staticmethod
+    def get_action_indices(batch_indices, actions):
+        """
+        Get indices that will be passed to tf.gather_nd()
+        Args:
+            actions: Action tensor of same shape as the batch size.
+            batch_indices: tf.range() result of the same shape as the batch size.
+
+        Returns:
+            Indices as tf tensors.
+        """
+        return tf.concat((batch_indices, tf.cast(actions[:, tf.newaxis], tf.int64)), -1)
 
     def fit(
         self,

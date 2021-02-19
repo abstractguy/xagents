@@ -51,7 +51,7 @@ class A2C(BaseAgent):
             dones,
             log_probs,
             entropies,
-            actor_features,
+            actor_logits,
         ) = [[] for _ in range(8)]
         step_states = tf.numpy_function(self.get_states, [], tf.float32)
         step_dones = tf.numpy_function(self.get_dones, [], tf.float32)
@@ -61,7 +61,7 @@ class A2C(BaseAgent):
                 step_log_probs,
                 step_values,
                 step_entropies,
-                step_actor_features,
+                step_actor_logits,
             ) = self.model(step_states)
             states.append(step_states)
             actions.append(step_actions)
@@ -69,10 +69,10 @@ class A2C(BaseAgent):
             log_probs.append(step_log_probs)
             dones.append(step_dones)
             entropies.append(step_entropies)
-            actor_features.append(step_actor_features)
+            actor_logits.append(step_actor_logits)
             step_states, step_rewards, step_dones = tf.numpy_function(
                 self.step_envs,
-                [step_actions, True, step_actor_features],
+                [step_actions, True, step_actor_logits],
                 [tf.float32 for _ in range(3)],
             )
             rewards.append(step_rewards)

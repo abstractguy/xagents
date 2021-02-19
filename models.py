@@ -37,34 +37,39 @@ class CNNA2C(Model):
     def __init__(
         self,
         input_shape,
-        n_actions,
+        actor_units,
         relu_gain=tf.math.sqrt(2.0),
         fc_units=512,
         actor_gain=0.01,
         critic_gain=1.0,
         actor_activation=None,
+        critic_activation=None,
+        critic_units=1,
     ):
         super(CNNA2C, self).__init__()
         relu_initializer = tf.initializers.Orthogonal(gain=relu_gain)
         self.common = Sequential(
             get_cnn_layers(input_shape, relu_initializer, fc_units)
         )
-        self.critic = Dense(
-            1,
-            kernel_initializer=Orthogonal(critic_gain),
-        )
         self.actor = Dense(
-            n_actions,
+            actor_units,
             kernel_initializer=Orthogonal(gain=actor_gain),
             activation=actor_activation,
+        )
+        self.critic = Dense(
+            critic_units,
+            kernel_initializer=Orthogonal(critic_gain),
+            activation=critic_activation,
         )
 
     @tf.function
     def call(self, inputs, training=True, mask=None, actions=None):
         conv_out = self.common(inputs, training=training, mask=mask)
-        value = tf.squeeze(self.critic(conv_out), axis=1)
-        actor_features = self.actor(conv_out)
-        distribution = Categorical(logits=actor_features)
+        value = self.critic(conv_out)
+        if self.critic.units == 1:
+            value = tf.squeeze(value)
+        actor_logits = self.actor(conv_out)
+        distribution = Categorical(actor_logits)
         if actions is None:
             actions = distribution.sample()
         action_log_probs = distribution.log_prob(actions)
@@ -73,7 +78,7 @@ class CNNA2C(Model):
             action_log_probs,
             value,
             distribution.entropy(),
-            actor_features,
+            actor_logits,
         )
 
     def get_config(self):

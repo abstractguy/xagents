@@ -74,19 +74,6 @@ class DQN(BaseAgent):
             return np.random.randint(0, self.available_actions, self.n_envs)
         return self.model(self.get_states())[0]
 
-    def get_action_indices(self, actions):
-        """
-        Get indices that will be passed to tf.gather_nd()
-        Args:
-            actions: Action tensor of shape (self.batch_size,)
-
-        Returns:
-            Indices as tf tensors.
-        """
-        return tf.concat(
-            (self.batch_indices, tf.cast(actions[:, tf.newaxis], tf.int64)), -1
-        )
-
     def get_targets(self, batch):
         """
         Get target values for gradient updates.
@@ -103,7 +90,7 @@ class DQN(BaseAgent):
         if self.double:
             new_state_actions = self.model(new_states)[0]
             new_state_q_values = self.target_model(new_states)[1]
-            a = self.get_action_indices(new_state_actions)
+            a = self.get_action_indices(self.batch_indices, new_state_actions)
             new_state_values = tf.gather_nd(new_state_q_values, a)
         else:
             new_state_values = tf.reduce_max(self.target_model(new_states)[1], axis=1)
@@ -114,7 +101,7 @@ class DQN(BaseAgent):
         target_value_update = new_state_values * (self.gamma ** self.n_steps) + tf.cast(
             rewards, tf.float32
         )
-        indices = self.get_action_indices(actions)
+        indices = self.get_action_indices(self.batch_indices, actions)
         target_values = tf.tensor_scatter_nd_update(
             target_values, indices, target_value_update
         )

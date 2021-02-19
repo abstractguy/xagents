@@ -26,6 +26,9 @@ class ACER(A2C):
         self.replay_ratio = replay_ratio
         self.epsilon = epsilon
         self.delta = delta
+        self.batch_indices = tf.range(self.n_steps * self.n_envs, dtype=tf.int64)[
+            :, tf.newaxis
+        ]
 
     def np_train_step(self):
         (
@@ -36,7 +39,7 @@ class ACER(A2C):
             dones,
             log_probs,
             entropies,
-            actor_features,
+            actor_logits,
         ) = [np.asarray(item, np.float32) for item in self.get_batch()]
         return [
             a.swapaxes(0, 1).reshape(a.shape[0] * a.shape[1], *a.shape[2:])
@@ -48,7 +51,7 @@ class ACER(A2C):
                 dones,
                 log_probs,
                 entropies,
-                actor_features,
+                actor_logits,
             ]
         ]
 
@@ -58,17 +61,22 @@ class ACER(A2C):
             states,
             rewards,
             actions,
-            values,
+            value_logits,
             dones,
             log_probs,
             entropies,
-            actor_features,
+            actor_logits,
         ) = tf.numpy_function(self.np_train_step, [], [tf.float32 for _ in range(8)])
+        action_probs = tf.nn.softmax(actor_logits)
+        values = tf.reduce_sum(action_probs * value_logits, axis=-1)
+        action_indices = self.get_action_indices(self.batch_indices, actions)
+        selected_probs = tf.gather_nd(action_probs, action_indices)
+        selected_logits = tf.gather_nd(value_logits, action_indices)
         pass
 
 
 if __name__ == '__main__':
-    # A: actions, R: rewards, D: dones, MU: actor_features, LR: learning_rate
+    # A: actions, R: rewards, D: dones, MU: actor_logits, LR: learning_rate
 
     from tensorflow.keras.optimizers import Adam
     from tensorflow_addons.optimizers import MovingAverage
@@ -80,7 +88,7 @@ if __name__ == '__main__':
     m = CNNA2C(
         envi[0].observation_space.shape,
         envi[0].action_space.n,
-        actor_activation='softmax',
+        critic_units=envi[0].action_space.n,
     )
     o = MovingAverage(Adam(7e-4))
     agn = ACER(envi, m, optimizer=o)
