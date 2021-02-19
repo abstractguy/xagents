@@ -76,6 +76,7 @@ class A2C(BaseAgent):
                 [tf.float32 for _ in range(3)],
             )
             rewards.append(step_rewards)
+        dones.append(step_dones)
         return batch
 
     def calculate_loss(self, returns, values, log_probs, entropies):
@@ -131,7 +132,6 @@ class A2C(BaseAgent):
                 entropies,
                 _,
             ) = self.get_batch()
-            dones.append(dones[-1])
             masks = 1 - np.array(dones)
             next_values = self.model(states[-1])[2]
             returns = [next_values]

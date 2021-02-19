@@ -13,6 +13,8 @@ class ACER(A2C):
         n_steps=20,
         buffer_max_size=10000,
         replay_ratio=4,
+        epsilon=1e-6,
+        delta=1,
         *args,
         **kwargs,
     ):
@@ -22,8 +24,8 @@ class ACER(A2C):
             for _ in range(self.n_envs)
         ]
         self.replay_ratio = replay_ratio
-        # [(2, 24, 84, 84, 1), (2, 21, 84, 84, 4), (2, 20), (2, 20), (2, 20, 6), (2, 20), (2, 21)]
-        # [(42, 84, 84, 4), (40,), (40,), (40, 6), (40,), (42,)]
+        self.epsilon = epsilon
+        self.delta = delta
 
     def np_train_step(self):
         (
@@ -66,12 +68,20 @@ class ACER(A2C):
 
 
 if __name__ == '__main__':
+    # A: actions, R: rewards, D: dones, MU: actor_features, LR: learning_rate
+
     from tensorflow.keras.optimizers import Adam
+    from tensorflow_addons.optimizers import MovingAverage
 
     from models import CNNA2C
     from utils import create_gym_env
 
     envi = create_gym_env('PongNoFrameskip-v4', 2)
-    mod = CNNA2C(envi[0].observation_space.shape, envi[0].action_space.n)
-    agn = ACER(envi, mod, optimizer=Adam(25e-5))
+    m = CNNA2C(
+        envi[0].observation_space.shape,
+        envi[0].action_space.n,
+        actor_activation='softmax',
+    )
+    o = MovingAverage(Adam(7e-4))
+    agn = ACER(envi, m, optimizer=o)
     agn.fit(19)

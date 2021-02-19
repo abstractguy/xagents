@@ -42,6 +42,7 @@ class CNNA2C(Model):
         fc_units=512,
         actor_gain=0.01,
         critic_gain=1.0,
+        actor_activation=None,
     ):
         super(CNNA2C, self).__init__()
         relu_initializer = tf.initializers.Orthogonal(gain=relu_gain)
@@ -55,6 +56,7 @@ class CNNA2C(Model):
         self.actor = Dense(
             n_actions,
             kernel_initializer=Orthogonal(gain=actor_gain),
+            activation=actor_activation,
         )
 
     @tf.function
