@@ -72,6 +72,8 @@ class ACER(A2C):
         action_indices = self.get_action_indices(self.batch_indices, actions)
         selected_probs = tf.gather_nd(action_probs, action_indices)
         selected_logits = tf.gather_nd(value_logits, action_indices)
+        importance_ratio = action_probs / (action_probs + self.epsilon)
+        action_importance = tf.gather_nd(importance_ratio, action_indices)
         pass
 
 
