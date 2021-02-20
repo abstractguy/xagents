@@ -32,31 +32,6 @@ class ACER(A2C):
             :, tf.newaxis
         ]
 
-    def np_train_step(self):
-        (
-            states,
-            rewards,
-            actions,
-            value_logits,
-            dones,
-            log_probs,
-            entropies,
-            actor_logits,
-        ) = [np.asarray(item, np.float32) for item in self.get_batch()]
-        actions, actor_logits, value_logits, log_probs = self.concat_step_batches(
-            actions, actor_logits, value_logits, log_probs
-        )
-        return (
-            states,
-            rewards,
-            actions,
-            value_logits,
-            dones,
-            log_probs,
-            entropies,
-            actor_logits,
-        )
-
     def calculate_returns(
         self, rewards, values, dones, selected_logits, action_importance
     ):
@@ -114,57 +89,58 @@ class ACER(A2C):
 
     @tf.function
     def train_step(self):
-        (
-            _,
-            rewards,
-            actions,
-            value_logits,
-            dones,
-            _,
-            entropies,
-            actor_logits,
-        ) = tf.numpy_function(self.np_train_step, [], [tf.float32 for _ in range(8)])
-        action_probs = tf.nn.softmax(actor_logits)
-        values = tf.reduce_sum(action_probs * value_logits, axis=-1)
-        action_indices = self.get_action_indices(self.batch_indices, actions)
-        selected_probs = tf.gather_nd(action_probs, action_indices)
-        selected_logits = tf.gather_nd(value_logits, action_indices)
-        importance_ratio = action_probs / (action_probs + self.epsilon)
-        action_importance = tf.gather_nd(importance_ratio, action_indices)
-        returns = tf.numpy_function(
-            self.calculate_returns,
-            [rewards, values, dones, selected_logits, action_importance],
-            tf.float32,
-        )
-        loss = self.compute_loss(
-            returns,
-            values,
-            entropies,
-            action_importance,
-            value_logits,
-            importance_ratio,
-            action_probs,
-            selected_probs,
-            selected_logits,
-        )
-        print(loss)
-        # selected_logits, returns
-        # _, vary = tf.nn.moments(q, axes=[0, 1])
-        # _, varpred = tf.nn.moments(q - qpred, axes=[0, 1])
-        # check_shape([vary, varpred], [[]] * 2)
-        # return 1.0 - (varpred / vary)
+        with tf.GradientTape() as tape:
+            (
+                states,
+                rewards,
+                actions,
+                value_logits,
+                dones,
+                log_probs,
+                entropies,
+                actor_logits,
+            ) = self.get_batch()
+            actions, actor_logits, value_logits, log_probs = [
+                tf.concat(item, 0)
+                for item in [actions, actor_logits, value_logits, log_probs]
+            ]
+            action_probs = tf.nn.softmax(actor_logits)
+            values = tf.reduce_sum(action_probs * value_logits, axis=-1)
+            action_indices = self.get_action_indices(self.batch_indices, actions)
+            selected_probs = tf.gather_nd(action_probs, action_indices)
+            selected_logits = tf.gather_nd(value_logits, action_indices)
+            importance_ratio = action_probs / (action_probs + self.epsilon)
+            action_importance = tf.gather_nd(importance_ratio, action_indices)
+            returns = tf.numpy_function(
+                self.calculate_returns,
+                [rewards, values, dones, selected_logits, action_importance],
+                tf.float32,
+            )
+            loss = self.compute_loss(
+                returns,
+                values,
+                entropies,
+                action_importance,
+                value_logits,
+                importance_ratio,
+                action_probs,
+                selected_probs,
+                selected_logits,
+            )
+        grads = tape.gradient(loss, self.model.trainable_variables)
+        if self.grad_norm is not None:
+            grads, _ = tf.clip_by_global_norm(grads, self.grad_norm)
+        self.model.optimizer.apply_gradients(zip(grads, self.model.trainable_variables))
 
 
 if __name__ == '__main__':
-    # A: actions, R: rewards, D: dones, MU: actor_logits, LR: learning_rate
-
     from tensorflow.keras.optimizers import Adam
     from tensorflow_addons.optimizers import MovingAverage
 
     from models import CNNA2C
     from utils import create_gym_env
 
-    envi = create_gym_env('PongNoFrameskip-v4', 2)
+    envi = create_gym_env('PongNoFrameskip-v4', 16)
     m = CNNA2C(
         envi[0].observation_space.shape,
         envi[0].action_space.n,

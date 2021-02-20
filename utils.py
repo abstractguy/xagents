@@ -131,6 +131,9 @@ class ReplayBuffer(deque):
         Returns:
             None
         """
+        if self.n_steps == 1:
+            super(ReplayBuffer, self).append(experience)
+            return
         if (self.temp_buffer and self.temp_buffer[-1][3]) or len(
             self.temp_buffer
         ) == self.n_steps:
