@@ -176,10 +176,9 @@ class PPO(A2C):
             *_,
         ) = [np.asarray(item, np.float32) for item in self.get_batch()]
         returns = self.calculate_returns(states, rewards, values, dones)
-        ppo_batch = [
-            a.swapaxes(0, 1).reshape(a.shape[0] * a.shape[1], *a.shape[2:])
-            for a in [states, actions, returns, values, log_probs]
-        ]
+        ppo_batch = self.concat_step_batches(
+            states, actions, returns, values, log_probs
+        )
         self.run_ppo_epochs(*ppo_batch)
 
     @tf.function

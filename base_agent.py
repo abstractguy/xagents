@@ -289,6 +289,13 @@ class BaseAgent:
         """
         return tf.concat((batch_indices, tf.cast(actions[:, tf.newaxis], tf.int64)), -1)
 
+    @staticmethod
+    def concat_step_batches(*args):
+        return [
+            a.swapaxes(0, 1).reshape(a.shape[0] * a.shape[1], *a.shape[2:])
+            for a in args
+        ]
+
     def fit(
         self,
         target_reward,
