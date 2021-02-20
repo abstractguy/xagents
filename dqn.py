@@ -49,6 +49,7 @@ class DQN(BaseAgent):
                 self.n_steps,
                 self.gamma,
                 buffer_batch_size,
+                self.seed,
             )
             for _ in range(self.n_envs)
         ]

@@ -87,6 +87,7 @@ class ReplayBuffer(deque):
         n_steps=1,
         gamma=0.99,
         batch_size=32,
+        seed=None,
     ):
         """
         Initialize buffer settings.
@@ -103,6 +104,8 @@ class ReplayBuffer(deque):
         self.gamma = gamma
         self.temp_buffer = []
         self.batch_size = batch_size
+        if seed:
+            random.seed(seed)
 
     def reset_temp_history(self):
         """

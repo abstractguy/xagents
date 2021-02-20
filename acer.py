@@ -21,7 +21,9 @@ class ACER(A2C):
     ):
         super(ACER, self).__init__(envs, model, n_steps=n_steps, *args, **kwargs)
         self.buffers = [
-            ReplayBuffer(buffer_max_size, batch_size=self.n_envs * self.n_steps)
+            ReplayBuffer(
+                buffer_max_size, batch_size=self.n_envs * self.n_steps, seed=self.seed
+            )
             for _ in range(self.n_envs)
         ]
         self.replay_ratio = replay_ratio
@@ -127,6 +129,7 @@ class ACER(A2C):
                 selected_probs,
                 selected_logits,
             )
+        tf.print(loss)
         grads = tape.gradient(loss, self.model.trainable_variables)
         if self.grad_norm is not None:
             grads, _ = tf.clip_by_global_norm(grads, self.grad_norm)
@@ -140,12 +143,14 @@ if __name__ == '__main__':
     from models import CNNA2C
     from utils import create_gym_env
 
+    seed = 55
     envi = create_gym_env('PongNoFrameskip-v4', 16)
     m = CNNA2C(
         envi[0].observation_space.shape,
         envi[0].action_space.n,
         critic_units=envi[0].action_space.n,
+        seed=seed,
     )
     o = MovingAverage(Adam(7e-4))
-    agn = ACER(envi, m, optimizer=o)
+    agn = ACER(envi, m, optimizer=o, seed=seed)
     agn.fit(19)

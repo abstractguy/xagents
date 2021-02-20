@@ -45,9 +45,10 @@ class CNNA2C(Model):
         actor_activation=None,
         critic_activation=None,
         critic_units=1,
+        seed=None,
     ):
         super(CNNA2C, self).__init__()
-        relu_initializer = tf.initializers.Orthogonal(gain=relu_gain)
+        relu_initializer = tf.initializers.Orthogonal(gain=relu_gain, seed=seed)
         self.common = Sequential(
             get_cnn_layers(input_shape, relu_initializer, fc_units)
         )
@@ -85,22 +86,25 @@ class CNNA2C(Model):
         super(CNNA2C, self).get_config()
 
 
-def create_cnn_dqn(input_shape, n_actions, duel=False, fc_units=512):
+def create_cnn_dqn(input_shape, n_actions, duel=False, fc_units=512, seed=None):
     x0 = Input(input_shape)
-    x = Conv2D(32, 8, 4, activation='relu')(x0)
-    x = Conv2D(64, 4, 2, activation='relu')(x)
-    x = Conv2D(64, 3, 1, activation='relu')(x)
+    initializer = tf.initializers.GlorotUniform(seed=seed)
+    x = Conv2D(32, 8, 4, activation='relu', kernel_initializer=initializer)(x0)
+    x = Conv2D(64, 4, 2, activation='relu', kernel_initializer=initializer)(x)
+    x = Conv2D(64, 3, 1, activation='relu', kernel_initializer=initializer)(x)
     x = Flatten()(x)
-    fc1 = Dense(units=fc_units, activation='relu')(x)
+    fc1 = Dense(units=fc_units, activation='relu', kernel_initializer=initializer)(x)
     if not duel:
-        q_values = Dense(units=n_actions)(fc1)
+        q_values = Dense(units=n_actions, kernel_initializer=initializer)(fc1)
     else:
-        fc2 = Dense(units=fc_units, activation='relu')(x)
-        advantage = Dense(units=n_actions)(fc1)
+        fc2 = Dense(units=fc_units, activation='relu', kernel_initializer=initializer)(
+            x
+        )
+        advantage = Dense(units=n_actions, kernel_initializer=initializer)(fc1)
         advantage = Lambda(lambda a: a - tf.expand_dims(tf.reduce_mean(a, 1), -1))(
             advantage
         )
-        value = Dense(units=1)(fc2)
+        value = Dense(units=1, kernel_initializer=initializer)(fc2)
         q_values = Add()([advantage, value])
     actions = tf.argmax(q_values, axis=1)
     model = Model(x0, [actions, q_values])

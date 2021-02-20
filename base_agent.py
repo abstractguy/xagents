@@ -23,6 +23,7 @@ class BaseAgent:
         gamma=0.99,
         metric_digits=2,
         custom_loss=None,
+        seed=None,
     ):
         """
         Base class for various types of agents.
@@ -50,6 +51,7 @@ class BaseAgent:
         self.gamma = gamma
         self.metric_digits = metric_digits
         self.custom_loss = custom_loss
+        self.seed = seed
         self.target_reward = None
         self.max_steps = None
         self.input_shape = self.envs[0].observation_space.shape
@@ -68,6 +70,11 @@ class BaseAgent:
         self.episode_rewards = np.zeros(self.n_envs)
         self.episode_scores = deque(maxlen=self.n_envs)
         self.done_envs = []
+        if seed:
+            tf.random.set_seed(seed)
+            np.random.seed(seed)
+            for env in self.envs:
+                env.seed(seed)
         self.reset_envs()
 
     def reset_envs(self):
