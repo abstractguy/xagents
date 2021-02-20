@@ -121,7 +121,7 @@ class DQN(BaseAgent):
             buffer = self.buffers[i]
             state = self.states[i]
             while len(buffer) < buffer.initial_size:
-                action = env.action_space.sample()
+                action = np.random.randint(0, self.available_actions)
                 new_state, reward, done, _ = env.step(action)
                 buffer.append((state, action, reward, done, new_state))
                 state = new_state
@@ -221,12 +221,15 @@ class DQN(BaseAgent):
 
 if __name__ == '__main__':
     gym_envs = create_gym_env('PongNoFrameskip-v4', 3)
+    seed = 55
     from tensorflow.keras.optimizers import Adam
 
     from models import create_cnn_dqn
 
-    m = create_cnn_dqn(gym_envs[0].observation_space.shape, gym_envs[0].action_space.n)
-    agn = DQN(gym_envs, m, optimizer=Adam(1e-4), buffer_max_size=1000)
+    m = create_cnn_dqn(
+        gym_envs[0].observation_space.shape, gym_envs[0].action_space.n, seed=seed
+    )
+    agn = DQN(gym_envs, m, optimizer=Adam(1e-4), buffer_max_size=1000, seed=seed)
     agn.fit(18)
     # agn.play(
     #     '/Users/emadboctor/Desktop/code/drl-models/dqn-pong-19-model/pong_test.tf',
