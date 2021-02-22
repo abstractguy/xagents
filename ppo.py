@@ -200,6 +200,9 @@ if __name__ == '__main__':
     from utils import create_gym_env
 
     envi = create_gym_env('PongNoFrameskip-v4', 16)
-    mod = CNNA2C(envi[0].observation_space.shape, envi[0].action_space.n)
+    mod = CNNA2C(
+        envi[0].observation_space.shape,
+        envi[0].action_space.n,
+    )
     agn = PPO(envi, mod, optimizer=Adam(25e-5))
     agn.fit(19)

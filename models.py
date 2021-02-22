@@ -63,23 +63,33 @@ class CNNA2C(Model):
             activation=critic_activation,
         )
 
+    def get_distribution(self, actor_output):
+        if (
+            self.actor.activation
+            == self.actor.activation
+            is tf.keras.activations.softmax
+        ):
+            return Categorical(probs=actor_output)
+        else:
+            return Categorical(logits=actor_output)
+
     @tf.function
     def call(self, inputs, training=True, mask=None, actions=None):
         conv_out = self.common(inputs, training=training, mask=mask)
-        value = self.critic(conv_out)
+        critic_output = self.critic(conv_out)
         if self.critic.units == 1:
-            value = tf.squeeze(value)
-        actor_logits = self.actor(conv_out)
-        distribution = Categorical(actor_logits)
+            critic_output = tf.squeeze(critic_output)
+        actor_output = self.actor(conv_out)
+        distribution = self.get_distribution(actor_output)
         if actions is None:
             actions = distribution.sample()
         action_log_probs = distribution.log_prob(actions)
         return (
             actions,
             action_log_probs,
-            value,
+            critic_output,
             distribution.entropy(),
-            actor_logits,
+            actor_output,
         )
 
     def get_config(self):
