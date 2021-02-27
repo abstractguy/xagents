@@ -72,14 +72,22 @@ class A2C(BaseAgent):
             actor_logits.append(step_actor_logits)
             step_states, step_rewards, step_dones = tf.numpy_function(
                 self.step_envs,
-                [step_actions, True, step_actor_logits],
+                [step_actions, True, step_actor_logits, step_log_probs, step_entropies],
                 [tf.float32 for _ in range(3)],
             )
             rewards.append(step_rewards)
         dones.append(step_dones)
         return batch
 
-    def calculate_loss(self, returns, values, log_probs, entropies):
+    def calculate_loss(
+        self,
+        returns,
+        values,
+        log_probs,
+        entropies,
+        selected_ratios=None,
+        selected_critic_logits=None,
+    ):
         """
         Calculate total model loss.
         Args:

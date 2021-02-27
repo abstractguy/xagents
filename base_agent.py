@@ -172,6 +172,30 @@ class BaseAgent:
             return True
         return False
 
+    def concat_buffer_samples(self):
+        """
+        Join batches sampled from each environment in self.envs
+
+        Returns:
+            batch: A list which contains
+                [states, actions, rewards, dones, next states]
+                as numpy arrays.
+        """
+        if hasattr(self, 'buffers'):
+            batches = []
+            for i, env in enumerate(self.envs):
+                buffer = self.buffers[i]
+                batch = buffer.get_sample()
+                batches.append(batch)
+            if len(batches) > 1:
+                joined = [
+                    np.concatenate(item).astype(np.float32) for item in zip(*batches)
+                ]
+            else:
+                joined = [item.astype(np.float32) for item in batches[0]]
+            joined[-2] = joined[-2].astype(np.bool)
+            return joined
+
     def step_envs(self, actions, get_observations: bool, *args):
         """
         Play 1 step for each env in self.envs

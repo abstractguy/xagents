@@ -157,27 +157,6 @@ class DQN(BaseAgent):
         self.model.optimizer.minimize(loss, self.model.trainable_variables, tape=tape)
         self.model.compiled_metrics.update_state(y, y_pred, sample_weight)
 
-    def get_training_batch(self):
-        """
-        Join batches sampled from each environment in self.envs
-
-        Returns:
-            batch: A list which contains
-                [states, actions, rewards, dones, next states]
-                as numpy arrays.
-        """
-        batches = []
-        for i, env in enumerate(self.envs):
-            buffer = self.buffers[i]
-            batch = buffer.get_sample()
-            batches.append(batch)
-        if len(batches) > 1:
-            joined = [np.concatenate(item).astype(np.float32) for item in zip(*batches)]
-        else:
-            joined = [item.astype(np.float32) for item in batches[0]]
-        joined[-2] = joined[-2].astype(np.bool)
-        return joined
-
     def at_step_start(self):
         """
         Execute steps that will run before self.train_step().
@@ -211,7 +190,7 @@ class DQN(BaseAgent):
         actions = tf.numpy_function(self.get_actions, [], tf.int64)
         tf.numpy_function(self.step_envs, [actions, False], [])
         training_batch = tf.numpy_function(
-            self.get_training_batch,
+            self.concat_buffer_samples,
             [],
             (tf.float32, tf.float32, tf.float32, tf.bool, tf.float32),
         )
