@@ -142,7 +142,8 @@ class A2C(BaseAgent):
             returns.reverse()
             loss = self.calculate_loss(returns, values, log_probs, entropies)
         grads = tape.gradient(loss, self.model.trainable_variables)
-        grads, _ = tf.clip_by_global_norm(grads, self.grad_norm)
+        if self.grad_norm is not None:
+            grads, _ = tf.clip_by_global_norm(grads, self.grad_norm)
         self.model.optimizer.apply_gradients(zip(grads, self.model.trainable_variables))
 
 
