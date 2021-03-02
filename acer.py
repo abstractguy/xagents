@@ -5,11 +5,33 @@ from a2c import A2C
 from utils import ReplayBuffer
 
 
+def batch_to_seq(h, nbatch, nsteps, flat=False):
+    if flat:
+        h = tf.reshape(h, [nbatch, nsteps])
+    else:
+        h = tf.reshape(h, [nbatch, nsteps, -1])
+    return [
+        tf.squeeze(v, [1]) for v in tf.split(axis=1, num_or_size_splits=nsteps, value=h)
+    ]
+
+
+def seq_to_batch(h, nh=None):
+    if nh:
+        return tf.reshape(tf.concat(axis=1, values=h), [-1, nh])
+    else:
+        return tf.reshape(tf.stack(values=h, axis=1), [-1])
+
+
+def strip(var, nenvs, nsteps, flat=False, nh=None):
+    vars = batch_to_seq(var, nenvs, nsteps + 1, flat)
+    return seq_to_batch(vars[:-1], nh)
+
+
 class ACER(A2C):
     def __init__(
         self,
         envs,
-        model,
+        models,
         n_steps=20,
         buffer_max_size=10000,
         replay_ratio=4,
@@ -21,159 +43,106 @@ class ACER(A2C):
         *args,
         **kwargs,
     ):
-        super(ACER, self).__init__(envs, model[0], n_steps=n_steps, *args, **kwargs)
+        super(ACER, self).__init__(envs, models[0], n_steps=n_steps, *args, **kwargs)
         self.buffer_max_size = buffer_max_size
         self.buffers = [
             ReplayBuffer(buffer_max_size, batch_size=self.n_steps, seed=self.seed)
             for _ in range(self.n_envs)
         ]
-        self.avg_model = model[1]
+        self.avg_model = models[1]
+        self.avg_model.set_weights(self.model.get_weights())
         self.replay_ratio = replay_ratio
         self.epsilon = epsilon
         self.delta = delta
         self.importance_c = importance_c
+        self.ema_decay = ema_decay
         self.batch_indices = tf.range(self.n_steps * self.n_envs, dtype=tf.int64)[
             :, tf.newaxis
         ]
-        self.ema = tf.train.ExponentialMovingAverage(ema_decay)
         self.trust_region = trust_region
 
-    @staticmethod
-    def add_grads(g1, g2):
-        if g1 is not None and g2 is not None:
-            return g1 + g2
-        if g1 is not None:
-            return g1
-        if g2 is not None:
-            return g2
-
-    def calculate_grads(
-        self, tape, loss, predicted_action_probs, avg_action_probs, value_loss
-    ):
-        if not self.trust_region:
-            return tape.gradient(loss, self.model.trainable_variables)
-        g = tape.gradient(
-            loss,
-            predicted_action_probs,
-        )
-        k = -avg_action_probs / (predicted_action_probs + self.epsilon)
-        adj = tf.maximum(
-            0.0,
-            (tf.reduce_sum(k * g, axis=-1) - self.delta)
-            / (tf.reduce_sum(tf.square(k), axis=-1) + self.epsilon),
-        )
-        g = g - tf.reshape(adj, [self.n_envs * self.n_steps, 1]) * k
-        grads_f = -g / (self.n_envs * self.n_steps)
-        grads_policy = tape.gradient(
-            predicted_action_probs, self.model.trainable_variables, grads_f
-        )
-        grads_q = tape.gradient(
-            value_loss * self.value_loss_coef, self.model.trainable_variables
-        )
-        return [self.add_grads(g1, g2) for (g1, g2) in zip(grads_policy, grads_q)]
+    def np_train_step(self):
+        batch = self.get_batch()
+        batch[0].append(self.get_states())
+        batch = [np.asarray(item, np.float32) for item in batch]
+        return self.concat_step_batches(*batch)
 
     def calculate_returns(
-        self, values, rewards, dones, importance_bar, selected_critic_logits
+        self, rewards, dones, selected_logits, selected_ratios, values
     ):
         returns = []
-        current_value = values[-1]
-        for step in reversed(range(1, self.n_steps + 1)):
-            i1 = step * self.n_envs
-            i0 = i1 - self.n_envs
-            returns.append(
-                rewards[i0:i1] + self.gamma * current_value * (1 - dones[i0:i1])
-            )
-            current_value = (
-                importance_bar[i0:i1] * (current_value - selected_critic_logits[i0:i1])
-            ) + values[i0:i1]
-        returns.reverse()
-        return returns
-
-    def calculate_loss(
-        self,
-        returns,
-        values,
-        log_probs,
-        entropies,
-        selected_ratios=None,
-        selected_critic_logits=None,
-    ):
-        entropy = tf.reduce_mean(entropies)
-        returns = tf.concat(returns, 0)
-        advantage = returns - values
-        action_gain = (
-            log_probs * advantage * tf.minimum(self.importance_c, selected_ratios)
+        importance_bar = batch_to_seq(
+            tf.minimum(1.0, selected_ratios), self.n_envs, self.n_steps, True
         )
-        action_loss = -tf.reduce_mean(action_gain)
-        value_loss = tf.reduce_mean(tf.square(returns - selected_critic_logits) * 0.5)
-        if self.trust_region:
-            return (
-                -(action_loss - self.entropy_coef * entropy)
-                * self.n_envs
-                * self.n_steps
-            ), value_loss
-        return (
-            action_loss
-            + self.value_loss_coef * value_loss
-            - self.entropy_coef * entropy
-        ), value_loss
+        rewards, dones, selected_logits = [
+            batch_to_seq(item, self.n_envs, self.n_steps, True)
+            for item in [rewards, dones[self.n_envs :], selected_logits]
+        ]
+        values = batch_to_seq(values, self.n_envs, self.n_steps + 1, True)
+        next_values = values[-1]
+        for step in reversed(range(self.n_steps)):
+            returns.append(rewards[step] + self.gamma * next_values * (1 - dones[step]))
+            next_values = (
+                importance_bar[step] * (next_values - selected_logits[step])
+            ) + values[step]
+        return seq_to_batch(returns[::-1])
 
-    def gradient_update(
-        self, states, actions, action_probs, rewards, dones, log_probs, entropies
-    ):
-        with tf.GradientTape(True) as tape:
-            avg_action_probs = self.avg_model(states)[-1]
-            *_, critic_logits, _, predicted_action_probs = self.model(states)
-            values = tf.reduce_sum(predicted_action_probs * critic_logits, axis=-1)
-            action_indices = self.get_action_indices(self.batch_indices, actions)
-            selected_critic_logits = tf.gather_nd(critic_logits, action_indices)
-            importance_ratio = predicted_action_probs / (action_probs + self.epsilon)
-            selected_ratios = tf.gather_nd(importance_ratio, action_indices)
-            importance_bar = tf.minimum(1.0, selected_ratios)
-            returns = self.calculate_returns(
-                values, rewards, dones, importance_bar, selected_critic_logits
+    # @tf.function
+    def train_step(self):
+        with tf.GradientTape(persistent=True) as tape:
+            (states, rewards, actions, _, dones, *_, action_probs) = tf.numpy_function(
+                self.np_train_step, [], [tf.float32 for _ in range(8)]
             )
-            loss, value_loss = self.calculate_loss(
-                returns,
-                values,
-                log_probs,
+            (
+                *_,
+                critic_logits,
                 entropies,
-                selected_ratios,
-                selected_critic_logits,
+                new_action_probs,
+            ) = self.model(states)
+            avg_action_probs = self.avg_model(states)[-1]
+            values = tf.reduce_sum(new_action_probs * critic_logits, axis=-1)
+            new_action_probs, avg_action_probs, critic_logits = [
+                strip(item, self.n_envs, self.n_steps, nh=self.available_actions)
+                for item in [new_action_probs, avg_action_probs, critic_logits]
+            ]
+            action_indices = self.get_action_indices(self.batch_indices, actions)
+            selected_probs = tf.gather_nd(new_action_probs, action_indices)
+            selected_logits = tf.gather_nd(critic_logits, action_indices)
+            importance_ratios = new_action_probs / (action_probs + self.epsilon)
+            selected_ratios = tf.gather_nd(importance_ratios, action_indices)
+            returns = self.calculate_returns(
+                rewards, dones, selected_logits, selected_ratios, values
             )
-        grads = self.calculate_grads(
-            tape, loss, predicted_action_probs, avg_action_probs, value_loss
-        )
+            entropy = tf.reduce_mean(entropies)
+            values = strip(values, self.n_envs, self.n_steps, True)
+            advantages = returns - values
+            log_probs = tf.math.log(selected_probs + self.epsilon)
+            action_gain = log_probs * tf.stop_gradient(
+                advantages * tf.minimum(self.importance_c, selected_ratios)
+            )
+            action_loss = -tf.reduce_mean(action_gain)
+            value_loss = tf.reduce_mean(
+                tf.square(tf.stop_gradient(returns) - selected_logits) * 0.5
+            )
+            loss = (
+                action_loss
+                + value_loss * self.value_loss_coef
+                - entropy * self.entropy_coef
+            )
+        grads = tape.gradient(loss, self.model.trainable_variables)
         if self.grad_norm is not None:
             grads, _ = tf.clip_by_global_norm(grads, self.grad_norm)
         self.model.optimizer.apply_gradients(zip(grads, self.model.trainable_variables))
 
-    @tf.function
-    def train_step(self):
-        states, rewards, actions, values, dones, log_probs, entropies, action_probs = [
-            tf.concat(item, 0) for item in self.get_batch()
-        ]
-        self.gradient_update(
-            states, actions, action_probs, rewards, dones, log_probs, entropies
-        )
-        if (
-            self.replay_ratio > 0
-            and sum((len(buffer) for buffer in self.buffers)) >= self.buffer_max_size
+    def at_step_end(self):
+        print('done')
+        avg_weights = []
+        for w1, w2 in zip(
+            self.model.trainable_variables, self.avg_model.trainable_variables
         ):
-            for _ in range(np.random.poisson(self.replay_ratio)):
-                (
-                    states,
-                    actions,
-                    rewards,
-                    dones,
-                    _,
-                    action_probs,
-                    log_probs,
-                    entropies,
-                ) = self.concat_buffer_samples()
-                self.gradient_update(
-                    states, actions, action_probs, rewards, dones, log_probs, entropies
-                )
+            avg_weight = self.ema_decay * w2 + (1 - self.ema_decay) * w1
+            avg_weights.append(avg_weight)
+        self.avg_model.set_weights(avg_weights)
 
 
 if __name__ == '__main__':

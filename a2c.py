@@ -86,7 +86,7 @@ class A2C(BaseAgent):
         log_probs,
         entropies,
         selected_ratios=None,
-        selected_critic_logits=None,
+        selected_logits=None,
     ):
         """
         Calculate total model loss.

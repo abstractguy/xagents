@@ -168,16 +168,6 @@ class DQN(BaseAgent):
             self.epsilon_end, self.epsilon_start - self.steps / self.decay_n_steps
         )
 
-    def at_step_end(self):
-        """
-        Execute steps that will run after self.train_step().
-
-        Returns:
-            None
-        """
-        if self.steps % self.update_target_steps == 0:
-            self.target_model.set_weights(self.model.get_weights())
-
     @tf.function
     def train_step(self):
         """
@@ -196,6 +186,16 @@ class DQN(BaseAgent):
         )
         targets = self.get_targets(training_batch)
         self.train_on_batch(training_batch[0], targets)
+
+    def at_step_end(self):
+        """
+        Execute steps that will run after self.train_step().
+
+        Returns:
+            None
+        """
+        if self.steps % self.update_target_steps == 0:
+            self.target_model.set_weights(self.model.get_weights())
 
 
 if __name__ == '__main__':

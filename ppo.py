@@ -72,7 +72,7 @@ class PPO(A2C):
             )
         return advantages + values[:-1]
 
-    def update_step(
+    def gradient_update(
         self, states, actions, old_values, returns, old_log_probs, advantages
     ):
         """
@@ -150,7 +150,7 @@ class PPO(A2C):
                 (advantages_mb - tf.reduce_mean(advantages_mb)) / (
                     tf.keras.backend.std(advantages_mb) + self.advantage_epsilon
                 )
-                self.update_step(
+                self.gradient_update(
                     states_mb,
                     actions_mb,
                     old_values_mb,
