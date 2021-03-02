@@ -196,34 +196,24 @@ class BaseAgent:
             joined[-2] = joined[-2].astype(np.bool)
             return joined
 
-    def step_envs(self, actions, get_observations: bool, *args):
-        """
-        Play 1 step for each env in self.envs
-        Args:
-            actions: numpy array / list of actions.
-            get_observations: If True, observations will be saved and returned.
-            *args: extra numpy arrays to be added to buffer (if available)
-
-        Returns:
-            A list of [[states], [rewards], [dones]] in case get_observations is True
-            is not an attribute of the subclass otherwise, an empty list.
-        """
+    def step_envs(self, actions, get_observation=False, store_in_buffers=False):
         observations = []
         for (
             (i, env),
             action,
             *items,
-        ) in zip(enumerate(self.envs), actions, *args):
+        ) in zip(enumerate(self.envs), actions):
             state = self.states[i]
             new_state, reward, done, _ = env.step(action)
             self.states[i] = new_state
             self.dones[i] = done
             self.steps += 1
             self.episode_rewards[i] += reward
-            if hasattr(self, 'buffers'):
-                self.buffers[i].append((state, action, reward, done, new_state, *items))
-            if get_observations:
-                observations.append((new_state, reward, done))
+            observation = state, action, reward, done, new_state
+            if store_in_buffers and hasattr(self, 'buffers'):
+                self.buffers[i].append(observation)
+            if get_observation:
+                observations.append(observation)
             if done:
                 self.done_envs.append(1)
                 self.total_rewards.append(self.episode_rewards[i])

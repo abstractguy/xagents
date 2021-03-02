@@ -44,7 +44,7 @@ class DQN(BaseAgent):
         super(DQN, self).__init__(envs, model, custom_loss=custom_loss, *args, **kwargs)
         self.buffers = [
             ReplayBuffer(
-                buffer_max_size,
+                buffer_max_size // self.n_envs,
                 buffer_initial_size,
                 self.n_steps,
                 self.gamma,
@@ -75,18 +75,7 @@ class DQN(BaseAgent):
             return np.random.randint(0, self.available_actions, self.n_envs)
         return self.model(self.get_states())[0]
 
-    def get_targets(self, batch):
-        """
-        Get target values for gradient updates.
-        Args:
-            batch: A list which contains
-                [states, actions, rewards, dones, next states]
-                as numpy arrays.
-
-        Returns:
-            target values used as y_true in gradient update.
-        """
-        states, actions, rewards, dones, new_states = batch
+    def get_targets(self, states, actions, rewards, dones, new_states):
         q_states = self.model(states)[1]
         if self.double:
             new_state_actions = self.model(new_states)[0]
@@ -178,13 +167,13 @@ class DQN(BaseAgent):
             None
         """
         actions = tf.numpy_function(self.get_actions, [], tf.int64)
-        tf.numpy_function(self.step_envs, [actions, False], [])
+        tf.numpy_function(self.step_envs, [actions, False, True], [])
         training_batch = tf.numpy_function(
             self.concat_buffer_samples,
             [],
             (tf.float32, tf.float32, tf.float32, tf.bool, tf.float32),
         )
-        targets = self.get_targets(training_batch)
+        targets = self.get_targets(*training_batch)
         self.train_on_batch(training_batch[0], targets)
 
     def at_step_end(self):
@@ -208,7 +197,7 @@ if __name__ == '__main__':
     m = create_cnn_dqn(
         gym_envs[0].observation_space.shape, gym_envs[0].action_space.n, seed=seed
     )
-    agn = DQN(gym_envs, m, optimizer=Adam(1e-4), buffer_max_size=1000, seed=seed)
+    agn = DQN(gym_envs, m, optimizer=Adam(1e-4), buffer_max_size=10000, seed=seed)
     agn.fit(18)
     # agn.play(
     #     '/Users/emadboctor/Desktop/code/drl-models/dqn-pong-19-model/pong_test.tf',

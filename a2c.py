@@ -70,10 +70,10 @@ class A2C(BaseAgent):
             dones.append(step_dones)
             entropies.append(step_entropies)
             actor_logits.append(step_actor_logits)
-            step_states, step_rewards, step_dones = tf.numpy_function(
+            *_, step_rewards, step_dones, step_states = tf.numpy_function(
                 self.step_envs,
-                [step_actions, True, step_actor_logits, step_log_probs, step_entropies],
-                [tf.float32 for _ in range(3)],
+                [step_actions, True, False],
+                [tf.float32 for _ in range(5)],
             )
             rewards.append(step_rewards)
         dones.append(step_dones)
@@ -85,8 +85,6 @@ class A2C(BaseAgent):
         values,
         log_probs,
         entropies,
-        selected_ratios=None,
-        selected_logits=None,
     ):
         """
         Calculate total model loss.

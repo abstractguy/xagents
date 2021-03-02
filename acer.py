@@ -44,9 +44,10 @@ class ACER(A2C):
         **kwargs,
     ):
         super(ACER, self).__init__(envs, models[0], n_steps=n_steps, *args, **kwargs)
-        self.buffer_max_size = buffer_max_size
         self.buffers = [
-            ReplayBuffer(buffer_max_size, batch_size=self.n_steps, seed=self.seed)
+            ReplayBuffer(
+                buffer_max_size // self.n_envs, batch_size=self.n_steps, seed=self.seed
+            )
             for _ in range(self.n_envs)
         ]
         self.avg_model = models[1]
