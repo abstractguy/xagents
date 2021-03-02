@@ -67,6 +67,14 @@ class ACER(A2C):
         batch = [np.asarray(item, np.float32) for item in batch]
         return self.concat_step_batches(*batch)
 
+    @staticmethod
+    def add_grads(g1, g2):
+        if g1 is not None and g2 is not None:
+            return g1 + g2
+        if g1 is not None:
+            return g1
+        return g2
+
     def calculate_returns(
         self, rewards, dones, selected_logits, selected_ratios, values
     ):
@@ -87,7 +95,7 @@ class ACER(A2C):
             ) + values[step]
         return seq_to_batch(returns[::-1])
 
-    # @tf.function
+    @tf.function
     def train_step(self):
         with tf.GradientTape(persistent=True) as tape:
             (states, rewards, actions, _, dones, *_, action_probs) = tf.numpy_function(
@@ -124,18 +132,45 @@ class ACER(A2C):
             value_loss = tf.reduce_mean(
                 tf.square(tf.stop_gradient(returns) - selected_logits) * 0.5
             )
-            loss = (
-                action_loss
-                + value_loss * self.value_loss_coef
-                - entropy * self.entropy_coef
+            if self.trust_region:
+                loss = (
+                    -(action_loss - entropy * self.entropy_coef)
+                    * self.n_envs
+                    * self.n_steps
+                )
+            else:
+                loss = (
+                    action_loss
+                    - entropy * self.entropy_coef
+                    + value_loss * self.value_loss_coef
+                )
+        if self.trust_region:
+            g = tape.gradient(
+                loss,
+                new_action_probs,
             )
-        grads = tape.gradient(loss, self.model.trainable_variables)
+            k = -avg_action_probs / (action_probs + self.epsilon)
+            adj = tf.maximum(
+                0.0,
+                (tf.reduce_sum(k * g, axis=-1) - self.delta)
+                / (tf.reduce_sum(tf.square(k), axis=-1) + self.epsilon),
+            )
+            g = g - tf.reshape(adj, [self.n_envs * self.n_steps, 1]) * k
+            grads_f = -g / (self.n_envs * self.n_steps)
+            grads_policy = tape.gradient(
+                new_action_probs, self.model.trainable_variables, grads_f
+            )
+            grads_q = tape.gradient(
+                value_loss * self.value_loss_coef, self.model.trainable_variables
+            )
+            grads = [self.add_grads(g1, g2) for (g1, g2) in zip(grads_policy, grads_q)]
+        else:
+            grads = tape.gradient(loss, self.model.trainable_variables)
         if self.grad_norm is not None:
             grads, _ = tf.clip_by_global_norm(grads, self.grad_norm)
         self.model.optimizer.apply_gradients(zip(grads, self.model.trainable_variables))
 
     def at_step_end(self):
-        print('done')
         avg_weights = []
         for w1, w2 in zip(
             self.model.trainable_variables, self.avg_model.trainable_variables
