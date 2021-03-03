@@ -23,8 +23,8 @@ def seq_to_batch(h, nh=None):
 
 
 def strip(var, nenvs, nsteps, flat=False, nh=None):
-    vars = batch_to_seq(var, nenvs, nsteps + 1, flat)
-    return seq_to_batch(vars[:-1], nh)
+    items = batch_to_seq(var, nenvs, nsteps + 1, flat)
+    return seq_to_batch(items[:-1], nh)
 
 
 class ACER(A2C):
@@ -45,9 +45,7 @@ class ACER(A2C):
     ):
         super(ACER, self).__init__(envs, models[0], n_steps=n_steps, *args, **kwargs)
         self.buffers = [
-            ReplayBuffer(
-                buffer_max_size // self.n_envs, batch_size=self.n_steps, seed=self.seed
-            )
+            ReplayBuffer(buffer_max_size // self.n_envs, batch_size=1, seed=self.seed)
             for _ in range(self.n_envs)
         ]
         self.avg_model = models[1]
@@ -66,6 +64,13 @@ class ACER(A2C):
         batch = self.get_batch()
         batch[0].append(self.get_states())
         batch = [np.asarray(item, np.float32) for item in batch]
+        buffer_items = [[] for _ in range(self.n_envs)]
+        for batch_item in batch:
+            env_results = np.swapaxes(batch_item, 0, 1)
+            for i, buffer_item in enumerate(buffer_items):
+                buffer_item.append(env_results[i])
+        for i, buffer in enumerate(self.buffers):
+            buffer.append(buffer_items[i])
         return self.concat_step_batches(*batch)
 
     @staticmethod
