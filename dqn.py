@@ -85,7 +85,9 @@ class DQN(BaseAgent):
         else:
             new_state_values = tf.reduce_max(self.target_model(new_states)[1], axis=1)
         new_state_values = tf.where(
-            dones, tf.constant(0, new_state_values.dtype), new_state_values
+            tf.cast(dones, tf.bool),
+            tf.constant(0, new_state_values.dtype),
+            new_state_values,
         )
         target_values = tf.identity(q_states)
         target_value_update = new_state_values * (self.gamma ** self.n_steps) + tf.cast(
@@ -171,7 +173,7 @@ class DQN(BaseAgent):
         training_batch = tf.numpy_function(
             self.concat_buffer_samples,
             [],
-            (tf.float32, tf.float32, tf.float32, tf.bool, tf.float32),
+            [tf.float32 for _ in range(5)],
         )
         targets = self.get_targets(*training_batch)
         self.train_on_batch(training_batch[0], targets)
@@ -197,7 +199,7 @@ if __name__ == '__main__':
     m = create_cnn_dqn(
         gym_envs[0].observation_space.shape, gym_envs[0].action_space.n, seed=seed
     )
-    agn = DQN(gym_envs, m, optimizer=Adam(1e-4), buffer_max_size=10000, seed=seed)
+    agn = DQN(gym_envs, m, optimizer=Adam(1e-4), buffer_max_size=1000, seed=seed)
     agn.fit(18)
     # agn.play(
     #     '/Users/emadboctor/Desktop/code/drl-models/dqn-pong-19-model/pong_test.tf',

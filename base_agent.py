@@ -193,7 +193,6 @@ class BaseAgent:
                 ]
             else:
                 joined = [item.astype(np.float32) for item in batches[0]]
-            joined[-2] = joined[-2].astype(np.bool)
             return joined
 
     def step_envs(self, actions, get_observation=False, store_in_buffers=False):
