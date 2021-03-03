@@ -44,10 +44,13 @@ class ACER(A2C):
         **kwargs,
     ):
         super(ACER, self).__init__(envs, models[0], n_steps=n_steps, *args, **kwargs)
-        self.buffers = [
-            ReplayBuffer(buffer_max_size // self.n_envs, batch_size=1, seed=self.seed)
-            for _ in range(self.n_envs)
-        ]
+        if replay_ratio > 0:
+            self.buffers = [
+                ReplayBuffer(
+                    buffer_max_size // self.n_envs, batch_size=1, seed=self.seed
+                )
+                for _ in range(self.n_envs)
+            ]
         self.avg_model = models[1]
         self.avg_model.set_weights(self.model.get_weights())
         self.replay_ratio = replay_ratio
@@ -60,10 +63,7 @@ class ACER(A2C):
         ]
         self.trust_region = trust_region
 
-    def np_train_step(self):
-        batch = self.get_batch()
-        batch[0].append(self.get_states())
-        batch = [np.asarray(item, np.float32) for item in batch]
+    def store_batch(self, batch):
         buffer_items = [[] for _ in range(self.n_envs)]
         for batch_item in batch:
             env_results = np.swapaxes(batch_item, 0, 1)
@@ -71,6 +71,17 @@ class ACER(A2C):
                 buffer_item.append(env_results[i])
         for i, buffer in enumerate(self.buffers):
             buffer.append(buffer_items[i])
+
+    def get_batch(self):
+        states, rewards, actions, _, dones, *_, action_probs = super(
+            ACER, self
+        ).get_batch()
+        states.append(self.get_states())
+        batch = [
+            np.asarray(item, np.float32)
+            for item in [states, rewards, actions, dones, action_probs]
+        ]
+        self.store_batch(batch)
         return self.concat_step_batches(*batch)
 
     @staticmethod
@@ -101,12 +112,65 @@ class ACER(A2C):
             ) + values[step]
         return seq_to_batch(returns[::-1])
 
-    @tf.function
-    def train_step(self):
+    def calculate_loss(
+        self,
+        returns,
+        values,
+        entropies,
+        *args,
+        log_probs=None,
+    ):
+        selected_probs, selected_ratios, selected_logits = args
+        entropy = tf.reduce_mean(entropies)
+        values = strip(values, self.n_envs, self.n_steps, True)
+        advantages = returns - values
+        log_probs = tf.math.log(selected_probs + self.epsilon)
+        action_gain = log_probs * tf.stop_gradient(
+            advantages * tf.minimum(self.importance_c, selected_ratios)
+        )
+        action_loss = -tf.reduce_mean(action_gain)
+        value_loss = tf.reduce_mean(
+            tf.square(tf.stop_gradient(returns) - selected_logits) * 0.5
+        )
+        if self.trust_region:
+            return (
+                -(action_loss - entropy * self.entropy_coef)
+                * self.n_envs
+                * self.n_steps
+            ), value_loss
+        return (
+            action_loss
+            - entropy * self.entropy_coef
+            + value_loss * self.value_loss_coef
+        )
+
+    def calculate_grads(
+        self, tape, losses, new_action_probs, avg_action_probs, action_probs
+    ):
+        if not self.trust_region:
+            return tape.gradient(losses, self.model.trainable_variables)
+        g = tape.gradient(
+            losses[0],
+            new_action_probs,
+        )
+        k = -avg_action_probs / (action_probs + self.epsilon)
+        adj = tf.maximum(
+            0.0,
+            (tf.reduce_sum(k * g, axis=-1) - self.delta)
+            / (tf.reduce_sum(tf.square(k), axis=-1) + self.epsilon),
+        )
+        g = g - tf.reshape(adj, [self.n_envs * self.n_steps, 1]) * k
+        grads_f = -g / (self.n_envs * self.n_steps)
+        grads_policy = tape.gradient(
+            new_action_probs, self.model.trainable_variables, grads_f
+        )
+        grads_q = tape.gradient(
+            losses[1] * self.value_loss_coef, self.model.trainable_variables
+        )
+        return [self.add_grads(g1, g2) for (g1, g2) in zip(grads_policy, grads_q)]
+
+    def gradient_update(self, states, rewards, actions, dones, action_probs):
         with tf.GradientTape(persistent=True) as tape:
-            (states, rewards, actions, _, dones, *_, action_probs) = tf.numpy_function(
-                self.np_train_step, [], [tf.float32 for _ in range(8)]
-            )
             (
                 *_,
                 critic_logits,
@@ -127,54 +191,36 @@ class ACER(A2C):
             returns = self.calculate_returns(
                 rewards, dones, selected_logits, selected_ratios, values
             )
-            entropy = tf.reduce_mean(entropies)
-            values = strip(values, self.n_envs, self.n_steps, True)
-            advantages = returns - values
-            log_probs = tf.math.log(selected_probs + self.epsilon)
-            action_gain = log_probs * tf.stop_gradient(
-                advantages * tf.minimum(self.importance_c, selected_ratios)
+            losses = self.calculate_loss(
+                returns,
+                values,
+                entropies,
+                selected_probs,
+                selected_ratios,
+                selected_logits,
             )
-            action_loss = -tf.reduce_mean(action_gain)
-            value_loss = tf.reduce_mean(
-                tf.square(tf.stop_gradient(returns) - selected_logits) * 0.5
-            )
-            if self.trust_region:
-                loss = (
-                    -(action_loss - entropy * self.entropy_coef)
-                    * self.n_envs
-                    * self.n_steps
-                )
-            else:
-                loss = (
-                    action_loss
-                    - entropy * self.entropy_coef
-                    + value_loss * self.value_loss_coef
-                )
-        if self.trust_region:
-            g = tape.gradient(
-                loss,
-                new_action_probs,
-            )
-            k = -avg_action_probs / (action_probs + self.epsilon)
-            adj = tf.maximum(
-                0.0,
-                (tf.reduce_sum(k * g, axis=-1) - self.delta)
-                / (tf.reduce_sum(tf.square(k), axis=-1) + self.epsilon),
-            )
-            g = g - tf.reshape(adj, [self.n_envs * self.n_steps, 1]) * k
-            grads_f = -g / (self.n_envs * self.n_steps)
-            grads_policy = tape.gradient(
-                new_action_probs, self.model.trainable_variables, grads_f
-            )
-            grads_q = tape.gradient(
-                value_loss * self.value_loss_coef, self.model.trainable_variables
-            )
-            grads = [self.add_grads(g1, g2) for (g1, g2) in zip(grads_policy, grads_q)]
-        else:
-            grads = tape.gradient(loss, self.model.trainable_variables)
+        grads = self.calculate_grads(
+            tape, losses, new_action_probs, avg_action_probs, action_probs
+        )
         if self.grad_norm is not None:
             grads, _ = tf.clip_by_global_norm(grads, self.grad_norm)
         self.model.optimizer.apply_gradients(zip(grads, self.model.trainable_variables))
+
+    @tf.function
+    def train_step(self):
+        numpy_func_output = [tf.float32 for _ in range(5)]
+        batch = tf.numpy_function(self.get_batch, [], numpy_func_output)
+        self.gradient_update(*batch)
+        if (
+            self.replay_ratio > 0
+            and len(self.buffers[0]) == self.buffers[0].initial_size
+        ):
+            for _ in range(np.random.poisson(self.replay_ratio)):
+                buffer_samples = [buffer.get_sample() for buffer in self.buffers]
+                batch = tf.numpy_function(
+                    self.concat_step_batches, buffer_samples, numpy_func_output
+                )
+                self.gradient_update(*batch)
 
     def at_step_end(self):
         avg_weights = []

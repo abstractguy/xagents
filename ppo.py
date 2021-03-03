@@ -160,12 +160,6 @@ class PPO(A2C):
                 )
 
     def np_train_step(self):
-        """
-        Perform numpy operations of training.
-
-        Returns:
-            None
-        """
         (
             states,
             rewards,
