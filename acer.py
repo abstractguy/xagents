@@ -33,7 +33,9 @@ class ACER(A2C):
         envs,
         models,
         n_steps=20,
-        buffer_max_size=10000,
+        grad_norm=10,
+        buffer_max_size=50000,
+        buffer_initial_size=10000,
         replay_ratio=4,
         epsilon=1e-6,
         delta=1,
@@ -43,11 +45,16 @@ class ACER(A2C):
         *args,
         **kwargs,
     ):
-        super(ACER, self).__init__(envs, models[0], n_steps=n_steps, *args, **kwargs)
+        super(ACER, self).__init__(
+            envs, models[0], n_steps=n_steps, grad_norm=grad_norm, *args, **kwargs
+        )
         if replay_ratio > 0:
             self.buffers = [
                 ReplayBuffer(
-                    buffer_max_size // self.n_envs, batch_size=1, seed=self.seed
+                    buffer_max_size // self.n_envs,
+                    initial_size=buffer_initial_size,
+                    batch_size=1,
+                    seed=self.seed,
                 )
                 for _ in range(self.n_envs)
             ]
@@ -62,6 +69,13 @@ class ACER(A2C):
             :, tf.newaxis
         ]
         self.trust_region = trust_region
+        self.initialize_models()
+
+    def initialize_models(self):
+        x = np.zeros((1, *self.input_shape))
+        _ = self.model(x)
+        _ = self.avg_model(x)
+        self.avg_model.set_weights(self.model.get_weights())
 
     def store_batch(self, batch):
         buffer_items = [[] for _ in range(self.n_envs)]
@@ -224,10 +238,12 @@ class ACER(A2C):
 
     def update_avg_weights(self):
         avg_weights = []
-        for w1, w2 in zip(
+        for model_weight, avg_model_weight in zip(
             self.model.trainable_variables, self.avg_model.trainable_variables
         ):
-            avg_weight = self.ema_decay * w2 + (1 - self.ema_decay) * w1
+            avg_weight = (
+                self.ema_decay * avg_model_weight + (1 - self.ema_decay) * model_weight
+            )
             avg_weights.append(avg_weight)
         self.avg_model.set_weights(avg_weights)
 

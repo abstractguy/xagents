@@ -98,6 +98,7 @@ class ReplayBuffer(deque):
             gamma: Discount factor.
             batch_size: Size of the sampling method batch.
         """
+        assert max_size >= initial_size, 'Buffer initial size exceeds max size'
         super(ReplayBuffer, self).__init__(maxlen=max_size)
         self.initial_size = initial_size or max_size
         self.n_steps = n_steps
