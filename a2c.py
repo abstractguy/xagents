@@ -84,8 +84,7 @@ class A2C(BaseAgent):
         returns,
         values,
         entropies,
-        *args,
-        log_probs=None,
+        log_probs,
     ):
         """
         Calculate total model loss.
@@ -147,7 +146,7 @@ class A2C(BaseAgent):
                     rewards[step] + masks[step + 1] * self.gamma * returns[-1]
                 )
             returns.reverse()
-            loss = self.calculate_loss(returns, values, entropies, log_probs=log_probs)
+            loss = self.calculate_loss(returns, values, entropies, log_probs)
         grads = tape.gradient(loss, self.model.trainable_variables)
         if self.grad_norm is not None:
             grads, _ = tf.clip_by_global_norm(grads, self.grad_norm)

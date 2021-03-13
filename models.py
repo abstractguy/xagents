@@ -62,6 +62,7 @@ class CNNA2C(Model):
             kernel_initializer=Orthogonal(critic_gain),
             activation=critic_activation,
         )
+        self.seed = seed
 
     def get_distribution(self, actor_output):
         if (
@@ -70,8 +71,7 @@ class CNNA2C(Model):
             is tf.keras.activations.softmax
         ):
             return Categorical(probs=actor_output)
-        else:
-            return Categorical(logits=actor_output)
+        return Categorical(logits=actor_output)
 
     @tf.function
     def call(self, inputs, training=True, mask=None, actions=None):
@@ -82,7 +82,7 @@ class CNNA2C(Model):
         actor_output = self.actor(conv_out)
         distribution = self.get_distribution(actor_output)
         if actions is None:
-            actions = distribution.sample()
+            actions = distribution.sample(seed=self.seed)
         action_log_probs = distribution.log_prob(actions)
         return (
             actions,
