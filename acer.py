@@ -61,6 +61,7 @@ class ACER(A2C):
             ACER, self
         ).get_batch()
         states.append(self.get_states())
+        dones = dones[1:]
         batch = [
             np.asarray(item, np.float32)
             for item in [states, rewards, actions, dones, action_probs]
@@ -80,7 +81,7 @@ class ACER(A2C):
         returns = []
         for step in reversed(range(self.n_steps)):
             current_return = rewards[step] + self.gamma * current_return * (
-                1.0 - dones[step + 1]
+                1.0 - dones[step]
             )
             returns.append(current_return)
             current_return = (
@@ -185,7 +186,7 @@ class ACER(A2C):
         self.ema.apply(self.model.trainable_variables)
         tf.numpy_function(self.update_avg_weights, [], [])
 
-    @tf.function
+    # @tf.function
     def train_step(self):
         numpy_func_dtypes = [tf.float32 for _ in range(5)]
         batch = tf.numpy_function(self.get_batch, [], numpy_func_dtypes)
