@@ -94,9 +94,9 @@ class PPO(A2C):
             clipped_values = old_values + tf.clip_by_value(
                 values - old_values, -self.clip_norm, self.clip_norm
             )
-            vf_loss1 = tf.square(values - returns)
-            vf_loss2 = tf.square(clipped_values - returns)
-            vf_loss = 0.5 * tf.reduce_mean(tf.maximum(vf_loss1, vf_loss2))
+            value_loss1 = tf.square(values - returns)
+            value_loss2 = tf.square(clipped_values - returns)
+            value_loss = 0.5 * tf.reduce_mean(tf.maximum(value_loss1, value_loss2))
             ratio = tf.exp(log_probs - old_log_probs)
             pg_loss1 = -advantages * ratio
             pg_loss2 = -advantages * tf.clip_by_value(
@@ -104,7 +104,9 @@ class PPO(A2C):
             )
             pg_loss = tf.reduce_mean(tf.maximum(pg_loss1, pg_loss2))
             loss = (
-                pg_loss - entropy * self.entropy_coef + vf_loss * self.value_loss_coef
+                pg_loss
+                - entropy * self.entropy_coef
+                + value_loss * self.value_loss_coef
             )
         grads = tape.gradient(loss, self.model.trainable_variables)
         if self.grad_norm is not None:
