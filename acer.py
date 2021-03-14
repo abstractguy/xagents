@@ -73,7 +73,7 @@ class ACER(A2C):
         self, rewards, dones, selected_logits, values, selected_importance
     ):
         importance_bar = self.flat_to_steps(tf.minimum(1.0, selected_importance))
-        dones = self.flat_to_steps(dones, self.n_steps + 1)
+        dones = self.flat_to_steps(dones, self.n_steps)
         rewards = self.flat_to_steps(rewards)
         selected_logits = self.flat_to_steps(selected_logits)
         values = self.flat_to_steps(values, self.n_steps + 1)
