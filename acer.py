@@ -3,10 +3,10 @@ from collections import deque
 
 import numpy as np
 import tensorflow as tf
-from tensorflow.keras.optimizers import Adam
 
 from models import CNNA2C
 from utils import ReplayBuffer, create_gym_env
+from tensorflow.keras.optimizers import Adam
 
 
 class Runner:
@@ -70,50 +70,6 @@ class Runner:
         return mb_obs, mb_actions, mb_rewards, mb_mus, mb_dones
 
 
-def run(
-    self,
-    episode_rewards,
-    total_rewards,
-):
-    mb_obs, mb_actions, mb_mus, mb_dones, mb_rewards = [], [], [], [], []
-    for _ in range(self.n_steps):
-        actions, *_, mus = self.model(self.obs)
-        mb_obs.append(np.copy(self.obs))
-        mb_actions.append(actions)
-        mb_mus.append(mus)
-        mb_dones.append(self.dones)
-        obs, rewards, dones, = (
-            [],
-            [],
-            [],
-        )
-        for i, (e, a) in enumerate(zip(self.env, actions)):
-            s, r, d, _ = e.step(a)
-            if d:
-                obs.append(e.reset())
-                total_rewards.append(episode_rewards[i])
-                episode_rewards[i] = 0
-
-            else:
-                obs.append(s)
-            episode_rewards[i] += r
-            rewards.append(r)
-            dones.append(d)
-        obs, rewards, dones = [np.asarray(item) for item in [obs, rewards, dones]]
-        self.dones = dones
-        self.obs = obs
-        mb_rewards.append(rewards)
-    mb_obs.append(np.copy(self.obs))
-    mb_dones.append(self.dones)
-    mb_obs = np.asarray(mb_obs, np.uint8).swapaxes(1, 0)
-    mb_actions = np.asarray(mb_actions, dtype=self.ac_dtype).swapaxes(1, 0)
-    mb_rewards = np.asarray(mb_rewards, dtype=np.float32).swapaxes(1, 0)
-    mb_mus = np.asarray(mb_mus, dtype=np.float32).swapaxes(1, 0)
-    mb_dones = np.asarray(mb_dones, dtype=np.float32).swapaxes(1, 0)
-    mb_dones = mb_dones[:, 1:]
-    return mb_obs, mb_actions, mb_rewards, mb_mus, mb_dones
-
-
 def cat_entropy_softmax(p0):
     return -tf.reduce_sum(input_tensor=p0 * tf.math.log(p0 + 1e-6), axis=1)
 
@@ -126,21 +82,6 @@ def get_by_index(x, idx):
     return y
 
 
-def check_shape(ts, shapes):
-    i = 0
-    for (t, shape) in zip(ts, shapes):
-        assert t.shape.as_list() == shape, (
-            "id " + str(i) + " shape " + str(t.shape) + str(shape)
-        )
-        i += 1
-
-
-def avg_norm(t):
-    return tf.reduce_mean(
-        input_tensor=tf.sqrt(tf.reduce_sum(input_tensor=tf.square(t), axis=-1))
-    )
-
-
 def gradient_add(g1, g2):
     assert not (g1 is None and g2 is None)
     if g1 is None:
@@ -150,13 +91,6 @@ def gradient_add(g1, g2):
     else:
         return g1 + g2
     pass
-
-
-def q_explained_variance(qpred, q):
-    _, vary = tf.nn.moments(x=q, axes=[0, 1])
-    _, varpred = tf.nn.moments(x=q - qpred, axes=[0, 1])
-    check_shape([vary, varpred], [[]] * 2)
-    return 1.0 - (varpred / vary)
 
 
 def q_retrace(rewards, dones, q_i, values, rho_i, n_envs, n_steps, gamma):
@@ -207,18 +141,7 @@ class Acer:
             'loss',
             'loss_q',
             'entropy',
-            'loss_policy',
             'loss_f',
-            'loss_bc',
-            # 'explained_variance',
-            # 'norm_grads_q',
-            # 'norm_grads_policy',
-            # 'avg_norm_grads_f',
-            # 'avg_norm_k',
-            # 'avg_norm_g',
-            # 'avg_norm_k_dot_g',
-            # 'avg_norm_adj',
-            # 'norm_grads',
         ]
 
     def update_avg_weights(self):
@@ -266,9 +189,9 @@ class Acer:
                 "mean_episode_reward",
                 np.around(np.mean(self.total_rewards or [0]), self.metric_digits),
             )
-            for name, val in zip(self.training_return_names[:6], values_ops[:6]):
-                print(name, float(val))
-            print(100 * '=')
+            for name, val in zip(self.training_return_names, values_ops):
+                print(f'{name}: {np.around(float(val), 2)}')
+            print(30 * '=')
 
     @tf.function
     def train(
@@ -303,90 +226,48 @@ class Acer:
             )
             entropy = tf.reduce_mean(input_tensor=cat_entropy_softmax(f))
             v = v[: -self.n_envs]
-            check_shape([qret, v, rho_i, f_i], [[self.n_envs * self.n_steps]] * 4)
-            check_shape([rho, f, q], [[self.n_envs * self.n_steps, self.n_actions]] * 2)
             adv = qret - v
             logf = tf.math.log(f_i + eps)
             gain_f = logf * tf.stop_gradient(adv * tf.minimum(c, rho_i))
             loss_f = -tf.reduce_mean(input_tensor=gain_f)
-            adv_bc = q - tf.reshape(v, [self.n_envs * self.n_steps, 1])
-            logf_bc = tf.math.log(f + eps)
-            check_shape(
-                [adv_bc, logf_bc], [[self.n_envs * self.n_steps, self.n_actions]] * 2
-            )
-            gain_bc = tf.reduce_sum(
-                input_tensor=logf_bc
-                * tf.stop_gradient(adv_bc * tf.nn.relu(1.0 - (c / (rho + eps))) * f),
-                axis=1,
-            )
-            loss_bc = -tf.reduce_mean(input_tensor=gain_bc)
-            loss_policy = loss_f + loss_bc
-            check_shape([qret, q_i], [[self.n_envs * self.n_steps]] * 2)
-            ev = q_explained_variance(
-                tf.reshape(q_i, [self.n_envs, self.n_steps]),
-                tf.reshape(qret, [self.n_envs, self.n_steps]),
-            )
             loss_q = (
                 tf.reduce_mean(
                     input_tensor=tf.square(tf.stop_gradient(qret) - q_i) * 0.5
                 )
                 * q_coef
             )
-            check_shape([loss_policy, loss_q, entropy], [[]] * 3)
             if trust_region:
-                loss = -(loss_policy - ent_coef * entropy) * self.n_steps * self.n_envs
+                loss = -(loss_f - ent_coef * entropy) * self.n_steps * self.n_envs
             else:
-                loss = loss_policy + q_coef * loss_q - ent_coef * entropy
-        extra_values = []
+                loss = loss_f + q_coef * loss_q - ent_coef * entropy
         if trust_region:
             g = tape.gradient(
                 loss,
                 f,
             )
             k = -f_pol / (f + eps)
-            k_dot_g = tf.reduce_sum(input_tensor=k * g, axis=-1)
             adj = tf.maximum(
                 0.0,
                 (tf.reduce_sum(input_tensor=k * g, axis=-1) - delta)
                 / (tf.reduce_sum(input_tensor=tf.square(k), axis=-1) + eps),
             )
-            avg_norm_k = avg_norm(k)
-            avg_norm_g = avg_norm(g)
-            avg_norm_k_dot_g = tf.reduce_mean(input_tensor=tf.abs(k_dot_g))
-            avg_norm_adj = tf.reduce_mean(input_tensor=tf.abs(adj))
             g = g - tf.reshape(adj, [self.n_envs * self.n_steps, 1]) * k
             grads_f = -g / (self.n_envs * self.n_steps)
             grads_policy = tape.gradient(f, self.model.trainable_variables, grads_f)
             grads_q = tape.gradient(loss_q, self.model.trainable_variables)
             grads = [gradient_add(g1, g2) for (g1, g2) in zip(grads_policy, grads_q)]
-            avg_norm_grads_f = avg_norm(grads_f) * (self.n_steps * self.n_envs)
-            norm_grads_q = tf.linalg.global_norm(grads_q)
-            norm_grads_policy = tf.linalg.global_norm(grads_policy)
-            extra_values += [
-                norm_grads_q,
-                norm_grads_policy,
-                avg_norm_grads_f,
-                avg_norm_k,
-                avg_norm_g,
-                avg_norm_k_dot_g,
-                avg_norm_adj,
-            ]
         else:
             grads = tape.gradient(loss, self.model.trainable_variables)
         if max_grad_norm is not None:
             grads, norm_grads = tf.clip_by_global_norm(grads, max_grad_norm)
-            extra_values.append(norm_grads)
         self.model.optimizer.apply_gradients(zip(grads, self.model.trainable_variables))
         self.ema.apply(self.model.trainable_variables)
         return [
             loss,
             loss_q,
             entropy,
-            loss_policy,
             loss_f,
-            loss_bc,
-            ev,
-        ] + extra_values
+        ]
 
 
 def learn(
@@ -394,57 +275,30 @@ def learn(
     seed=None,
     n_steps=20,
     total_timesteps=int(80e6),
-    q_coef=0.5,
-    ent_coef=0.01,
-    max_grad_norm=10,
-    lr=7e-4,
-    lrschedule='linear',
-    rprop_epsilon=1e-5,
-    rprop_alpha=0.99,
-    gamma=0.99,
     log_interval=100,
     buffer_size=10000,
     replay_ratio=4,
-    replay_start=10000,
-    c=10.0,
-    trust_region=True,
-    alpha=0.99,
-    delta=1,
-    load_path=None,
-    **network_kwargs,
 ):
-    print("Running Acer Simple")
-    print(locals())
     n_envs = len(env)
-    ob_space = env[0].observation_space
-    ac_space = env[0].action_space
-    m1 = CNNA2C(
-        (84, 84, 1),
-        6,
-        actor_activation='softmax',
-        critic_units=6,
-        seed=seed,
-        scale_inputs=True,
-    )
-    m1.compile(optimizer=Adam())
-    m2 = CNNA2C(
-        (84, 84, 1),
-        6,
-        actor_activation='softmax',
-        critic_units=6,
-        seed=seed,
-        scale_inputs=True,
-    )
-    runner = Runner(env=env, model=m1, n_steps=n_steps)
-    if replay_ratio > 0:
-        buffers = [
-            ReplayBuffer(buffer_size // len(env), 500, batch_size=1, seed=seed)
-            for _ in range(len(env))
-        ]
-    else:
-        buffers = None
+    ms = [
+        CNNA2C(
+            (84, 84, 1),
+            6,
+            actor_activation='softmax',
+            critic_units=6,
+            seed=seed,
+            scale_inputs=True,
+        )
+        for _ in range(2)
+    ]
+    ms[0].compile(optimizer=Adam())
+    runner = Runner(env=env, model=ms[0], n_steps=n_steps)
+    buffers = [
+        ReplayBuffer(buffer_size // len(env), 500, batch_size=1, seed=seed)
+        for _ in range(len(env))
+    ]
     n_batches = n_envs * n_steps
-    acer = Acer(env, runner, (m1, m2), buffers, log_interval)
+    acer = Acer(env, runner, ms, buffers, log_interval)
     acer.tstart = time.time()
     for acer.steps in range(0, total_timesteps, n_batches):
         acer.call(True)
