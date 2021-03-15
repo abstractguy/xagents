@@ -1,5 +1,4 @@
 import time
-from collections import deque
 
 import numpy as np
 import tensorflow as tf
@@ -11,8 +10,34 @@ from utils import ReplayBuffer, create_gym_env
 
 
 class Runner(A2C):
-    def __init__(self, env, model, n_steps=20):
-        super(Runner, self).__init__(env, model, n_steps=n_steps)
+    def __init__(self, env, model, n_steps=20, seed=None):
+        super(Runner, self).__init__(env, model, n_steps=n_steps, seed=seed)
+
+    @staticmethod
+    def gradient_add(g1, g2):
+        assert not (g1 is None and g2 is None)
+        if g1 is None:
+            return g2
+        elif g2 is None:
+            return g1
+        else:
+            return g1 + g2
+
+    def q_retrace(self, rewards, dones, q_i, values, rho_i):
+        rho_bar = tf.unstack(
+            tf.reshape(tf.minimum(1.0, rho_i), (self.n_envs, self.n_steps)), axis=1
+        )
+        dones = tf.unstack(tf.reshape(dones, (self.n_envs, self.n_steps)), axis=1)
+        rewards = tf.unstack(tf.reshape(rewards, (self.n_envs, self.n_steps)), axis=1)
+        q_i = tf.unstack(tf.reshape(q_i, (self.n_envs, self.n_steps)), axis=1)
+        values = tf.unstack(tf.reshape(values, (self.n_envs, self.n_steps + 1)), axis=1)
+        qret = values[-1]
+        qrets = []
+        for i in range(self.n_steps - 1, -1, -1):
+            qret = rewards[i] + self.gamma * qret * (1.0 - dones[i])
+            qrets.append(qret)
+            qret = (rho_bar[i] * (qret - q_i[i])) + values[i]
+        return tf.reshape(tf.stack(qrets[::-1], 1), [-1])
 
     def run(
         self,
@@ -36,60 +61,21 @@ class Runner(A2C):
         return states, actions, rewards, actor_logits, dones
 
 
-def gradient_add(g1, g2):
-    assert not (g1 is None and g2 is None)
-    if g1 is None:
-        return g2
-    elif g2 is None:
-        return g1
-    else:
-        return g1 + g2
-    pass
-
-
-def q_retrace(rewards, dones, q_i, values, rho_i, n_envs, n_steps, gamma):
-    rho_bar = tf.unstack(tf.reshape(tf.minimum(1.0, rho_i), (n_envs, n_steps)), axis=1)
-    dones = tf.unstack(tf.reshape(dones, (n_envs, n_steps)), axis=1)
-    rewards = tf.unstack(tf.reshape(rewards, (n_envs, n_steps)), axis=1)
-    q_i = tf.unstack(tf.reshape(q_i, (n_envs, n_steps)), axis=1)
-    values = tf.unstack(tf.reshape(values, (n_envs, n_steps + 1)), axis=1)
-    qret = values[-1]
-    qrets = []
-    for i in range(n_steps - 1, -1, -1):
-        qret = rewards[i] + gamma * qret * (1.0 - dones[i])
-        qrets.append(qret)
-        qret = (rho_bar[i] * (qret - q_i[i])) + values[i]
-    return tf.reshape(tf.stack(qrets[::-1], 1), [-1])
-
-
 class Acer:
     def __init__(
         self,
-        env,
         runner,
         v2_models,
         buffers,
         log_interval,
-        reward_buffer_size=100,
-        metric_digits=2,
-        n_steps=20,
         ema_alpha=0.99,
     ):
-        self.n_actions = env[0].action_space.n
-        self.input_shape = env[0].observation_space.shape
-        self.n_envs = len(env)
-        self.n_steps = n_steps
         self.runner = runner
         self.model, self.avg_model = v2_models
         self.buffers = buffers
         self.log_interval = log_interval
         self.tstart = None
         self.steps = None
-        self.total_rewards = deque(maxlen=reward_buffer_size)
-        self.metric_digits = metric_digits
-        self.best_reward = -float('inf')
-        self.mean_reward = -float('inf')
-        self.episode_rewards = np.zeros(runner.n_envs)
         self.ema = tf.train.ExponentialMovingAverage(ema_alpha)
         self.training_return_names = [
             'loss',
@@ -97,7 +83,7 @@ class Acer:
             'entropy',
             'loss_f',
         ]
-        self.batch_indices = tf.range(self.n_steps * self.n_envs, dtype=tf.int64)[
+        self.batch_indices = tf.range(runner.n_steps * runner.n_envs, dtype=tf.int64)[
             :, tf.newaxis
         ]
 
@@ -110,7 +96,7 @@ class Acer:
 
     def concat_buffer_samples(self):
         batches = []
-        for i in range(self.n_envs):
+        for i in range(self.runner.n_envs):
             batch = self.buffers[i].get_sample()
             batches.append(batch)
         if len(batches) > 1:
@@ -121,7 +107,7 @@ class Acer:
         if on_policy:
             obs, actions, rewards, mus, dones = self.runner.run()
             if self.buffers is not None:
-                for i in range(self.n_envs):
+                for i in range(self.runner.n_envs):
                     env_outputs = []
                     for item in [obs, actions, rewards, mus, dones]:
                         env_outputs.append(item[i])
@@ -145,7 +131,7 @@ class Acer:
             print(
                 "mean_episode_reward",
                 np.around(
-                    np.mean(self.runner.total_rewards or [0]), self.metric_digits
+                    np.mean(self.runner.total_rewards or [0]), self.runner.metric_digits
                 ),
             )
             for name, val in zip(self.training_return_names, values_ops):
@@ -161,7 +147,6 @@ class Acer:
         rewards,
         dones,
         eps=1e-6,
-        gamma=0.99,
         c=10.0,
         q_coef=0.5,
         ent_coef=0.01,
@@ -176,18 +161,16 @@ class Acer:
             *_, train_q, _, train_model_p = self.model(obs)
             *_, polyak_q, _, polyak_model_p = self.avg_model(obs)
             v = tf.reduce_sum(input_tensor=train_model_p * train_q, axis=-1)
-            f = tf.squeeze(train_model_p[: -self.n_envs])
-            f_pol = tf.squeeze(polyak_model_p[: -self.n_envs])
-            q = tf.squeeze(train_q[: -self.n_envs])
+            f = tf.squeeze(train_model_p[: -self.runner.n_envs])
+            f_pol = tf.squeeze(polyak_model_p[: -self.runner.n_envs])
+            q = tf.squeeze(train_q[: -self.runner.n_envs])
             f_i = tf.gather_nd(f, action_indices)
             q_i = tf.gather_nd(q, action_indices)
             rho = f / (mus + eps)
             rho_i = tf.gather_nd(rho, action_indices)
-            qret = q_retrace(
-                rewards, dones, q_i, v, rho_i, self.n_envs, self.n_steps, gamma
-            )
+            qret = self.runner.q_retrace(rewards, dones, q_i, v, rho_i)
             entropy = tf.reduce_mean(-tf.reduce_sum(f * tf.math.log(f + eps), axis=1))
-            v = v[: -self.n_envs]
+            v = v[: -self.runner.n_envs]
             adv = qret - v
             logf = tf.math.log(f_i + eps)
             gain_f = logf * tf.stop_gradient(adv * tf.minimum(c, rho_i))
@@ -199,7 +182,11 @@ class Acer:
                 * q_coef
             )
             if trust_region:
-                loss = -(loss_f - ent_coef * entropy) * self.n_steps * self.n_envs
+                loss = (
+                    -(loss_f - ent_coef * entropy)
+                    * self.runner.n_steps
+                    * self.runner.n_envs
+                )
             else:
                 loss = loss_f + q_coef * loss_q - ent_coef * entropy
         if trust_region:
@@ -213,11 +200,14 @@ class Acer:
                 (tf.reduce_sum(input_tensor=k * g, axis=-1) - delta)
                 / (tf.reduce_sum(input_tensor=tf.square(k), axis=-1) + eps),
             )
-            g = g - tf.reshape(adj, [self.n_envs * self.n_steps, 1]) * k
-            grads_f = -g / (self.n_envs * self.n_steps)
+            g = g - tf.reshape(adj, [self.runner.n_envs * self.runner.n_steps, 1]) * k
+            grads_f = -g / (self.runner.n_envs * self.runner.n_steps)
             grads_policy = tape.gradient(f, self.model.trainable_variables, grads_f)
             grads_q = tape.gradient(loss_q, self.model.trainable_variables)
-            grads = [gradient_add(g1, g2) for (g1, g2) in zip(grads_policy, grads_q)]
+            grads = [
+                self.runner.gradient_add(g1, g2)
+                for (g1, g2) in zip(grads_policy, grads_q)
+            ]
         else:
             grads = tape.gradient(loss, self.model.trainable_variables)
         if max_grad_norm is not None:
@@ -255,18 +245,18 @@ def learn(
     ]
     ms[0].compile(
         optimizer=Adam(
-            # learning_rate=tf.keras.optimizers.schedules.ExponentialDecay(
-            #     1e-3, 1e5, 0.99
-            # )
+            learning_rate=tf.keras.optimizers.schedules.ExponentialDecay(
+                1e-3, 1e5, 0.99
+            )
         )
     )
-    runner = Runner(env=env, model=ms[0])
+    runner = Runner(env=env, model=ms[0], seed=seed)
     buffers = [
         ReplayBuffer(buffer_size // len(env), 500, batch_size=1, seed=seed)
         for _ in range(len(env))
     ]
     n_batches = n_envs * n_steps
-    acer = Acer(env, runner, ms, buffers, log_interval)
+    acer = Acer(runner, ms, buffers, log_interval)
     acer.tstart = time.time()
     for acer.steps in range(0, total_timesteps, n_batches):
         acer.call(True)
@@ -277,11 +267,6 @@ def learn(
 
 
 if __name__ == '__main__':
-    seed = 555
+    seeed = 555
     envs = create_gym_env('PongNoFrameskip-v4', 2, scale_frames=False)
-    if seed:
-        tf.random.set_seed(seed)
-        np.random.seed(seed)
-        for e in envs:
-            e.seed(seed)
-    learn(envs, seed=seed)
+    learn(envs, seed=seeed)
