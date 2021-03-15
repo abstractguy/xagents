@@ -11,7 +11,14 @@ class AtariPreprocessor(gym.Wrapper):
     gym wrapper for preprocessing atari frames.
     """
 
-    def __init__(self, env, frame_skips=4, resize_shape=(84, 84), state_buffer_size=2):
+    def __init__(
+        self,
+        env,
+        frame_skips=4,
+        resize_shape=(84, 84),
+        state_buffer_size=2,
+        scale_frames=True,
+    ):
         """
         Initialize preprocessing settings.
         Args:
@@ -25,6 +32,7 @@ class AtariPreprocessor(gym.Wrapper):
         self.frame_shape = resize_shape
         self.observation_space.shape = (*resize_shape, 1)
         self.observation_buffer = deque(maxlen=state_buffer_size)
+        self.scale_frames = scale_frames
 
     def process_frame(self, frame):
         """
@@ -36,7 +44,9 @@ class AtariPreprocessor(gym.Wrapper):
             Processed frame.
         """
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        frame = cv2.resize(frame, self.frame_shape) / 255
+        frame = cv2.resize(frame, self.frame_shape)
+        if self.scale_frames:
+            frame = frame / 255
         return np.expand_dims(frame, -1)
 
     def step(self, action: int):

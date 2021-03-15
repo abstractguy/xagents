@@ -46,6 +46,7 @@ class CNNA2C(Model):
         critic_activation=None,
         critic_units=1,
         seed=None,
+        scale_inputs=False,
     ):
         super(CNNA2C, self).__init__()
         relu_initializer = tf.initializers.Orthogonal(gain=relu_gain, seed=seed)
@@ -63,6 +64,7 @@ class CNNA2C(Model):
             activation=critic_activation,
         )
         self.seed = seed
+        self.scale_inputs = scale_inputs
 
     def get_distribution(self, actor_output):
         if (
@@ -75,6 +77,8 @@ class CNNA2C(Model):
 
     @tf.function
     def call(self, inputs, training=True, mask=None, actions=None):
+        if self.scale_inputs:
+            inputs = tf.cast(inputs, tf.float32) / 255.0
         conv_out = self.common(inputs, training=training, mask=mask)
         critic_output = self.critic(conv_out)
         if self.critic.units == 1:
@@ -96,8 +100,12 @@ class CNNA2C(Model):
         super(CNNA2C, self).get_config()
 
 
-def create_cnn_dqn(input_shape, n_actions, duel=False, fc_units=512, seed=None):
+def create_cnn_dqn(
+    input_shape, n_actions, duel=False, fc_units=512, seed=None, scale_inputs=False
+):
     x0 = Input(input_shape)
+    if scale_inputs:
+        x0 = tf.cast(x0, tf.float32) / 255.0
     initializer = tf.initializers.GlorotUniform(seed=seed)
     x = Conv2D(32, 8, 4, activation='relu', kernel_initializer=initializer)(x0)
     x = Conv2D(64, 4, 2, activation='relu', kernel_initializer=initializer)(x)
