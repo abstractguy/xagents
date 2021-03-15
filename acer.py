@@ -46,10 +46,9 @@ class Runner(A2C):
             states,
             rewards,
             actions,
-            values,
+            _,
             dones,
-            log_probs,
-            entropies,
+            *_,
             actor_logits,
         ) = self.get_batch()
         states.append(self.get_states())
@@ -57,7 +56,7 @@ class Runner(A2C):
         actions = np.asarray(actions, np.int32).swapaxes(1, 0)
         rewards = np.asarray(rewards, dtype=np.float32).swapaxes(1, 0)
         actor_logits = np.asarray(actor_logits, dtype=np.float32).swapaxes(1, 0)
-        dones = np.asarray(dones, dtype=np.float32).swapaxes(1, 0)[:, 1:]
+        dones = np.asarray(dones[1:], dtype=np.float32).swapaxes(1, 0)
         return states, actions, rewards, actor_logits, dones
 
 
@@ -105,38 +104,26 @@ class Acer:
 
     def call(self, on_policy):
         if on_policy:
-            obs, actions, rewards, mus, dones = self.runner.run()
+            batch = self.runner.run()
             if self.buffers is not None:
                 for i in range(self.runner.n_envs):
                     env_outputs = []
-                    for item in [obs, actions, rewards, mus, dones]:
+                    for item in batch:
                         env_outputs.append(item[i])
                     self.buffers[i].append(env_outputs)
-            obs = obs.reshape(-1, *obs.shape[2:])
-            actions = actions.reshape(-1)
-            rewards = rewards.reshape(-1)
-            mus = mus.reshape(-1, *mus.shape[2:])
-            dones = dones.reshape(-1)
+            obs, actions, rewards, mus, dones = [
+                item.reshape(-1, *item.shape[2:]) for item in batch
+            ]
         else:
             obs, actions, rewards, mus, dones = self.concat_buffer_samples()
-        values_ops = self.train(obs, actions, mus, rewards, dones)
+        self.train(obs, actions, mus, rewards, dones)
         self.update_avg_weights()
         if on_policy and (
             int(self.steps / (self.runner.n_steps * self.runner.n_envs))
             % self.log_interval
             == 0
         ):
-            print("total_timesteps", self.steps)
-            print("fps", int(self.steps / (time.time() - self.tstart)))
-            print(
-                "mean_episode_reward",
-                np.around(
-                    np.mean(self.runner.total_rewards or [0]), self.runner.metric_digits
-                ),
-            )
-            for name, val in zip(self.training_return_names, values_ops):
-                print(f'{name}: {np.around(float(val), 2)}')
-            print(30 * '=')
+            self.runner.display_metrics()
 
     @tf.function
     def train(
@@ -214,12 +201,6 @@ class Acer:
             grads, norm_grads = tf.clip_by_global_norm(grads, max_grad_norm)
         self.model.optimizer.apply_gradients(zip(grads, self.model.trainable_variables))
         self.ema.apply(self.model.trainable_variables)
-        return [
-            loss,
-            loss_q,
-            entropy,
-            loss_f,
-        ]
 
 
 def learn(
@@ -228,7 +209,7 @@ def learn(
     n_steps=20,
     total_timesteps=int(80e6),
     log_interval=100,
-    buffer_size=10000,
+    buffer_size=50000,
     replay_ratio=4,
 ):
     n_envs = len(env)
@@ -243,14 +224,9 @@ def learn(
         )
         for _ in range(2)
     ]
-    ms[0].compile(
-        optimizer=Adam(
-            learning_rate=tf.keras.optimizers.schedules.ExponentialDecay(
-                1e-3, 1e5, 0.99
-            )
-        )
-    )
+    ms[0].compile(optimizer=Adam())
     runner = Runner(env=env, model=ms[0], seed=seed)
+    runner.init_training(19, *[None] * 3)
     buffers = [
         ReplayBuffer(buffer_size // len(env), 500, batch_size=1, seed=seed)
         for _ in range(len(env))
@@ -260,6 +236,7 @@ def learn(
     acer.tstart = time.time()
     for acer.steps in range(0, total_timesteps, n_batches):
         acer.call(True)
+        runner.check_episodes()
         if replay_ratio > 0 and len(buffers[0]) >= buffers[0].initial_size:
             n = np.random.poisson(replay_ratio)
             for _ in range(n):
@@ -267,6 +244,6 @@ def learn(
 
 
 if __name__ == '__main__':
-    seeed = 555
+    seeed = None
     envs = create_gym_env('PongNoFrameskip-v4', 2, scale_frames=False)
     learn(envs, seed=seeed)

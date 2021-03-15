@@ -188,12 +188,10 @@ class BaseAgent:
                 batch = buffer.get_sample()
                 batches.append(batch)
             if len(batches) > 1:
-                joined = [
+                return [
                     np.concatenate(item).astype(np.float32) for item in zip(*batches)
                 ]
-            else:
-                joined = [item.astype(np.float32) for item in batches[0]]
-            return joined
+            return [item.astype(np.float32) for item in batches[0]]
 
     def step_envs(self, actions, get_observation=False, store_in_buffers=False):
         observations = []
@@ -314,10 +312,7 @@ class BaseAgent:
 
     @staticmethod
     def concat_step_batches(*args):
-        return [
-            a.swapaxes(0, 1).reshape(a.shape[0] * a.shape[1], *a.shape[2:])
-            for a in args
-        ]
+        return [a.swapaxes(0, 1).reshape(-1, *a.shape[2:]) for a in args]
 
     def fit(
         self,
