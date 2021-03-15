@@ -3,83 +3,37 @@ from collections import deque
 
 import numpy as np
 import tensorflow as tf
-
-from models import CNNA2C
-from utils import ReplayBuffer, create_gym_env
 from tensorflow.keras.optimizers import Adam
 
+from a2c import A2C
+from models import CNNA2C
+from utils import ReplayBuffer, create_gym_env
 
-class Runner:
-    def __init__(self, env, model, n_steps):
-        self.env = env
-        self.model = model
-        self.n_envs = n_envs = len(env)
-        self.batch_ob_shape = (n_envs * n_steps,) + env[0].observation_space.shape
-        self.obs = np.asarray([e.reset() for e in env])
-        self.n_steps = n_steps
-        self.dones = [False for _ in range(n_envs)]
-        self.avg_model = model
-        self.n_actions = env[0].action_space.n
-        n_envs = self.n_envs
-        self.n_batches = n_envs * n_steps
-        self.batch_ob_shape = (n_envs * (n_steps + 1),) + env[0].observation_space.shape
-        self.ac_dtype = env[0].action_space.dtype
-        self.nc = 1
+
+class Runner(A2C):
+    def __init__(self, env, model, n_steps=20):
+        super(Runner, self).__init__(env, model, n_steps=n_steps)
 
     def run(
         self,
-        episode_rewards,
-        total_rewards,
     ):
-        mb_obs, mb_actions, mb_mus, mb_dones, mb_rewards = [], [], [], [], []
-        for _ in range(self.n_steps):
-            actions, *_, mus = self.model(self.obs)
-            mb_obs.append(np.copy(self.obs))
-            mb_actions.append(actions)
-            mb_mus.append(mus)
-            mb_dones.append(self.dones)
-            obs, rewards, dones, = (
-                [],
-                [],
-                [],
-            )
-            for i, (e, a) in enumerate(zip(self.env, actions)):
-                s, r, d, _ = e.step(a)
-                if d:
-                    obs.append(e.reset())
-                    total_rewards.append(episode_rewards[i])
-                    episode_rewards[i] = 0
-
-                else:
-                    obs.append(s)
-                episode_rewards[i] += r
-                rewards.append(r)
-                dones.append(d)
-            obs, rewards, dones = [np.asarray(item) for item in [obs, rewards, dones]]
-            self.dones = dones
-            self.obs = obs
-            mb_rewards.append(rewards)
-        mb_obs.append(np.copy(self.obs))
-        mb_dones.append(self.dones)
-        mb_obs = np.asarray(mb_obs, np.uint8).swapaxes(1, 0)
-        mb_actions = np.asarray(mb_actions, dtype=self.ac_dtype).swapaxes(1, 0)
-        mb_rewards = np.asarray(mb_rewards, dtype=np.float32).swapaxes(1, 0)
-        mb_mus = np.asarray(mb_mus, dtype=np.float32).swapaxes(1, 0)
-        mb_dones = np.asarray(mb_dones, dtype=np.float32).swapaxes(1, 0)
-        mb_dones = mb_dones[:, 1:]
-        return mb_obs, mb_actions, mb_rewards, mb_mus, mb_dones
-
-
-def cat_entropy_softmax(p0):
-    return -tf.reduce_sum(input_tensor=p0 * tf.math.log(p0 + 1e-6), axis=1)
-
-
-def get_by_index(x, idx):
-    assert len(x.shape) == 2
-    assert len(idx.shape) == 1
-    idx_flattened = tf.range(0, x.shape[0]) * x.shape[1] + tf.cast(idx, tf.int32)
-    y = tf.gather(tf.reshape(x, [-1]), idx_flattened)
-    return y
+        (
+            states,
+            rewards,
+            actions,
+            values,
+            dones,
+            log_probs,
+            entropies,
+            actor_logits,
+        ) = self.get_batch()
+        states.append(self.get_states())
+        states = np.asarray(states, np.uint8).swapaxes(1, 0)
+        actions = np.asarray(actions, np.int32).swapaxes(1, 0)
+        rewards = np.asarray(rewards, dtype=np.float32).swapaxes(1, 0)
+        actor_logits = np.asarray(actor_logits, dtype=np.float32).swapaxes(1, 0)
+        dones = np.asarray(dones, dtype=np.float32).swapaxes(1, 0)[:, 1:]
+        return states, actions, rewards, actor_logits, dones
 
 
 def gradient_add(g1, g2):
@@ -143,6 +97,9 @@ class Acer:
             'entropy',
             'loss_f',
         ]
+        self.batch_indices = tf.range(self.n_steps * self.n_envs, dtype=tf.int64)[
+            :, tf.newaxis
+        ]
 
     def update_avg_weights(self):
         avg_variables = [
@@ -162,32 +119,34 @@ class Acer:
 
     def call(self, on_policy):
         if on_policy:
-            obs, actions, rewards, mus, dones = self.runner.run(
-                self.episode_rewards, self.total_rewards
-            )
+            obs, actions, rewards, mus, dones = self.runner.run()
             if self.buffers is not None:
                 for i in range(self.n_envs):
                     env_outputs = []
                     for item in [obs, actions, rewards, mus, dones]:
                         env_outputs.append(item[i])
                     self.buffers[i].append(env_outputs)
-            obs = obs.reshape(self.runner.batch_ob_shape)
-            actions = actions.reshape([self.runner.n_batches])
-            rewards = rewards.reshape([self.runner.n_batches])
-            mus = mus.reshape([self.runner.n_batches, self.runner.n_actions])
-            dones = dones.reshape([self.runner.n_batches])
+            obs = obs.reshape(-1, *obs.shape[2:])
+            actions = actions.reshape(-1)
+            rewards = rewards.reshape(-1)
+            mus = mus.reshape(-1, *mus.shape[2:])
+            dones = dones.reshape(-1)
         else:
             obs, actions, rewards, mus, dones = self.concat_buffer_samples()
         values_ops = self.train(obs, actions, mus, rewards, dones)
         self.update_avg_weights()
         if on_policy and (
-            int(self.steps / self.runner.n_batches) % self.log_interval == 0
+            int(self.steps / (self.runner.n_steps * self.runner.n_envs))
+            % self.log_interval
+            == 0
         ):
             print("total_timesteps", self.steps)
             print("fps", int(self.steps / (time.time() - self.tstart)))
             print(
                 "mean_episode_reward",
-                np.around(np.mean(self.total_rewards or [0]), self.metric_digits),
+                np.around(
+                    np.mean(self.runner.total_rewards or [0]), self.metric_digits
+                ),
             )
             for name, val in zip(self.training_return_names, values_ops):
                 print(f'{name}: {np.around(float(val), 2)}')
@@ -210,6 +169,9 @@ class Acer:
         trust_region=True,
         max_grad_norm=10,
     ):
+        action_indices = tf.concat(
+            (self.batch_indices, tf.cast(actions[:, tf.newaxis], tf.int64)), -1
+        )
         with tf.GradientTape(persistent=True) as tape:
             *_, train_q, _, train_model_p = self.model(obs)
             *_, polyak_q, _, polyak_model_p = self.avg_model(obs)
@@ -217,14 +179,14 @@ class Acer:
             f = tf.squeeze(train_model_p[: -self.n_envs])
             f_pol = tf.squeeze(polyak_model_p[: -self.n_envs])
             q = tf.squeeze(train_q[: -self.n_envs])
-            f_i = get_by_index(f, actions)
-            q_i = get_by_index(q, actions)
+            f_i = tf.gather_nd(f, action_indices)
+            q_i = tf.gather_nd(q, action_indices)
             rho = f / (mus + eps)
-            rho_i = get_by_index(rho, actions)
+            rho_i = tf.gather_nd(rho, action_indices)
             qret = q_retrace(
                 rewards, dones, q_i, v, rho_i, self.n_envs, self.n_steps, gamma
             )
-            entropy = tf.reduce_mean(input_tensor=cat_entropy_softmax(f))
+            entropy = tf.reduce_mean(-tf.reduce_sum(f * tf.math.log(f + eps), axis=1))
             v = v[: -self.n_envs]
             adv = qret - v
             logf = tf.math.log(f_i + eps)
@@ -291,8 +253,14 @@ def learn(
         )
         for _ in range(2)
     ]
-    ms[0].compile(optimizer=Adam())
-    runner = Runner(env=env, model=ms[0], n_steps=n_steps)
+    ms[0].compile(
+        optimizer=Adam(
+            # learning_rate=tf.keras.optimizers.schedules.ExponentialDecay(
+            #     1e-3, 1e5, 0.99
+            # )
+        )
+    )
+    runner = Runner(env=env, model=ms[0])
     buffers = [
         ReplayBuffer(buffer_size // len(env), 500, batch_size=1, seed=seed)
         for _ in range(len(env))
@@ -309,5 +277,11 @@ def learn(
 
 
 if __name__ == '__main__':
+    seed = 555
     envs = create_gym_env('PongNoFrameskip-v4', 2, scale_frames=False)
-    learn(envs)
+    if seed:
+        tf.random.set_seed(seed)
+        np.random.seed(seed)
+        for e in envs:
+            e.seed(seed)
+    learn(envs, seed=seed)
