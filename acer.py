@@ -8,28 +8,45 @@ from utils import ReplayBuffer, create_gym_env
 
 class ACER(A2C):
     def __init__(
-        self, env, models, n_steps=20, seed=None, buffer_size=50000, ema_alpha=0.99
+        self,
+        envs,
+        models,
+        ema_alpha=0.99,
+        n_steps=20,
+        grad_norm=10,
+        buffer_max_size=10000,
+        buffer_initial_size=500,
+        replay_ratio=4,
+        *args,
+        **kwargs,
     ):
-        super(ACER, self).__init__(env, models[0], n_steps=n_steps, seed=seed)
+        super(ACER, self).__init__(
+            envs, models[0], n_steps=n_steps, grad_norm=grad_norm, *args, **kwargs
+        )
         self.avg_model = models[1]
         self.buffers = [
-            ReplayBuffer(buffer_size // len(env), 500, batch_size=1, seed=seed)
-            for _ in range(len(env))
+            ReplayBuffer(
+                buffer_max_size // self.n_envs,
+                buffer_initial_size,
+                batch_size=1,
+                seed=self.seed,
+            )
+            for _ in range(self.n_envs)
         ]
         self.ema = tf.train.ExponentialMovingAverage(ema_alpha)
         self.batch_indices = tf.range(self.n_steps * self.n_envs, dtype=tf.int64)[
             :, tf.newaxis
         ]
+        self.replay_ratio = replay_ratio
 
     @staticmethod
     def gradient_add(g1, g2):
-        assert not (g1 is None and g2 is None)
-        if g1 is None:
-            return g2
-        elif g2 is None:
-            return g1
-        else:
+        assert g1 is not None or g2 is not None
+        if g1 is not None and g2 is not None:
             return g1 + g2
+        if g1 is not None:
+            return g1
+        return g2
 
     def q_retrace(self, rewards, dones, q_i, values, rho_i):
         rho_bar = tf.unstack(
@@ -172,36 +189,29 @@ class ACER(A2C):
         self.model.optimizer.apply_gradients(zip(grads, self.model.trainable_variables))
         self.ema.apply(self.model.trainable_variables)
 
+    def train_step(self):
+        self.call(True)
+        if (
+            self.replay_ratio > 0
+            and len(self.buffers[0]) >= self.buffers[0].initial_size
+        ):
+            for _ in range(np.random.poisson(self.replay_ratio)):
+                self.call(False)
 
-def learn(
-    env,
-    seed=None,
-    total_timesteps=int(80e6),
-    replay_ratio=4,
-):
+
+if __name__ == '__main__':
+    sd = 555
+    es = create_gym_env('PongNoFrameskip-v4', 2, scale_frames=False)
     ms = [
         CNNA2C(
             (84, 84, 1),
             6,
             actor_activation='softmax',
             critic_units=6,
-            seed=seed,
+            seed=sd,
             scale_inputs=True,
         )
         for _ in range(2)
     ]
-    agn = ACER(env, ms, seed=seed)
-    agn.init_training(19, *[None] * 3)
-    for _ in range(0, total_timesteps):
-        agn.call(True)
-        agn.check_episodes()
-        if replay_ratio > 0 and len(agn.buffers[0]) >= agn.buffers[0].initial_size:
-            n = np.random.poisson(replay_ratio)
-            for _ in range(n):
-                agn.call(False)
-
-
-if __name__ == '__main__':
-    seeed = None
-    envs = create_gym_env('PongNoFrameskip-v4', 2, scale_frames=False)
-    learn(envs, seed=seeed)
+    agn = ACER(es, ms, seed=sd)
+    agn.fit(19)
