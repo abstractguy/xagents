@@ -14,7 +14,7 @@ class ACER(A2C):
         ema_alpha=0.99,
         n_steps=20,
         grad_norm=10,
-        buffer_max_size=10000,
+        buffer_max_size=5000,
         buffer_initial_size=500,
         replay_ratio=4,
         *args,
@@ -27,7 +27,7 @@ class ACER(A2C):
         self.buffers = [
             ReplayBuffer(
                 buffer_max_size // self.n_envs,
-                buffer_initial_size,
+                buffer_initial_size // self.n_envs,
                 batch_size=1,
                 seed=self.seed,
             )
@@ -39,6 +39,14 @@ class ACER(A2C):
         ]
         self.replay_ratio = replay_ratio
 
+    def flat_to_steps(self, t, steps=None):
+        t = tf.reshape(t, (self.n_envs, steps or self.n_steps, *t.shape[1:]))
+        return [tf.squeeze(v, 1) for v in tf.split(t, steps or self.n_steps, 1)]
+
+    def clip_last_step(self, t):
+        ts = self.flat_to_steps(t, self.n_steps + 1)
+        return tf.reshape(tf.stack(ts[:-1], 1), (-1, *ts[0].shape[1:]))
+
     @staticmethod
     def gradient_add(g1, g2):
         assert g1 is not None or g2 is not None
@@ -49,13 +57,11 @@ class ACER(A2C):
         return g2
 
     def q_retrace(self, rewards, dones, q_i, values, rho_i):
-        rho_bar = tf.unstack(
-            tf.reshape(tf.minimum(1.0, rho_i), (self.n_envs, self.n_steps)), axis=1
-        )
-        dones = tf.unstack(tf.reshape(dones, (self.n_envs, self.n_steps)), axis=1)
-        rewards = tf.unstack(tf.reshape(rewards, (self.n_envs, self.n_steps)), axis=1)
-        q_i = tf.unstack(tf.reshape(q_i, (self.n_envs, self.n_steps)), axis=1)
-        values = tf.unstack(tf.reshape(values, (self.n_envs, self.n_steps + 1)), axis=1)
+        rho_bar = self.flat_to_steps(tf.minimum(1.0, rho_i))
+        dones = self.flat_to_steps(dones)
+        rewards = self.flat_to_steps(rewards)
+        q_i = self.flat_to_steps(q_i)
+        values = self.flat_to_steps(values, self.n_steps + 1)
         qret = values[-1]
         qrets = []
         for i in range(self.n_steps - 1, -1, -1):
@@ -140,16 +146,16 @@ class ACER(A2C):
             *_, train_q, _, train_model_p = self.model(obs)
             *_, polyak_q, _, polyak_model_p = self.avg_model(obs)
             v = tf.reduce_sum(input_tensor=train_model_p * train_q, axis=-1)
-            f = tf.squeeze(train_model_p[: -self.n_envs])
-            f_pol = tf.squeeze(polyak_model_p[: -self.n_envs])
-            q = tf.squeeze(train_q[: -self.n_envs])
+            f = self.clip_last_step(train_model_p)
+            f_pol = self.clip_last_step(polyak_model_p)
+            q = self.clip_last_step(train_q)
             f_i = tf.gather_nd(f, action_indices)
             q_i = tf.gather_nd(q, action_indices)
             rho = f / (mus + eps)
             rho_i = tf.gather_nd(rho, action_indices)
             qret = self.q_retrace(rewards, dones, q_i, v, rho_i)
             entropy = tf.reduce_mean(-tf.reduce_sum(f * tf.math.log(f + eps), axis=1))
-            v = v[: -self.n_envs]
+            v = self.clip_last_step(v)
             adv = qret - v
             logf = tf.math.log(f_i + eps)
             gain_f = logf * tf.stop_gradient(adv * tf.minimum(c, rho_i))
@@ -200,7 +206,7 @@ class ACER(A2C):
 
 
 if __name__ == '__main__':
-    sd = 555
+    sd = None
     es = create_gym_env('PongNoFrameskip-v4', 2, scale_frames=False)
     ms = [
         CNNA2C(

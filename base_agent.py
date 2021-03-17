@@ -307,9 +307,6 @@ class BaseAgent:
         """
         return tf.concat((batch_indices, tf.cast(actions[:, tf.newaxis], tf.int64)), -1)
 
-    def flat_to_steps(self, t, steps=None):
-        return tf.unstack(tf.reshape(t, (self.n_envs, steps or self.n_steps)), axis=1)
-
     @staticmethod
     def concat_step_batches(*args):
         return [a.swapaxes(0, 1).reshape(-1, *a.shape[2:]) for a in args]
