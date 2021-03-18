@@ -37,6 +37,15 @@ class ACER(A2C):
             :, tf.newaxis
         ]
         self.replay_ratio = replay_ratio
+        self.tf_batch_dtypes = [tf.uint8] + [tf.float32 for _ in range(4)]
+        self.np_batch_dtypes = [np.uint8] + [np.float32 for _ in range(4)]
+        self.batch_shapes = [
+            (self.n_envs * (self.n_steps + 1), *self.input_shape),
+            (self.n_envs * self.n_steps),
+            (self.n_envs * self.n_steps),
+            (self.n_envs * self.n_steps),
+            (self.n_envs * self.n_steps, self.available_actions),
+        ]
 
     def flat_to_steps(self, t, steps=None):
         t = tf.reshape(t, (self.n_envs, steps or self.n_steps, *t.shape[1:]))
@@ -103,16 +112,14 @@ class ACER(A2C):
             actor_logits,
         ) = super(ACER, self).get_batch()
         states.append(self.get_states())
-        states = np.asarray(states, np.uint8).swapaxes(1, 0)
-        actions = np.asarray(actions, np.int32).swapaxes(1, 0)
-        rewards = np.asarray(rewards, dtype=np.float32).swapaxes(1, 0)
-        actor_logits = np.asarray(actor_logits, dtype=np.float32).swapaxes(1, 0)
-        dones = np.asarray(dones[1:], dtype=np.float32).swapaxes(1, 0)
-        batch = [states, rewards, actions, dones, actor_logits]
+        batch = [states, rewards, actions, dones[1:], actor_logits]
+        batch = [
+            np.asarray(item, dtype).swapaxes(0, 1)
+            for (item, dtype) in zip(batch, self.np_batch_dtypes)
+        ]
         self.store_batch(batch)
         return [item.reshape(-1, *item.shape[2:]) for item in batch]
 
-    @tf.function
     def train(
         self,
         obs,
@@ -185,15 +192,20 @@ class ACER(A2C):
         self.ema.apply(self.model.trainable_variables)
         tf.numpy_function(self.update_avg_weights, [], [])
 
+    @tf.function
     def train_step(self):
-        batch = self.get_batch()
+        batch = tf.numpy_function(self.get_batch, [], self.tf_batch_dtypes)
+        for item, shape in zip(batch, self.batch_shapes):
+            item.set_shape(shape)
         self.train(*batch)
         if (
             self.replay_ratio > 0
             and len(self.buffers[0]) >= self.buffers[0].initial_size
         ):
             for _ in range(np.random.poisson(self.replay_ratio)):
-                batch = self.concat_buffer_samples()
+                batch = tf.numpy_function(
+                    self.concat_buffer_samples, [], self.tf_batch_dtypes
+                )
                 self.train(*batch)
 
 
