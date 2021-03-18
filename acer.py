@@ -24,6 +24,27 @@ class ACER(A2C):
         *args,
         **kwargs,
     ):
+        """
+        Initialize ACER agent.
+        Args:
+            envs: A list of gym environments.
+            model: tf.keras.models.Model used for training.
+            ema_alpha: Moving average decay passed to tf.train.ExponentialMovingAverage()
+            buffer_max_size: Maximum size for each replay buffer used by its
+                respective environment.
+            buffer_initial_size: Initial replay buffer size, if not specified,
+                buffer_max_size is used.
+            n_steps: n-step transition for example given s1, s2, s3, s4 and n_step = 4,
+                transition will be s1 -> s4 (defaults to 1, s1 -> s2)
+            grad_norm: Gradient clipping value passed to tf.clip_by_global_norm()
+            replay_ratio: Lam value passed to np.random.poisson()
+            epsilon: epsilon value used in several calculations during gradient update.
+            importance_c: Importance weight truncation parameter.
+            delta: Delta parameter used for trust region update.
+            trust_region: If False, no trust region updates will be used.
+            *args: args Passed to BaseAgent.
+            **kwargs: kwargs Passed to BaseAgent.
+        """
         super(ACER, self).__init__(
             envs, models[0], n_steps=n_steps, grad_norm=grad_norm, *args, **kwargs
         )
@@ -56,17 +77,43 @@ class ACER(A2C):
         ]
 
     def flat_to_steps(self, t, steps=None):
+        """
+        Split a tensor to tensors of shape (self.n_envs, self.n_steps)
+        Args:
+            t: A flat tensor that has (self.n_envs * self.n_steps) values.
+            steps: If not specified, self.n_steps is used by default.
+
+        Returns:
+            A list of self.n_envs x self.n_steps tensors.
+        """
         t = tf.reshape(t, (self.n_envs, steps or self.n_steps, *t.shape[1:]))
         return [
             tf.squeeze(step_t, 1) for step_t in tf.split(t, steps or self.n_steps, 1)
         ]
 
     def clip_last_step(self, t):
+        """
+        Remove last step from a given tensor.
+        Args:
+            t: Tensor that has self.n_steps + 1 items.
+
+        Returns:
+            Tensor that has self.n_steps items.
+        """
         ts = self.flat_to_steps(t, self.n_steps + 1)
         return tf.reshape(tf.stack(ts[:-1], 1), (-1, *ts[0].shape[1:]))
 
     @staticmethod
-    def gradient_add(g1, g2):
+    def add_grads(g1, g2):
+        """
+        Add 2 gradients if neither is None, otherwise return one of them.
+        Args:
+            g1: Grad 1
+            g2: Grad 2
+
+        Returns:
+            One of them or their sum.
+        """
         assert g1 is not None or g2 is not None
         if g1 is not None and g2 is not None:
             return g1 + g2
@@ -74,25 +121,13 @@ class ACER(A2C):
             return g1
         return g2
 
-    def calculate_returns(
-        self, rewards, dones, selected_critic_logits, values, selected_importance
-    ):
-        importance_bar = self.flat_to_steps(tf.minimum(1.0, selected_importance))
-        dones = self.flat_to_steps(dones)
-        rewards = self.flat_to_steps(rewards)
-        selected_critic_logits = self.flat_to_steps(selected_critic_logits)
-        values = self.flat_to_steps(values, self.n_steps + 1)
-        current_return = values[-1]
-        returns = []
-        for i in reversed(range(self.n_steps)):
-            current_return = rewards[i] + self.gamma * current_return * (1.0 - dones[i])
-            returns.append(current_return)
-            current_return = (
-                importance_bar[i] * (current_return - selected_critic_logits[i])
-            ) + values[i]
-        return tf.reshape(tf.stack(returns[::-1], 1), [-1])
-
     def update_avg_weights(self):
+        """
+        Update average model weights after performing gradient update.
+
+        Returns:
+            None
+        """
         avg_variables = [
             self.ema.average(weight).numpy()
             for weight in self.model.trainable_variables
@@ -100,6 +135,14 @@ class ACER(A2C):
         self.avg_model.set_weights(avg_variables)
 
     def store_batch(self, batch):
+        """
+        Store batch in self.buffers.
+        Args:
+            batch: A list of (states, rewards, actions, dones, actor output)
+
+        Returns:
+            None
+        """
         for i in range(self.n_envs):
             env_outputs = []
             for item in batch:
@@ -107,6 +150,13 @@ class ACER(A2C):
             self.buffers[i].append(env_outputs)
 
     def get_batch(self):
+        """
+        Get a batch of (states, rewards, actions, dones, actor output)
+        and adjust shapes for gradient update.
+
+        Returns:
+            Merged environment outputs.
+        """
         (
             states,
             rewards,
@@ -125,6 +175,38 @@ class ACER(A2C):
         self.store_batch(batch)
         return [item.reshape(-1, *item.shape[2:]) for item in batch]
 
+    def calculate_returns(
+        self, rewards, dones, selected_critic_logits, values, selected_importance
+    ):
+        """
+        Get a batch of returns.
+        Args:
+            rewards: Rewards tensor of shape (self.n_steps, self.n_envs)
+            dones: Dones tensor of shape (self.n_steps, self.n_envs)
+            selected_critic_logits: Critic output respective to selected actions
+                of shape (self.n_steps, self.n_envs)
+            values: Values tensor of shape (self.n_steps + 1, self.n_envs)
+            selected_importance: Importance weights respective to selected
+                actions of shape (self.n_steps, self.n_envs)
+
+        Returns:
+            Tensor of n-step returns.
+        """
+        importance_bar = self.flat_to_steps(tf.minimum(1.0, selected_importance))
+        dones = self.flat_to_steps(dones)
+        rewards = self.flat_to_steps(rewards)
+        selected_critic_logits = self.flat_to_steps(selected_critic_logits)
+        values = self.flat_to_steps(values, self.n_steps + 1)
+        current_return = values[-1]
+        returns = []
+        for i in reversed(range(self.n_steps)):
+            current_return = rewards[i] + self.gamma * current_return * (1.0 - dones[i])
+            returns.append(current_return)
+            current_return = (
+                importance_bar[i] * (current_return - selected_critic_logits[i])
+            ) + values[i]
+        return tf.reshape(tf.stack(returns[::-1], 1), [-1])
+
     def calculate_losses(
         self,
         action_probs,
@@ -134,6 +216,19 @@ class ACER(A2C):
         selected_importance,
         selected_critic_logits,
     ):
+        """
+        Calculate model loss.
+        Args:
+            action_probs: A tensor of shape (self.n_envs * self.n_steps, self.n_actions)
+            values: A tensor of shape self.n_envs * (self.n_steps + 1)
+            returns: A tensor of shape (self.n_envs * self.n_steps)
+            selected_probs: A tensor of shape (self.n_envs * self.n_steps)
+            selected_importance: A tensor of shape (self.n_envs * self.n_steps)
+            selected_critic_logits: A tensor of shape (self.n_envs * self.n_steps)
+
+        Returns:
+            Loss as a TF tensor if trust region is not used, otherwise loss, value_loss.
+        """
         entropy = tf.reduce_mean(
             -tf.reduce_sum(
                 action_probs * tf.math.log(action_probs + self.epsilon), axis=1
@@ -165,6 +260,17 @@ class ACER(A2C):
         )
 
     def calculate_grads(self, tape, losses, action_probs, avg_action_probs):
+        """
+        Calculate gradients given loss(es)
+        Args:
+            tape: tf.GradientTape()
+            losses: loss or loss, value_loss (if trust region is used)
+            action_probs: A tensor of shape (self.n_envs * self.n_steps, self.n_actions)
+            avg_action_probs:  A tensor of shape (self.n_envs * self.n_steps, self.n_actions)
+
+        Returns:
+            A list of gradients.
+        """
         if self.trust_region:
             loss, value_loss = losses
             g = tape.gradient(
@@ -184,7 +290,7 @@ class ACER(A2C):
             )
             value_grads = tape.gradient(value_loss, self.model.trainable_variables)
             return [
-                self.gradient_add(g1, g2) for (g1, g2) in zip(action_grads, value_grads)
+                self.add_grads(g1, g2) for (g1, g2) in zip(action_grads, value_grads)
             ]
         return tape.gradient(losses, self.model.trainable_variables)
 
@@ -196,6 +302,18 @@ class ACER(A2C):
         dones,
         previous_action_probs,
     ):
+        """
+        Perform gradient updates.
+        Args:
+            states: A tensor of shape (self.n_envs * self.n_steps, *self.input_shape)
+            rewards: A tensor of shape (self.n_envs * self.n_steps)
+            actions: A tensor of shape (self.n_envs * self.n_steps)
+            dones: A tensor of shape (self.n_envs * self.n_steps)
+            previous_action_probs: A tensor of shape (self.n_envs * self.n_steps, self.n_actions)
+
+        Returns:
+            None
+        """
         action_indices = tf.concat(
             (self.batch_indices, tf.cast(actions[:, tf.newaxis], tf.int64)), -1
         )
@@ -230,6 +348,12 @@ class ACER(A2C):
 
     @tf.function
     def train_step(self):
+        """
+        Do 1 training step.
+
+        Returns:
+            None
+        """
         batch = tf.numpy_function(self.get_batch, [], self.tf_batch_dtypes)
         for item, shape in zip(batch, self.batch_shapes):
             item.set_shape(shape)

@@ -40,6 +40,8 @@ class BaseAgent:
             gamma: Discount factor used for gradient updates.
             metric_digits: Rounding decimals for display purposes.
             custom_loss: Loss passed to tf.keras.models.Model.compile()
+            seed: Random seed passed to random.seed(), np.random.seed(), tf.random.seed(),
+                env.seed()
         """
         assert envs, 'No Environments given'
         self.n_envs = len(envs)
@@ -176,6 +178,14 @@ class BaseAgent:
         return False
 
     def concat_buffer_samples(self, dtypes=None):
+        """
+        Concatenate samples drawn from each environment respective buffer.
+        Args:
+            dtypes: A list of respective numpy dtypes to return.
+
+        Returns:
+            A list of concatenated samples.
+        """
         if hasattr(self, 'buffers'):
             batches = []
             for i, env in enumerate(self.envs):
@@ -191,6 +201,18 @@ class BaseAgent:
             return [item.astype(dtype) for (item, dtype) in zip(batches[0], dtypes)]
 
     def step_envs(self, actions, get_observation=False, store_in_buffers=False):
+        """
+        Step environments in self.envs, update metrics (if any done games)
+            and return / store results.
+        Args:
+            actions: A list / numpy array of actions to execute by environments.
+            get_observation: If True, a list of [states, actions, rewards, dones, new_states]
+                of length self.n_envs each will be returned.
+            store_in_buffers: If True, each observation is saved separately in respective buffer.
+
+        Returns:
+            A list of observations as numpy arrays or an empty list.
+        """
         observations = []
         for (
             (i, env),
@@ -296,8 +318,8 @@ class BaseAgent:
         """
         Get indices that will be passed to tf.gather_nd()
         Args:
-            actions: Action tensor of same shape as the batch size.
             batch_indices: tf.range() result of the same shape as the batch size.
+            actions: Action tensor of same shape as the batch size.
 
         Returns:
             Indices as tf tensors.
@@ -306,6 +328,14 @@ class BaseAgent:
 
     @staticmethod
     def concat_step_batches(*args):
+        """
+        Concatenate n-step batches.
+        Args:
+            *args: A list of numpy arrays which will be concatenated separately.
+
+        Returns:
+            A list of concatenated numpy arrays.
+        """
         return [a.swapaxes(0, 1).reshape(-1, *a.shape[2:]) for a in args]
 
     def fit(

@@ -41,17 +41,17 @@ class A2C(BaseAgent):
 
         Returns:
             A list of numpy arrays which contains
-             [states, rewards, actions, values, dones, log probs, entropies]
+             [states, rewards, actions, critic_output, dones, log probs, entropies, actor_output]
         """
         batch = (
             states,
             rewards,
             actions,
-            values,
+            critic_output,
             dones,
             log_probs,
             entropies,
-            actor_logits,
+            actor_output,
         ) = [[] for _ in range(8)]
         step_states = tf.numpy_function(self.get_states, [], tf.float32)
         step_dones = tf.numpy_function(self.get_dones, [], tf.float32)
@@ -65,11 +65,11 @@ class A2C(BaseAgent):
             ) = self.model(step_states)
             states.append(step_states)
             actions.append(step_actions)
-            values.append(step_values)
+            critic_output.append(step_values)
             log_probs.append(step_log_probs)
             dones.append(step_dones)
             entropies.append(step_entropies)
-            actor_logits.append(step_actor_logits)
+            actor_output.append(step_actor_logits)
             *_, step_rewards, step_dones, step_states = tf.numpy_function(
                 self.step_envs,
                 [step_actions, True, False],
@@ -92,10 +92,10 @@ class A2C(BaseAgent):
             returns: A list, the result of self.calculate_returns()
             values: list that will be the same size as self.n_steps and
                 contains n step values and each step contains self.n_envs values.
-            log_probs: list that will be the same size as self.n_steps and
-                contains n step log_probs and each step contains self.n_envs log_probs.
             entropies: list that will be the same size as self.n_steps and
                 contains n step entropies and each step contains self.n_envs entropies.
+            log_probs: list that will be the same size as self.n_steps and
+                contains n step log_probs and each step contains self.n_envs log_probs.
 
         Returns:
             Total loss as tf.Tensor

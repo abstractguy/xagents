@@ -25,6 +25,8 @@ class AtariPreprocessor(gym.Wrapper):
             env: gym environment that returns states as atari frames.
             frame_skips: Number of frame skips to use per environment step.
             resize_shape: (m, n) output frame size.
+            state_buffer_size: Buffer size which is used to hold frames during steps.
+            scale_frames: If False, frames will not be scaled / normalized (divided by 255.0)
         """
         assert frame_skips > 1, 'frame_skips must be >= 1'
         super(AtariPreprocessor, self).__init__(env)
@@ -138,7 +140,7 @@ class ReplayBuffer(deque):
         """
         Append experience and auto-allocate to temp buffer / main buffer(self)
         Args:
-            experience: state, action, reward, done, new_state
+            experience: A list of observed values ex: (state, reward, done, new state ...)
 
         Returns:
             None
@@ -158,8 +160,8 @@ class ReplayBuffer(deque):
         Get a sample of the replay buffer.
 
         Returns:
-            A batch of observations in the form of
-            [[states], [actions], [rewards], [dones], [next states]],
+            A batch of observations that has the same length as the
+                previously appended experience.
         """
         memories = random.sample(self, self.batch_size)
         if self.batch_size > 1:

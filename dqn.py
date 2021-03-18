@@ -75,6 +75,18 @@ class DQN(BaseAgent):
         return self.model(self.get_states())[0]
 
     def get_targets(self, states, actions, rewards, dones, new_states):
+        """
+        Get targets for gradient update.
+        Args:
+            states: A tensor of shape (self.n_envs * self.buffer_batch_size, *self.input_shape)
+            actions: A tensor of shape (self.n_envs * self.buffer_batch_size)
+            rewards: A tensor of shape (self.n_envs * self.buffer_batch_size)
+            dones: A tensor of shape (self.n_envs * self.buffer_batch_size)
+            new_states: A tensor of shape (self.n_envs * self.buffer_batch_size, *self.input_shape)
+
+        Returns:
+            Target values, a tensor of shape (self.n_envs * self.buffer_batch_size, self.n_actions)
+        """
         q_states = self.model(states)[1]
         if self.double:
             new_state_actions = self.model(new_states)[0]

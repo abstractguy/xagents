@@ -162,6 +162,12 @@ class PPO(A2C):
                 )
 
     def np_train_step(self):
+        """
+        Perform mixed numpy vs tensorflow operations of training.
+
+        Returns:
+            None
+        """
         (
             states,
             rewards,
