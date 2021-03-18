@@ -1,4 +1,5 @@
 import os
+import random
 from collections import deque
 from datetime import timedelta
 from time import perf_counter, sleep
@@ -75,6 +76,8 @@ class BaseAgent:
             np.random.seed(seed)
             for env in self.envs:
                 env.seed(seed)
+            os.environ['PYTHONHASHSEED'] = f'{seed}'
+            random.seed(seed)
         self.reset_envs()
 
     def reset_envs(self):

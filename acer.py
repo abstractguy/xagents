@@ -29,7 +29,6 @@ class ACER(A2C):
                 buffer_max_size // self.n_envs,
                 buffer_initial_size // self.n_envs,
                 batch_size=1,
-                seed=self.seed,
             )
             for _ in range(self.n_envs)
         ]
@@ -70,26 +69,6 @@ class ACER(A2C):
             qret = (rho_bar[i] * (qret - q_i[i])) + values[i]
         return tf.reshape(tf.stack(qrets[::-1], 1), [-1])
 
-    def run(
-        self,
-    ):
-        (
-            states,
-            rewards,
-            actions,
-            _,
-            dones,
-            *_,
-            actor_logits,
-        ) = self.get_batch()
-        states.append(self.get_states())
-        states = np.asarray(states, np.uint8).swapaxes(1, 0)
-        actions = np.asarray(actions, np.int32).swapaxes(1, 0)
-        rewards = np.asarray(rewards, dtype=np.float32).swapaxes(1, 0)
-        actor_logits = np.asarray(actor_logits, dtype=np.float32).swapaxes(1, 0)
-        dones = np.asarray(dones[1:], dtype=np.float32).swapaxes(1, 0)
-        return states, actions, rewards, actor_logits, dones
-
     def update_avg_weights(self):
         avg_variables = [
             self.ema.average(weight).numpy()
@@ -106,31 +85,41 @@ class ACER(A2C):
             return [np.concatenate(item) for item in zip(*batches)]
         return batches[0]
 
-    def call(self, on_policy):
-        if on_policy:
-            batch = self.run()
-            if self.buffers is not None:
-                for i in range(self.n_envs):
-                    env_outputs = []
-                    for item in batch:
-                        env_outputs.append(item[i])
-                    self.buffers[i].append(env_outputs)
-            obs, actions, rewards, mus, dones = [
-                item.reshape(-1, *item.shape[2:]) for item in batch
-            ]
-        else:
-            obs, actions, rewards, mus, dones = self.concat_buffer_samples()
-        self.train(obs, actions, mus, rewards, dones)
-        self.update_avg_weights()
+    def store_batch(self, batch):
+        for i in range(self.n_envs):
+            env_outputs = []
+            for item in batch:
+                env_outputs.append(item[i])
+            self.buffers[i].append(env_outputs)
+
+    def get_batch(self):
+        (
+            states,
+            rewards,
+            actions,
+            _,
+            dones,
+            *_,
+            actor_logits,
+        ) = super(ACER, self).get_batch()
+        states.append(self.get_states())
+        states = np.asarray(states, np.uint8).swapaxes(1, 0)
+        actions = np.asarray(actions, np.int32).swapaxes(1, 0)
+        rewards = np.asarray(rewards, dtype=np.float32).swapaxes(1, 0)
+        actor_logits = np.asarray(actor_logits, dtype=np.float32).swapaxes(1, 0)
+        dones = np.asarray(dones[1:], dtype=np.float32).swapaxes(1, 0)
+        batch = [states, rewards, actions, dones, actor_logits]
+        self.store_batch(batch)
+        return [item.reshape(-1, *item.shape[2:]) for item in batch]
 
     @tf.function
     def train(
         self,
         obs,
-        actions,
-        mus,
         rewards,
+        actions,
         dones,
+        mus,
         eps=1e-6,
         c=10.0,
         q_coef=0.5,
@@ -194,19 +183,22 @@ class ACER(A2C):
             grads, norm_grads = tf.clip_by_global_norm(grads, max_grad_norm)
         self.model.optimizer.apply_gradients(zip(grads, self.model.trainable_variables))
         self.ema.apply(self.model.trainable_variables)
+        tf.numpy_function(self.update_avg_weights, [], [])
 
     def train_step(self):
-        self.call(True)
+        batch = self.get_batch()
+        self.train(*batch)
         if (
             self.replay_ratio > 0
             and len(self.buffers[0]) >= self.buffers[0].initial_size
         ):
             for _ in range(np.random.poisson(self.replay_ratio)):
-                self.call(False)
+                batch = self.concat_buffer_samples()
+                self.train(*batch)
 
 
 if __name__ == '__main__':
-    sd = None
+    sd = 555
     es = create_gym_env('PongNoFrameskip-v4', 2, scale_frames=False)
     ms = [
         CNNA2C(
