@@ -56,7 +56,7 @@ class BaseAgent:
         self.target_reward = None
         self.max_steps = None
         self.input_shape = self.envs[0].observation_space.shape
-        self.available_actions = self.envs[0].action_space.n
+        self.n_actions = self.envs[0].action_space.n
         self.best_reward = -float('inf')
         self.mean_reward = -float('inf')
         self.states = [None] * self.n_envs
@@ -175,26 +175,20 @@ class BaseAgent:
             return True
         return False
 
-    def concat_buffer_samples(self):
-        """
-        Join batches sampled from each environment in self.envs
-
-        Returns:
-            batch: A list which contains
-                [states, actions, rewards, dones, next states]
-                as numpy arrays.
-        """
+    def concat_buffer_samples(self, dtypes=None):
         if hasattr(self, 'buffers'):
             batches = []
             for i, env in enumerate(self.envs):
                 buffer = self.buffers[i]
                 batch = buffer.get_sample()
                 batches.append(batch)
+            dtypes = dtypes or [np.float32 for _ in range(len(batches[0]))]
             if len(batches) > 1:
                 return [
-                    np.concatenate(item).astype(np.float32) for item in zip(*batches)
+                    np.concatenate(item).astype(dtype)
+                    for (item, dtype) in zip(zip(*batches), dtypes)
                 ]
-            return [item.astype(np.float32) for item in batches[0]]
+            return [item.astype(dtype) for (item, dtype) in zip(batches[0], dtypes)]
 
     def step_envs(self, actions, get_observation=False, store_in_buffers=False):
         observations = []

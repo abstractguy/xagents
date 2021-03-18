@@ -71,7 +71,7 @@ class DQN(BaseAgent):
             A random action or Q argmax.
         """
         if np.random.random() < self.epsilon:
-            return np.random.randint(0, self.available_actions, self.n_envs)
+            return np.random.randint(0, self.n_actions, self.n_envs)
         return self.model(self.get_states())[0]
 
     def get_targets(self, states, actions, rewards, dones, new_states):
@@ -111,7 +111,7 @@ class DQN(BaseAgent):
             buffer = self.buffers[i]
             state = self.states[i]
             while len(buffer) < buffer.initial_size:
-                action = np.random.randint(0, self.available_actions)
+                action = np.random.randint(0, self.n_actions)
                 new_state, reward, done, _ = env.step(action)
                 buffer.append((state, action, reward, done, new_state))
                 state = new_state

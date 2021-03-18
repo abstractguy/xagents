@@ -12,11 +12,15 @@ class ACER(A2C):
         envs,
         models,
         ema_alpha=0.99,
-        n_steps=20,
-        grad_norm=10,
         buffer_max_size=5000,
         buffer_initial_size=500,
+        n_steps=20,
+        grad_norm=10,
         replay_ratio=4,
+        epsilon=1e-6,
+        importance_c=10.0,
+        delta=1,
+        trust_region=True,
         *args,
         **kwargs,
     ):
@@ -24,6 +28,7 @@ class ACER(A2C):
             envs, models[0], n_steps=n_steps, grad_norm=grad_norm, *args, **kwargs
         )
         self.avg_model = models[1]
+        self.ema = tf.train.ExponentialMovingAverage(ema_alpha)
         self.buffers = [
             ReplayBuffer(
                 buffer_max_size // self.n_envs,
@@ -32,11 +37,14 @@ class ACER(A2C):
             )
             for _ in range(self.n_envs)
         ]
-        self.ema = tf.train.ExponentialMovingAverage(ema_alpha)
         self.batch_indices = tf.range(self.n_steps * self.n_envs, dtype=tf.int64)[
             :, tf.newaxis
         ]
         self.replay_ratio = replay_ratio
+        self.epsilon = epsilon
+        self.importance_c = importance_c
+        self.delta = delta
+        self.trust_region = trust_region
         self.tf_batch_dtypes = [tf.uint8] + [tf.float32 for _ in range(4)]
         self.np_batch_dtypes = [np.uint8] + [np.float32 for _ in range(4)]
         self.batch_shapes = [
@@ -44,12 +52,14 @@ class ACER(A2C):
             (self.n_envs * self.n_steps),
             (self.n_envs * self.n_steps),
             (self.n_envs * self.n_steps),
-            (self.n_envs * self.n_steps, self.available_actions),
+            (self.n_envs * self.n_steps, self.n_actions),
         ]
 
     def flat_to_steps(self, t, steps=None):
         t = tf.reshape(t, (self.n_envs, steps or self.n_steps, *t.shape[1:]))
-        return [tf.squeeze(v, 1) for v in tf.split(t, steps or self.n_steps, 1)]
+        return [
+            tf.squeeze(step_t, 1) for step_t in tf.split(t, steps or self.n_steps, 1)
+        ]
 
     def clip_last_step(self, t):
         ts = self.flat_to_steps(t, self.n_steps + 1)
@@ -64,19 +74,23 @@ class ACER(A2C):
             return g1
         return g2
 
-    def q_retrace(self, rewards, dones, q_i, values, rho_i):
-        rho_bar = self.flat_to_steps(tf.minimum(1.0, rho_i))
+    def calculate_returns(
+        self, rewards, dones, selected_critic_logits, values, selected_importance
+    ):
+        importance_bar = self.flat_to_steps(tf.minimum(1.0, selected_importance))
         dones = self.flat_to_steps(dones)
         rewards = self.flat_to_steps(rewards)
-        q_i = self.flat_to_steps(q_i)
+        selected_critic_logits = self.flat_to_steps(selected_critic_logits)
         values = self.flat_to_steps(values, self.n_steps + 1)
-        qret = values[-1]
-        qrets = []
-        for i in range(self.n_steps - 1, -1, -1):
-            qret = rewards[i] + self.gamma * qret * (1.0 - dones[i])
-            qrets.append(qret)
-            qret = (rho_bar[i] * (qret - q_i[i])) + values[i]
-        return tf.reshape(tf.stack(qrets[::-1], 1), [-1])
+        current_return = values[-1]
+        returns = []
+        for i in reversed(range(self.n_steps)):
+            current_return = rewards[i] + self.gamma * current_return * (1.0 - dones[i])
+            returns.append(current_return)
+            current_return = (
+                importance_bar[i] * (current_return - selected_critic_logits[i])
+            ) + values[i]
+        return tf.reshape(tf.stack(returns[::-1], 1), [-1])
 
     def update_avg_weights(self):
         avg_variables = [
@@ -84,15 +98,6 @@ class ACER(A2C):
             for weight in self.model.trainable_variables
         ]
         self.avg_model.set_weights(avg_variables)
-
-    def concat_buffer_samples(self):
-        batches = []
-        for i in range(self.n_envs):
-            batch = self.buffers[i].get_sample()
-            batches.append(batch)
-        if len(batches) > 1:
-            return [np.concatenate(item) for item in zip(*batches)]
-        return batches[0]
 
     def store_batch(self, batch):
         for i in range(self.n_envs):
@@ -120,74 +125,105 @@ class ACER(A2C):
         self.store_batch(batch)
         return [item.reshape(-1, *item.shape[2:]) for item in batch]
 
-    def train(
+    def calculate_losses(
         self,
-        obs,
+        action_probs,
+        values,
+        returns,
+        selected_probs,
+        selected_importance,
+        selected_critic_logits,
+    ):
+        entropy = tf.reduce_mean(
+            -tf.reduce_sum(
+                action_probs * tf.math.log(action_probs + self.epsilon), axis=1
+            )
+        )
+        values = self.clip_last_step(values)
+        advantages = returns - values
+        log_probs = tf.math.log(selected_probs + self.epsilon)
+        action_gain = log_probs * tf.stop_gradient(
+            advantages * tf.minimum(self.importance_c, selected_importance)
+        )
+        action_loss = -tf.reduce_mean(action_gain)
+        value_loss = (
+            tf.reduce_mean(
+                tf.square(tf.stop_gradient(returns) - selected_critic_logits) * 0.5
+            )
+            * self.value_loss_coef
+        )
+        if self.trust_region:
+            return (
+                -(action_loss - self.entropy_coef * entropy)
+                * self.n_steps
+                * self.n_envs
+            ), value_loss
+        return (
+            action_loss
+            + self.value_loss_coef * value_loss
+            - self.entropy_coef * entropy
+        )
+
+    def calculate_grads(self, tape, losses, action_probs, avg_action_probs):
+        if self.trust_region:
+            loss, value_loss = losses
+            g = tape.gradient(
+                loss,
+                action_probs,
+            )
+            k = -avg_action_probs / (action_probs + self.epsilon)
+            adj = tf.maximum(
+                0.0,
+                (tf.reduce_sum(k * g, axis=-1) - self.delta)
+                / (tf.reduce_sum(tf.square(k), axis=-1) + self.epsilon),
+            )
+            g = g - tf.reshape(adj, [self.n_envs * self.n_steps, 1]) * k
+            output_grads = -g / (self.n_envs * self.n_steps)
+            action_grads = tape.gradient(
+                action_probs, self.model.trainable_variables, output_grads
+            )
+            value_grads = tape.gradient(value_loss, self.model.trainable_variables)
+            return [
+                self.gradient_add(g1, g2) for (g1, g2) in zip(action_grads, value_grads)
+            ]
+        return tape.gradient(losses, self.model.trainable_variables)
+
+    def update_gradients(
+        self,
+        states,
         rewards,
         actions,
         dones,
-        mus,
-        eps=1e-6,
-        c=10.0,
-        q_coef=0.5,
-        ent_coef=0.01,
-        delta=1,
-        trust_region=True,
-        max_grad_norm=10,
+        previous_action_probs,
     ):
         action_indices = tf.concat(
             (self.batch_indices, tf.cast(actions[:, tf.newaxis], tf.int64)), -1
         )
-        with tf.GradientTape(persistent=True) as tape:
-            *_, train_q, _, train_model_p = self.model(obs)
-            *_, polyak_q, _, polyak_model_p = self.avg_model(obs)
-            v = tf.reduce_sum(input_tensor=train_model_p * train_q, axis=-1)
-            f = self.clip_last_step(train_model_p)
-            f_pol = self.clip_last_step(polyak_model_p)
-            q = self.clip_last_step(train_q)
-            f_i = tf.gather_nd(f, action_indices)
-            q_i = tf.gather_nd(q, action_indices)
-            rho = f / (mus + eps)
-            rho_i = tf.gather_nd(rho, action_indices)
-            qret = self.q_retrace(rewards, dones, q_i, v, rho_i)
-            entropy = tf.reduce_mean(-tf.reduce_sum(f * tf.math.log(f + eps), axis=1))
-            v = self.clip_last_step(v)
-            adv = qret - v
-            logf = tf.math.log(f_i + eps)
-            gain_f = logf * tf.stop_gradient(adv * tf.minimum(c, rho_i))
-            loss_f = -tf.reduce_mean(input_tensor=gain_f)
-            loss_q = (
-                tf.reduce_mean(
-                    input_tensor=tf.square(tf.stop_gradient(qret) - q_i) * 0.5
-                )
-                * q_coef
+        with tf.GradientTape(True) as tape:
+            *_, critic_logits, _, action_probs = self.model(states)
+            *_, avg_action_probs = self.avg_model(states)
+            values = tf.reduce_sum(action_probs * critic_logits, axis=-1)
+            action_probs = self.clip_last_step(action_probs)
+            avg_action_probs = self.clip_last_step(avg_action_probs)
+            critic_logits = self.clip_last_step(critic_logits)
+            selected_probs = tf.gather_nd(action_probs, action_indices)
+            selected_critic_logits = tf.gather_nd(critic_logits, action_indices)
+            importance_weights = action_probs / (previous_action_probs + self.epsilon)
+            selected_importance = tf.gather_nd(importance_weights, action_indices)
+            returns = self.calculate_returns(
+                rewards, dones, selected_critic_logits, values, selected_importance
             )
-            if trust_region:
-                loss = -(loss_f - ent_coef * entropy) * self.n_steps * self.n_envs
-            else:
-                loss = loss_f + q_coef * loss_q - ent_coef * entropy
-        if trust_region:
-            g = tape.gradient(
-                loss,
-                f,
+            losses = self.calculate_losses(
+                action_probs,
+                values,
+                returns,
+                selected_probs,
+                selected_importance,
+                selected_critic_logits,
             )
-            k = -f_pol / (f + eps)
-            adj = tf.maximum(
-                0.0,
-                (tf.reduce_sum(input_tensor=k * g, axis=-1) - delta)
-                / (tf.reduce_sum(input_tensor=tf.square(k), axis=-1) + eps),
-            )
-            g = g - tf.reshape(adj, [self.n_envs * self.n_steps, 1]) * k
-            grads_f = -g / (self.n_envs * self.n_steps)
-            grads_policy = tape.gradient(f, self.model.trainable_variables, grads_f)
-            grads_q = tape.gradient(loss_q, self.model.trainable_variables)
-            grads = [
-                self.gradient_add(g1, g2) for (g1, g2) in zip(grads_policy, grads_q)
-            ]
-        else:
-            grads = tape.gradient(loss, self.model.trainable_variables)
-        if max_grad_norm is not None:
-            grads, norm_grads = tf.clip_by_global_norm(grads, max_grad_norm)
+        grads = self.calculate_grads(tape, losses, action_probs, avg_action_probs)
+        if self.grad_norm is not None:
+            grads, norm_grads = tf.clip_by_global_norm(grads, self.grad_norm)
         self.model.optimizer.apply_gradients(zip(grads, self.model.trainable_variables))
         self.ema.apply(self.model.trainable_variables)
         tf.numpy_function(self.update_avg_weights, [], [])
@@ -197,16 +233,18 @@ class ACER(A2C):
         batch = tf.numpy_function(self.get_batch, [], self.tf_batch_dtypes)
         for item, shape in zip(batch, self.batch_shapes):
             item.set_shape(shape)
-        self.train(*batch)
+        self.update_gradients(*batch)
         if (
             self.replay_ratio > 0
             and len(self.buffers[0]) >= self.buffers[0].initial_size
         ):
             for _ in range(np.random.poisson(self.replay_ratio)):
                 batch = tf.numpy_function(
-                    self.concat_buffer_samples, [], self.tf_batch_dtypes
+                    self.concat_buffer_samples,
+                    self.np_batch_dtypes,
+                    self.tf_batch_dtypes,
                 )
-                self.train(*batch)
+                self.update_gradients(*batch)
 
 
 if __name__ == '__main__':
@@ -223,5 +261,5 @@ if __name__ == '__main__':
         )
         for _ in range(2)
     ]
-    agn = ACER(es, ms, seed=sd)
+    agn = ACER(es, ms, seed=sd, optimizer=tf.keras.optimizers.Adam(7e-4))
     agn.fit(19)
