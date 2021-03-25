@@ -149,8 +149,8 @@ class PPO(A2C):
                     old_log_probs_mb,
                 ) = mini_batch
                 advantages_mb = returns_mb - old_values_mb
-                (advantages_mb - tf.reduce_mean(advantages_mb)) / (
-                    tf.keras.backend.std(advantages_mb) + self.advantage_epsilon
+                advantages_mb = (advantages_mb - tf.reduce_mean(advantages_mb)) / (
+                    tf.math.reduce_std(advantages_mb) + self.advantage_epsilon
                 )
                 self.update_gradients(
                     states_mb,

@@ -114,7 +114,7 @@ class ACER(A2C):
         Returns:
             One of them or their sum.
         """
-        assert g1 is not None or g2 is not None
+        assert g1 is not None or g2 is not None, 'Gradients are None'
         if g1 is not None and g2 is not None:
             return g1 + g2
         if g1 is not None:
@@ -271,28 +271,26 @@ class ACER(A2C):
         Returns:
             A list of gradients.
         """
-        if self.trust_region:
-            loss, value_loss = losses
-            g = tape.gradient(
-                loss,
-                action_probs,
-            )
-            k = -avg_action_probs / (action_probs + self.epsilon)
-            adj = tf.maximum(
-                0.0,
-                (tf.reduce_sum(k * g, axis=-1) - self.delta)
-                / (tf.reduce_sum(tf.square(k), axis=-1) + self.epsilon),
-            )
-            g = g - tf.reshape(adj, [self.n_envs * self.n_steps, 1]) * k
-            output_grads = -g / (self.n_envs * self.n_steps)
-            action_grads = tape.gradient(
-                action_probs, self.model.trainable_variables, output_grads
-            )
-            value_grads = tape.gradient(value_loss, self.model.trainable_variables)
-            return [
-                self.add_grads(g1, g2) for (g1, g2) in zip(action_grads, value_grads)
-            ]
-        return tape.gradient(losses, self.model.trainable_variables)
+        if not self.trust_region:
+            return tape.gradient(losses, self.model.trainable_variables)
+        loss, value_loss = losses
+        g = tape.gradient(
+            loss,
+            action_probs,
+        )
+        k = -avg_action_probs / (action_probs + self.epsilon)
+        adj = tf.maximum(
+            0.0,
+            (tf.reduce_sum(k * g, axis=-1) - self.delta)
+            / (tf.reduce_sum(tf.square(k), axis=-1) + self.epsilon),
+        )
+        g = g - tf.reshape(adj, [self.n_envs * self.n_steps, 1]) * k
+        output_grads = -g / (self.n_envs * self.n_steps)
+        action_grads = tape.gradient(
+            action_probs, self.model.trainable_variables, output_grads
+        )
+        value_grads = tape.gradient(value_loss, self.model.trainable_variables)
+        return [self.add_grads(g1, g2) for (g1, g2) in zip(action_grads, value_grads)]
 
     def update_gradients(
         self,
