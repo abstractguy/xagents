@@ -113,6 +113,14 @@ class PPO(A2C):
             grads, _ = tf.clip_by_global_norm(grads, self.grad_norm)
         self.model.optimizer.apply_gradients(zip(grads, self.model.trainable_variables))
 
+    def get_mini_batches(self, *args):
+        indices = np.arange(self.batch_size)
+        for _ in range(self.ppo_epochs):
+            np.random.shuffle(indices)
+            for i in range(0, self.batch_size, self.mini_batch_size):
+                batch_indices = indices[i : i + self.mini_batch_size]
+                yield [tf.constant(item[batch_indices]) for item in args]
+
     def run_ppo_epochs(self, states, actions, returns, old_values, old_log_probs):
         """
         Split batch into mini batches and perform gradient updates.
@@ -126,40 +134,28 @@ class PPO(A2C):
         Returns:
             None
         """
-        indices = np.arange(self.batch_size)
-        for _ in range(self.ppo_epochs):
-            np.random.shuffle(indices)
-            for i in range(0, self.batch_size, self.mini_batch_size):
-                batch_indices = indices[i : i + self.mini_batch_size]
-                mini_batch = [
-                    tf.constant(item[batch_indices])
-                    for item in [
-                        states,
-                        actions,
-                        returns,
-                        old_values,
-                        old_log_probs,
-                    ]
-                ]
-                (
-                    states_mb,
-                    actions_mb,
-                    returns_mb,
-                    old_values_mb,
-                    old_log_probs_mb,
-                ) = mini_batch
-                advantages_mb = returns_mb - old_values_mb
-                advantages_mb = (advantages_mb - tf.reduce_mean(advantages_mb)) / (
-                    tf.math.reduce_std(advantages_mb) + self.advantage_epsilon
-                )
-                self.update_gradients(
-                    states_mb,
-                    actions_mb,
-                    old_values_mb,
-                    returns_mb,
-                    old_log_probs_mb,
-                    advantages_mb,
-                )
+        for mini_batch in self.get_mini_batches(
+            states, actions, returns, old_values, old_log_probs
+        ):
+            (
+                states_mb,
+                actions_mb,
+                returns_mb,
+                old_values_mb,
+                old_log_probs_mb,
+            ) = mini_batch
+            advantages_mb = returns_mb - old_values_mb
+            advantages_mb = (advantages_mb - tf.reduce_mean(advantages_mb)) / (
+                tf.math.reduce_std(advantages_mb) + self.advantage_epsilon
+            )
+            self.update_gradients(
+                states_mb,
+                actions_mb,
+                old_values_mb,
+                returns_mb,
+                old_log_probs_mb,
+                advantages_mb,
+            )
 
     def get_batch(self):
         (
