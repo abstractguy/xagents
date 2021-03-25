@@ -73,7 +73,7 @@ class A2C(BaseAgent):
             *_, step_rewards, step_dones, step_states = tf.numpy_function(
                 self.step_envs,
                 [step_actions, True, False],
-                [tf.float32 for _ in range(5)],
+                5 * [tf.float32],
             )
             rewards.append(step_rewards)
         dones.append(step_dones)

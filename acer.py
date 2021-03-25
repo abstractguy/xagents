@@ -66,8 +66,8 @@ class ACER(A2C):
         self.importance_c = importance_c
         self.delta = delta
         self.trust_region = trust_region
-        self.tf_batch_dtypes = [tf.uint8] + [tf.float32 for _ in range(4)]
-        self.np_batch_dtypes = [np.uint8] + [np.float32 for _ in range(4)]
+        self.tf_batch_dtypes = [tf.uint8] + 4 * [tf.float32]
+        self.np_batch_dtypes = [np.uint8] + 4 * [np.float32]
         self.batch_shapes = [
             (self.n_envs * (self.n_steps + 1), *self.input_shape),
             (self.n_envs * self.n_steps),

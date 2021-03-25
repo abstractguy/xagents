@@ -161,13 +161,7 @@ class PPO(A2C):
                     advantages_mb,
                 )
 
-    def np_train_step(self):
-        """
-        Perform mixed numpy vs tensorflow operations of training.
-
-        Returns:
-            None
-        """
+    def get_batch(self):
         (
             states,
             rewards,
@@ -176,12 +170,9 @@ class PPO(A2C):
             dones,
             log_probs,
             *_,
-        ) = [np.asarray(item, np.float32) for item in self.get_batch()]
+        ) = [np.asarray(item, np.float32) for item in super(PPO, self).get_batch()]
         returns = self.calculate_returns(states, rewards, values, dones)
-        ppo_batch = self.concat_step_batches(
-            states, actions, returns, values, log_probs
-        )
-        self.run_ppo_epochs(*ppo_batch)
+        return self.concat_step_batches(states, actions, returns, values, log_probs)
 
     @tf.function
     def train_step(self):
@@ -192,7 +183,8 @@ class PPO(A2C):
         Returns:
             None
         """
-        tf.numpy_function(self.np_train_step, [], [])
+        batch = tf.numpy_function(self.get_batch, [], 5 * [tf.float32])
+        tf.numpy_function(self.run_ppo_epochs, batch, [])
 
 
 if __name__ == '__main__':

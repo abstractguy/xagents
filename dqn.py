@@ -184,7 +184,7 @@ class DQN(BaseAgent):
         training_batch = tf.numpy_function(
             self.concat_buffer_samples,
             [],
-            [tf.float32 for _ in range(5)],
+            5 * [tf.float32],
         )
         targets = self.get_targets(*training_batch)
         self.train_on_batch(training_batch[0], targets)
