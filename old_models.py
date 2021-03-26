@@ -66,15 +66,6 @@ class CNNA2C(Model):
         self.seed = seed
         self.scale_inputs = scale_inputs
 
-    def get_distribution(self, actor_output):
-        if (
-            self.actor.activation
-            == self.actor.activation
-            is tf.keras.activations.softmax
-        ):
-            return Categorical(probs=actor_output)
-        return Categorical(logits=actor_output)
-
     @tf.function
     def call(self, inputs, training=True, mask=None, actions=None):
         if self.scale_inputs:

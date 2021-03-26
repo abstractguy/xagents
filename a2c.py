@@ -1,5 +1,6 @@
 import numpy as np
 import tensorflow as tf
+from tensorflow_probability.python.distributions import Categorical
 
 from base_agent import BaseAgent
 
@@ -33,6 +34,31 @@ class A2C(BaseAgent):
         self.entropy_coef = entropy_coef
         self.value_loss_coef = value_loss_coef
         self.grad_norm = grad_norm
+        activations = [layer.activation for layer in model.layers[-2:]]
+        self.output_is_softmax = tf.keras.activations.softmax in activations
+        self.critic_units = model.layers[-1].units
+
+    def get_distribution(self, actor_output):
+        if self.output_is_softmax:
+            return Categorical(probs=actor_output)
+        return Categorical(logits=actor_output)
+
+    @tf.function
+    def get_model_outputs(self, inputs, model, training=True, actions=None):
+        actor_output, critic_output = model(inputs, training=training)
+        distribution = self.get_distribution(actor_output)
+        if self.critic_units == 1:
+            critic_output = tf.squeeze(critic_output)
+        if actions is None:
+            actions = distribution.sample(seed=self.seed)
+        action_log_probs = distribution.log_prob(actions)
+        return (
+            actions,
+            action_log_probs,
+            critic_output,
+            distribution.entropy(),
+            actor_output,
+        )
 
     def get_batch(self):
         """
@@ -62,7 +88,7 @@ class A2C(BaseAgent):
                 step_values,
                 step_entropies,
                 step_actor_logits,
-            ) = self.model(step_states)
+            ) = self.get_model_outputs(step_states, self.model)
             states.append(step_states)
             actions.append(step_actions)
             critic_output.append(step_values)
@@ -139,7 +165,7 @@ class A2C(BaseAgent):
                 _,
             ) = self.get_batch()
             masks = 1 - np.array(dones)
-            next_values = self.model(states[-1])[2]
+            next_values = self.get_model_outputs(states[-1], self.model)[2]
             returns = [next_values]
             for step in reversed(range(self.n_steps)):
                 returns.append(
@@ -156,15 +182,15 @@ class A2C(BaseAgent):
 if __name__ == '__main__':
     import tensorflow_addons as tfa
 
-    from utils import create_gym_env
+    from utils import ModelHandler, create_gym_env
 
     ens = create_gym_env('PongNoFrameskip-v4', 16)
-    from old_models import CNNA2C
 
     o = tfa.optimizers.RectifiedAdam(
         learning_rate=7e-4, epsilon=1e-5, beta_1=0.0, beta_2=0.99
     )
-    m = CNNA2C(ens[0].observation_space.shape, ens[0].action_space.n)
+    mh = ModelHandler('models/cnn-ac.cfg', [ens[0].action_space.n, 1])
+    m = mh.build_model()
     ac = A2C(ens, m, optimizer=o)
     ac.fit(19)
     # ac.play(
