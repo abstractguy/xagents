@@ -63,6 +63,11 @@ class DQN(BaseAgent):
             self.buffer_batch_size * self.n_envs, dtype=tf.int64
         )[:, tf.newaxis]
 
+    @staticmethod
+    def get_model_outputs(inputs, model, training=True):
+        q_values = model(inputs, training=training)
+        return tf.argmax(q_values, 1), q_values
+
     def get_actions(self):
         """
         Generate action following an epsilon-greedy policy.
@@ -72,7 +77,7 @@ class DQN(BaseAgent):
         """
         if np.random.random() < self.epsilon:
             return np.random.randint(0, self.n_actions, self.n_envs)
-        return self.model(self.get_states())[0]
+        return self.get_model_outputs(self.get_states(), self.model)[0]
 
     def get_targets(self, states, actions, rewards, dones, new_states):
         """
@@ -87,14 +92,18 @@ class DQN(BaseAgent):
         Returns:
             Target values, a tensor of shape (self.n_envs * self.buffer_batch_size, self.n_actions)
         """
-        q_states = self.model(states)[1]
+        q_states = self.get_model_outputs(states, self.model)[1]
         if self.double:
-            new_state_actions = self.model(new_states)[0]
-            new_state_q_values = self.target_model(new_states)[1]
+            new_state_actions = self.get_model_outputs(new_states, self.model)[0]
+            new_state_q_values = self.get_model_outputs(new_states, self.target_model)[
+                1
+            ]
             a = self.get_action_indices(self.batch_indices, new_state_actions)
             new_state_values = tf.gather_nd(new_state_q_values, a)
         else:
-            new_state_values = tf.reduce_max(self.target_model(new_states)[1], axis=1)
+            new_state_values = tf.reduce_max(
+                self.get_model_outputs(new_states, self.target_model)[1], axis=1
+            )
         new_state_values = tf.where(
             tf.cast(dones, tf.bool),
             tf.constant(0, new_state_values.dtype),
@@ -152,7 +161,7 @@ class DQN(BaseAgent):
             None
         """
         with tf.GradientTape() as tape:
-            y_pred = self.model(x, training=True)[1]
+            y_pred = self.get_model_outputs(x, self.model)[1]
             loss = self.model.compiled_loss(
                 y, y_pred, sample_weight, regularization_losses=self.model.losses
             )
@@ -201,18 +210,15 @@ class DQN(BaseAgent):
 
 
 if __name__ == '__main__':
-    from utils import create_gym_env
+    from utils import ModelHandler, create_gym_env
 
     gym_envs = create_gym_env('PongNoFrameskip-v4', 3)
     seed = 55
     from tensorflow.keras.optimizers import Adam
 
-    from old_models import create_cnn_dqn
-
-    m = create_cnn_dqn(
-        gym_envs[0].observation_space.shape, gym_envs[0].action_space.n, seed=seed
-    )
-    agn = DQN(gym_envs, m, optimizer=Adam(1e-4), buffer_max_size=1000, seed=seed)
+    mh = ModelHandler('models/cnn-dqn.cfg', [6])
+    m = mh.build_model()
+    agn = DQN(gym_envs, m, optimizer=Adam(1e-4), buffer_max_size=10000, seed=seed)
     agn.fit(18)
     # agn.play(
     #     '/Users/emadboctor/Desktop/code/drl-models/dqn-pong-19-model/pong_test.tf',

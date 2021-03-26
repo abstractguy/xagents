@@ -43,7 +43,6 @@ class A2C(BaseAgent):
             return Categorical(probs=actor_output)
         return Categorical(logits=actor_output)
 
-    @tf.function
     def get_model_outputs(self, inputs, model, training=True, actions=None):
         actor_output, critic_output = model(inputs, training=training)
         distribution = self.get_distribution(actor_output)
