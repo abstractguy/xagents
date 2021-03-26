@@ -2,8 +2,7 @@ import numpy as np
 import tensorflow as tf
 
 from a2c import A2C
-from models import CNNA2C
-from utils import ReplayBuffer, create_gym_env
+from utils import ReplayBuffer
 
 
 class ACER(A2C):
@@ -370,6 +369,9 @@ class ACER(A2C):
 
 
 if __name__ == '__main__':
+    from utils import ReplayBuffer, create_gym_env
+    from old_models import CNNA2C
+
     sd = 555
     es = create_gym_env('PongNoFrameskip-v4', 2, scale_frames=False)
     ms = [

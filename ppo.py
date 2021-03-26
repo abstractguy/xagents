@@ -186,7 +186,7 @@ class PPO(A2C):
 if __name__ == '__main__':
     from tensorflow.keras.optimizers import Adam
 
-    from models import CNNA2C
+    from old_models import CNNA2C
     from utils import create_gym_env
 
     envi = create_gym_env('PongNoFrameskip-v4', 16)

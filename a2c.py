@@ -159,7 +159,7 @@ if __name__ == '__main__':
     from utils import create_gym_env
 
     ens = create_gym_env('PongNoFrameskip-v4', 16)
-    from models import CNNA2C
+    from old_models import CNNA2C
 
     o = tfa.optimizers.RectifiedAdam(
         learning_rate=7e-4, epsilon=1e-5, beta_1=0.0, beta_2=0.99

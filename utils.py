@@ -1,9 +1,14 @@
+import configparser
 import random
 from collections import deque
 
 import cv2
 import gym
 import numpy as np
+import tensorflow as tf
+from tensorflow.keras.initializers import GlorotUniform, Orthogonal
+from tensorflow.keras.layers import Conv2D, Dense, Flatten, Input
+from tensorflow.keras.models import Model
 
 
 class AtariPreprocessor(gym.Wrapper):
@@ -186,3 +191,85 @@ def create_gym_env(env_name, n=1, preprocess=True, *args, **kwargs):
     if preprocess:
         envs = [AtariPreprocessor(env, *args, **kwargs) for env in envs]
     return envs
+
+
+class ModelHandler:
+    def __init__(self, cfg_file, output_units, scale_inputs=False, seed=None):
+        self.initializers = {'orthogonal': Orthogonal, 'glorot_uniform': GlorotUniform}
+        with open(cfg_file) as cfg:
+            self.parser = configparser.ConfigParser()
+            self.parser.read_file(cfg)
+        self.output_units = output_units[::-1]
+        self.scale_inputs = scale_inputs
+        self.seed = seed
+
+    def create_input(self, section):
+        height = int(self.parser[section]['height'])
+        width = int(self.parser[section]['width'])
+        channels = int(self.parser[section]['channels'])
+        x = Input((height, width, channels))
+        if self.scale_inputs:
+            x = tf.cast(x, tf.float32) / 255.0
+        return x
+
+    def get_initializer(self, section):
+        initializer = self.parser[section]['initializer']
+        gain = self.parser[section].get('gain')
+        initializer_kwargs = {'seed': self.seed}
+        if gain:
+            initializer_kwargs.update({'gain': float(gain)})
+        return self.initializers[initializer](**initializer_kwargs)
+
+    def create_convolution(self, section):
+        filters = int(self.parser[section]['filters'])
+        kernel_size = int(self.parser[section]['size'])
+        stride = int(self.parser[section]['stride'])
+        activation = self.parser[section].get('activation')
+        return Conv2D(
+            filters,
+            kernel_size,
+            stride,
+            activation=activation,
+            kernel_initializer=self.get_initializer(section),
+        )
+
+    def create_dense(self, section):
+        units = self.parser[section].get('units')
+        if not units:
+            assert (
+                self.output_units
+            ), 'Output units required exceed given `output_units`'
+            units = self.output_units.pop()
+        activation = self.parser[section].get('activation')
+        return Dense(
+            units, activation, kernel_initializer=self.get_initializer(section)
+        )
+
+    def build_model(self):
+        outputs = []
+        input_layer, current_layer, common_layer = None, None, None
+        for section in self.parser.sections():
+            if section.startswith('settings'):
+                input_layer = self.create_input(section)
+                current_layer = input_layer
+            if section.startswith('convolutional'):
+                current_layer = self.create_convolution(section)(current_layer)
+            if section.startswith('flatten'):
+                current_layer = Flatten()(current_layer)
+            if section.startswith('dense'):
+                current_layer = self.create_dense(section)(
+                    common_layer if common_layer is not None else current_layer
+                )
+            if self.parser[section].get('common'):
+                common_layer = current_layer
+            if self.parser[section].get('output'):
+                outputs.append(current_layer)
+        model = Model(input_layer, outputs)
+        model.call = tf.function(model.call)
+        return model
+
+
+if __name__ == '__main__':
+    mh = ModelHandler('models/cnn-dqn.cfg', [6])
+    m = mh.build_model()
+    m.summary()

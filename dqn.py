@@ -2,7 +2,7 @@ import numpy as np
 import tensorflow as tf
 
 from base_agent import BaseAgent
-from utils import ReplayBuffer, create_gym_env
+from utils import ReplayBuffer
 
 
 class DQN(BaseAgent):
@@ -201,11 +201,13 @@ class DQN(BaseAgent):
 
 
 if __name__ == '__main__':
+    from utils import create_gym_env
+
     gym_envs = create_gym_env('PongNoFrameskip-v4', 3)
     seed = 55
     from tensorflow.keras.optimizers import Adam
 
-    from models import create_cnn_dqn
+    from old_models import create_cnn_dqn
 
     m = create_cnn_dqn(
         gym_envs[0].observation_space.shape, gym_envs[0].action_space.n, seed=seed
