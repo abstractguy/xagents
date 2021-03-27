@@ -25,6 +25,7 @@ class BaseAgent:
         metric_digits=2,
         custom_loss=None,
         seed=None,
+        scale_inputs=False,
     ):
         """
         Base class for various types of agents.
@@ -55,6 +56,7 @@ class BaseAgent:
         self.metric_digits = metric_digits
         self.custom_loss = custom_loss
         self.seed = seed
+        self.scale_inputs = scale_inputs
         self.target_reward = None
         self.max_steps = None
         self.input_shape = self.envs[0].observation_space.shape
@@ -337,6 +339,11 @@ class BaseAgent:
             A list of concatenated numpy arrays.
         """
         return [a.swapaxes(0, 1).reshape(-1, *a.shape[2:]) for a in args]
+
+    def get_model_inputs(self, inputs):
+        if not self.scale_inputs:
+            return inputs
+        return tf.cast(inputs, tf.float32) / 255.0
 
     def fit(
         self,

@@ -63,8 +63,9 @@ class DQN(BaseAgent):
             self.buffer_batch_size * self.n_envs, dtype=tf.int64
         )[:, tf.newaxis]
 
-    @staticmethod
-    def get_model_outputs(inputs, model, training=True):
+    @tf.function
+    def get_model_outputs(self, inputs, model, training=True):
+        inputs = self.get_model_inputs(inputs)
         q_values = model(inputs, training=training)
         return tf.argmax(q_values, 1), q_values
 

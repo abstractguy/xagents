@@ -9,7 +9,7 @@ class ACER(A2C):
     def __init__(
         self,
         envs,
-        models,
+        model,
         ema_alpha=0.99,
         buffer_max_size=5000,
         buffer_initial_size=500,
@@ -45,9 +45,9 @@ class ACER(A2C):
             **kwargs: kwargs Passed to BaseAgent.
         """
         super(ACER, self).__init__(
-            envs, models[0], n_steps=n_steps, grad_norm=grad_norm, *args, **kwargs
+            envs, model, n_steps=n_steps, grad_norm=grad_norm, *args, **kwargs
         )
-        self.avg_model = models[1]
+        self.avg_model = tf.keras.models.clone_model(self.model)
         self.ema = tf.train.ExponentialMovingAverage(ema_alpha)
         self.buffers = [
             ReplayBuffer(
@@ -315,8 +315,10 @@ class ACER(A2C):
             (self.batch_indices, tf.cast(actions[:, tf.newaxis], tf.int64)), -1
         )
         with tf.GradientTape(True) as tape:
-            *_, critic_logits, _, action_probs = self.model(states)
-            *_, avg_action_probs = self.avg_model(states)
+            *_, critic_logits, _, action_probs = self.get_model_outputs(
+                states, self.model
+            )
+            *_, avg_action_probs = self.get_model_outputs(states, self.avg_model)
             values = tf.reduce_sum(action_probs * critic_logits, axis=-1)
             action_probs = self.clip_last_step(action_probs)
             avg_action_probs = self.clip_last_step(avg_action_probs)
@@ -369,21 +371,13 @@ class ACER(A2C):
 
 
 if __name__ == '__main__':
-    from utils import ReplayBuffer, create_gym_env
-    from old_models import CNNA2C
+    from utils import ModelHandler, create_gym_env
 
     sd = 555
     es = create_gym_env('PongNoFrameskip-v4', 2, scale_frames=False)
-    ms = [
-        CNNA2C(
-            (84, 84, 1),
-            6,
-            actor_activation='softmax',
-            critic_units=6,
-            seed=sd,
-            scale_inputs=True,
-        )
-        for _ in range(2)
-    ]
-    agn = ACER(es, ms, seed=sd, optimizer=tf.keras.optimizers.Adam(7e-4))
+    mh = ModelHandler('models/cnn-acer.cfg', [6, 6])
+    m = mh.build_model()
+    agn = ACER(
+        es, m, seed=sd, optimizer=tf.keras.optimizers.Adam(7e-4), scale_inputs=True
+    )
     agn.fit(19)

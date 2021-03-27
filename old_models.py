@@ -2,7 +2,6 @@ import tensorflow as tf
 from tensorflow.keras.initializers import Orthogonal
 from tensorflow.keras.layers import Add, Conv2D, Dense, Flatten, Input, Lambda
 from tensorflow.keras.models import Model, Sequential
-from tensorflow_probability.python.distributions import Categorical
 
 
 def get_cnn_layers(input_shape, relu_initializer, fc_units):

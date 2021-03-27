@@ -54,7 +54,7 @@ class PPO(A2C):
         Returns:
             returns as numpy array.
         """
-        next_values = self.model(states[-1])[2].numpy()
+        next_values = self.get_model_outputs(states[-1], self.model)[2].numpy()
         advantages = np.zeros_like(rewards)
         last_lam = 0
         values = np.concatenate([values, np.expand_dims(next_values, 0)])
@@ -89,7 +89,9 @@ class PPO(A2C):
             None
         """
         with tf.GradientTape() as tape:
-            _, log_probs, values, entropy, _ = self.model(states, actions=actions)
+            _, log_probs, values, entropy, _ = self.get_model_outputs(
+                states, self.model, actions=actions
+            )
             entropy = tf.reduce_mean(entropy)
             clipped_values = old_values + tf.clip_by_value(
                 values - old_values, -self.clip_norm, self.clip_norm
@@ -186,13 +188,10 @@ class PPO(A2C):
 if __name__ == '__main__':
     from tensorflow.keras.optimizers import Adam
 
-    from old_models import CNNA2C
-    from utils import create_gym_env
+    from utils import ModelHandler, create_gym_env
 
     envi = create_gym_env('PongNoFrameskip-v4', 16)
-    mod = CNNA2C(
-        envi[0].observation_space.shape,
-        envi[0].action_space.n,
-    )
-    agn = PPO(envi, mod, optimizer=Adam(25e-5))
+    mh = ModelHandler('models/cnn-ac.cfg', [envi[0].action_space.n, 1])
+    m = mh.build_model()
+    agn = PPO(envi, m, optimizer=Adam(25e-5))
     agn.fit(19)

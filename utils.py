@@ -5,7 +5,6 @@ from collections import deque
 import cv2
 import gym
 import numpy as np
-import tensorflow as tf
 from tensorflow.keras.initializers import GlorotUniform, Orthogonal
 from tensorflow.keras.layers import Conv2D, Dense, Flatten, Input
 from tensorflow.keras.models import Model
@@ -194,22 +193,20 @@ def create_gym_env(env_name, n=1, preprocess=True, *args, **kwargs):
 
 
 class ModelHandler:
-    def __init__(self, cfg_file, output_units, scale_inputs=False, seed=None):
+    def __init__(self, cfg_file, output_units, seed=None):
         self.initializers = {'orthogonal': Orthogonal, 'glorot_uniform': GlorotUniform}
         with open(cfg_file) as cfg:
             self.parser = configparser.ConfigParser()
             self.parser.read_file(cfg)
-        self.output_units = output_units[::-1]
-        self.scale_inputs = scale_inputs
+        self.output_units = output_units
         self.seed = seed
+        self.output_count = 0
 
     def create_input(self, section):
         height = int(self.parser[section]['height'])
         width = int(self.parser[section]['width'])
         channels = int(self.parser[section]['channels'])
         x = Input((height, width, channels))
-        if self.scale_inputs:
-            x = tf.cast(x, tf.float32) / 255.0
         return x
 
     def get_initializer(self, section):
@@ -239,7 +236,8 @@ class ModelHandler:
             assert (
                 self.output_units
             ), 'Output units required exceed given `output_units`'
-            units = self.output_units.pop()
+            units = self.output_units[self.output_count % len(self.output_units)]
+            self.output_count += 1
         activation = self.parser[section].get('activation')
         return Dense(
             units, activation, kernel_initializer=self.get_initializer(section)
@@ -264,9 +262,7 @@ class ModelHandler:
                 common_layer = current_layer
             if self.parser[section].get('output'):
                 outputs.append(current_layer)
-        model = Model(input_layer, outputs)
-        model.call = tf.function(model.call)
-        return model
+        return Model(input_layer, outputs)
 
 
 if __name__ == '__main__':
