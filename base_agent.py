@@ -409,7 +409,7 @@ class BaseAgent:
         self.reset_envs()
         env_in_use = self.envs[env_idx]
         if weights:
-            self.model.load_weights(weights)
+            self.model.load_weights(weights).expect_partial()
         if video_dir:
             env_in_use = gym.wrappers.Monitor(env_in_use, video_dir)
         steps = 0
