@@ -263,9 +263,3 @@ class ModelHandler:
             if self.parser[section].get('output'):
                 outputs.append(current_layer)
         return Model(input_layer, outputs)
-
-
-if __name__ == '__main__':
-    mh = ModelHandler('models/cnn-dqn.cfg', [6])
-    m = mh.build_model()
-    m.summary()

@@ -19,14 +19,14 @@ class TRPO(PPO):
         super(TRPO, self).__init__(
             envs, models[0], n_steps, lam, entropy_coef=entropy_coef, *args, **kwargs
         )
-        self.extra_model = models[1]
+        self.old_model = models[1]
         self.fvp_n_steps = fvp_n_steps
 
     def calculate_losses(self):
         pass
 
     def at_step_start(self):
-        self.extra_model.set_weights(self.model.get_weights())
+        self.old_model.set_weights(self.model.get_weights())
 
     # @tf.function
     def train_step(self):
@@ -34,30 +34,24 @@ class TRPO(PPO):
             self.get_batch, [], 5 * [tf.float32]
         )
         with tf.GradientTape(True) as tape:
-            model_results = self.model(states)
-            extra_results = self.extra_model(states)
+            old_results = self.old_model(states)
+            new_results = self.model(states)
             advantages = returns - values
             advantages = (advantages - tf.reduce_mean(advantages)) / tf.math.reduce_std(
                 advantages
             )
-            model_distribution = Categorical(model_results[-1])
-            extra_model_distribution = Categorical(extra_results[-1])
+            old_distribution = Categorical(old_results[-1])
+            new_distribution = Categorical(new_results[-1])
             pass
 
 
 if __name__ == '__main__':
-    from old_models import CNNA2C
-    from utils import create_gym_env
+    from utils import ModelHandler, create_gym_env
 
+    mh = ModelHandler('models/cnn-ac.cfg', 6)
+    m = mh.build_model()
     sd = None
     envi = create_gym_env('PongNoFrameskip-v4', 2)
-    ms = [
-        CNNA2C(
-            (84, 84, 1),
-            6,
-            seed=sd,
-        )
-        for _ in range(2)
-    ]
-    agn = TRPO(envi, ms)
+
+    agn = TRPO(envi, m)
     agn.fit(19)

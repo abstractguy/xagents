@@ -220,8 +220,8 @@ if __name__ == '__main__':
     mh = ModelHandler('models/cnn-dqn.cfg', [6])
     m = mh.build_model()
     agn = DQN(gym_envs, m, optimizer=Adam(1e-4), buffer_max_size=10000, seed=seed)
-    agn.fit(18)
-    # agn.play(
-    #     '/Users/emadboctor/Desktop/code/drl-models/dqn-pong-19-model/pong_test.tf',
-    #     render=True,
-    # )
+    # agn.fit(18)
+    agn.play(
+        '/Users/emadboctor/Desktop/code/models-drl/dqn-pong-19-model/pong_test.tf',
+        render=True,
+    )

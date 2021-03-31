@@ -279,6 +279,11 @@ class BaseAgent:
             'train_step() should be implemented by BaseAgent subclasses'
         )
 
+    def get_model_outputs(self, inputs, model, training=True):
+        raise NotImplementedError(
+            'get_model_outputs() should be implemented by BaseAgent subclasses'
+        )
+
     def at_step_start(self):
         """
         Execute steps that will run before self.train_step().
@@ -416,7 +421,9 @@ class BaseAgent:
             if frame_dir:
                 frame = env_in_use.render(mode='rgb_array')
                 cv2.imwrite(os.path.join(frame_dir, f'{steps:05d}.jpg'), frame)
-            action = self.model(self.get_states())[action_idx][env_idx]
+            action = self.get_model_outputs(self.get_states(), self.model, False)[
+                action_idx
+            ][env_idx]
             self.states[env_idx], reward, done, _ = env_in_use.step(action)
             if done:
                 break
