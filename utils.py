@@ -234,9 +234,9 @@ class ModelHandler:
         units = self.parser[section].get('units')
         if not units:
             assert (
-                self.output_units
-            ), 'Output units required exceed given `output_units`'
-            units = self.output_units[self.output_count % len(self.output_units)]
+                len(self.output_units) > self.output_count
+            ), 'Output units given are less than dense layers required'
+            units = self.output_units[self.output_count]
             self.output_count += 1
         activation = self.parser[section].get('activation')
         return Dense(
@@ -262,4 +262,5 @@ class ModelHandler:
                 common_layer = current_layer
             if self.parser[section].get('output'):
                 outputs.append(current_layer)
+        self.output_count = 0
         return Model(input_layer, outputs)

@@ -8,7 +8,7 @@ class TRPO(PPO):
     def __init__(
         self,
         envs,
-        models,
+        model,
         n_steps=512,
         lam=1,
         fvp_n_steps=5,
@@ -17,9 +17,9 @@ class TRPO(PPO):
         **kwargs,
     ):
         super(TRPO, self).__init__(
-            envs, models[0], n_steps, lam, entropy_coef=entropy_coef, *args, **kwargs
+            envs, model, n_steps, lam, entropy_coef=entropy_coef, *args, **kwargs
         )
-        self.old_model = models[1]
+        self.old_model = tf.keras.models.clone_model(self.model)
         self.fvp_n_steps = fvp_n_steps
 
     def calculate_losses(self):
@@ -48,10 +48,10 @@ class TRPO(PPO):
 if __name__ == '__main__':
     from utils import ModelHandler, create_gym_env
 
-    mh = ModelHandler('models/cnn-ac.cfg', 6)
+    envi = create_gym_env('PongNoFrameskip-v4', 2)
+    mh = ModelHandler('models/cnn-ac.cfg', [envi[0].action_space.n, 1])
     m = mh.build_model()
     sd = None
-    envi = create_gym_env('PongNoFrameskip-v4', 2)
 
     agn = TRPO(envi, m)
     agn.fit(19)
