@@ -54,7 +54,7 @@ class PPO(A2C):
         Returns:
             returns as numpy array.
         """
-        next_values = self.get_model_outputs(states[-1], self.model)[2].numpy()
+        next_values = self.get_model_outputs(states[-1], self.output_models)[2].numpy()
         advantages = np.zeros_like(rewards)
         last_lam = 0
         values = np.concatenate([values, np.expand_dims(next_values, 0)])
@@ -90,7 +90,7 @@ class PPO(A2C):
         """
         with tf.GradientTape() as tape:
             _, log_probs, values, entropy, _ = self.get_model_outputs(
-                states, self.model, actions=actions
+                states, self.output_models, actions=actions
             )
             entropy = tf.reduce_mean(entropy)
             clipped_values = old_values + tf.clip_by_value(

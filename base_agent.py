@@ -9,7 +9,6 @@ import gym
 import numpy as np
 import tensorflow as tf
 import wandb
-from tensorflow.keras.optimizers import Adam
 
 
 class BaseAgent:
@@ -48,7 +47,7 @@ class BaseAgent:
         self.n_envs = len(envs)
         self.envs = envs
         self.model = model
-        self.optimizer = optimizer or Adam()
+        self.optimizer = optimizer
         self.checkpoint_path = checkpoint
         self.total_rewards = deque(maxlen=reward_buffer_size)
         self.n_steps = n_steps
@@ -261,9 +260,10 @@ class BaseAgent:
             self.model.load_weights(weights)
             if hasattr(self, 'target_model'):
                 self.target_model.load_weights(weights)
-        self.model.compile(self.optimizer, loss=self.custom_loss)
-        if hasattr(self, 'target_model'):
-            self.target_model.compile(self.optimizer, loss=self.custom_loss)
+        if self.optimizer:
+            self.model.compile(self.optimizer, loss=self.custom_loss)
+            if hasattr(self, 'target_model'):
+                self.target_model.compile(self.optimizer, loss=self.custom_loss)
         self.training_start_time = perf_counter()
         self.last_reset_time = perf_counter()
 

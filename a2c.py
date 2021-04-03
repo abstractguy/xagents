@@ -31,12 +31,12 @@ class A2C(BaseAgent):
             **kwargs: kwargs Passed to BaseAgent.
         """
         super(A2C, self).__init__(envs, model, *args, n_steps=n_steps, **kwargs)
+        self.output_models = self.model
         self.entropy_coef = entropy_coef
         self.value_loss_coef = value_loss_coef
         self.grad_norm = grad_norm
         activations = [layer.activation for layer in model.layers[-2:]]
         self.output_is_softmax = tf.keras.activations.softmax in activations
-        self.critic_units = model.layers[-1].units
 
     def get_distribution(self, actor_output):
         if self.output_is_softmax:
@@ -46,10 +46,14 @@ class A2C(BaseAgent):
     @tf.function
     def get_model_outputs(self, inputs, model, training=True, actions=None):
         inputs = self.get_model_inputs(inputs)
-        actor_output, critic_output = model(inputs, training=training)
+        if isinstance(model, tf.keras.models.Model):
+            actor_output, critic_output = model(inputs, training=training)
+        else:
+            actor_output, critic_output = [
+                sub_model(inputs, training=training) for sub_model in model
+            ]
         distribution = self.get_distribution(actor_output)
-        if self.critic_units == 1:
-            critic_output = tf.squeeze(critic_output)
+        critic_output = tf.squeeze(critic_output)
         if actions is None:
             actions = distribution.sample(seed=self.seed)
         action_log_probs = distribution.log_prob(actions)
@@ -89,7 +93,7 @@ class A2C(BaseAgent):
                 step_values,
                 step_entropies,
                 step_actor_logits,
-            ) = self.get_model_outputs(step_states, self.model)
+            ) = self.get_model_outputs(step_states, self.output_models)
             states.append(step_states)
             actions.append(step_actions)
             critic_output.append(step_values)
@@ -166,7 +170,7 @@ class A2C(BaseAgent):
                 _,
             ) = self.get_batch()
             masks = 1 - np.array(dones)
-            next_values = self.get_model_outputs(states[-1], self.model)[2]
+            next_values = self.get_model_outputs(states[-1], self.output_models)[2]
             returns = [next_values]
             for step in reversed(range(self.n_steps)):
                 returns.append(
