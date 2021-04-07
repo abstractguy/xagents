@@ -116,12 +116,14 @@ class PPO(A2C):
         self.model.optimizer.apply_gradients(zip(grads, self.model.trainable_variables))
 
     def get_mini_batches(self, *args):
-        indices = np.arange(self.batch_size)
+        mini_batches = []
+        indices = tf.range(self.batch_size)
         for _ in range(self.ppo_epochs):
-            np.random.shuffle(indices)
+            indices = tf.random.shuffle(indices)
             for i in range(0, self.batch_size, self.mini_batch_size):
                 batch_indices = indices[i : i + self.mini_batch_size]
-                yield [tf.constant(item[batch_indices]) for item in args]
+                mini_batches.append([tf.gather(item, batch_indices) for item in args])
+        return mini_batches
 
     def run_ppo_epochs(self, states, actions, returns, old_values, old_log_probs):
         """
@@ -182,7 +184,7 @@ class PPO(A2C):
             None
         """
         batch = tf.numpy_function(self.get_batch, [], 5 * [tf.float32])
-        tf.numpy_function(self.run_ppo_epochs, batch, [])
+        self.run_ppo_epochs(*batch)
 
 
 if __name__ == '__main__':
