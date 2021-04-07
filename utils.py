@@ -210,12 +210,14 @@ class ModelHandler:
         return x
 
     def get_initializer(self, section):
-        initializer = self.parser[section]['initializer']
+        initializer_name = self.parser[section].get('initializer')
         gain = self.parser[section].get('gain')
         initializer_kwargs = {'seed': self.seed}
         if gain:
             initializer_kwargs.update({'gain': float(gain)})
-        return self.initializers[initializer](**initializer_kwargs)
+        initializer = self.initializers.get(initializer_name)
+        if initializer:
+            return initializer(**initializer_kwargs)
 
     def create_convolution(self, section):
         filters = int(self.parser[section]['filters'])
