@@ -1,3 +1,4 @@
+import numpy as np
 import tensorflow as tf
 from tensorflow_probability.python.distributions import Categorical
 
@@ -102,11 +103,93 @@ class TRPO(PPO):
         update = self.weights_to_flat(self.critic.trainable_variables) + step
         self.flat_to_weights(update, self.critic.trainable_variables, True)
 
-    # @tf.function
+    def at_step_start(self):
+        self.old_actor.set_weights(self.actor.get_weights())
+
+    def calculate_kl_divergence(self, states):
+        *_, old_actor_output = self.get_model_outputs(
+            states, [self.old_actor, self.critic]
+        )
+        *_, new_actor_output = self.get_model_outputs(states, [self.actor, self.critic])
+        old_distribution = Categorical(old_actor_output)
+        new_distribution = Categorical(new_actor_output)
+        return (
+            tf.reduce_mean(old_distribution.kl_divergence(new_distribution)),
+            old_distribution,
+            new_distribution,
+        )
+
+    def calculate_losses(self, states, actions, returns, values):
+        advantages = tf.stop_gradient(returns - values)
+        advantages = (advantages - tf.reduce_mean(advantages)) / tf.math.reduce_std(
+            advantages
+        )
+        (
+            kl_divergence,
+            old_distribution,
+            new_distribution,
+        ) = self.calculate_kl_divergence(states)
+        entropy = tf.reduce_mean(new_distribution.entropy()) * self.entropy_coef
+        ratio = tf.exp(
+            new_distribution.log_prob(actions) - old_distribution.log_prob(actions)
+        )
+        surrogate_loss = tf.reduce_mean(ratio * advantages) + entropy
+        return surrogate_loss, kl_divergence
+
+    def calculate_fvp(self, flat_tangent, states):
+        with tf.GradientTape() as tape2:
+            with tf.GradientTape() as tape1:
+                kl_divergence, *_ = self.calculate_kl_divergence(states)
+            kl_grads = tape1.gradient(kl_divergence, self.actor.trainable_variables)
+            tangents = self.flat_to_weights(
+                flat_tangent, self.actor.trainable_variables
+            )
+            gvp = tf.add_n(
+                [
+                    tf.reduce_sum(grad * tangent)
+                    for (grad, tangent) in zip(kl_grads, tangents)
+                ]
+            )
+        hessians_products = tape2.gradient(gvp, self.actor.trainable_variables)
+        return (
+            self.weights_to_flat(hessians_products, self.actor.trainable_variables)
+            + self.cg_damping * flat_tangent
+        )
+
+    def conjugate_gradients(self, flat_grads, states):
+        p = tf.identity(flat_grads)
+        r = tf.identity(flat_grads)
+        x = tf.zeros_like(flat_grads)
+        r_dot_r = tf.tensordot(r, r, 1)
+        iterations = 0
+        while tf.less(iterations, self.cg_iterations) and tf.greater(
+            r_dot_r, self.cg_residual_tolerance
+        ):
+            z = self.calculate_fvp(p, states)
+            v = r_dot_r / tf.tensordot(p, z, 1)
+            x += v * p
+            r -= v * z
+            new_r_dot_r = tf.tensordot(r, r, 1)
+            mu = new_r_dot_r / r_dot_r
+            p = r + mu * p
+            r_dot_r = new_r_dot_r
+            iterations += 1
+        return x
+
+    @tf.function
     def train_step(self):
         states, actions, returns, values, log_probs = tf.numpy_function(
             self.get_batch, [], 5 * [tf.float32]
         )
+        with tf.GradientTape() as tape:
+            surrogate_loss, kl_divergence = self.calculate_losses(
+                states, actions, returns, values
+            )
+        grads = tape.gradient(surrogate_loss, self.actor.trainable_variables)
+        grads = self.weights_to_flat(grads, self.actor.trainable_variables)
+        if tf.numpy_function(np.allclose, [grads, 0], tf.bool):
+            pass
+        step_direction = self.conjugate_gradients(grads, states[:: self.fvp_n_steps])
 
 
 if __name__ == '__main__':
