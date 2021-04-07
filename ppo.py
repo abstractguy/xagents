@@ -55,7 +55,7 @@ class PPO(A2C):
             returns as numpy array.
         """
         next_values = self.get_model_outputs(states[-1], self.output_models)[2].numpy()
-        advantages = np.zeros_like(rewards)
+        returns = []
         last_lam = 0
         values = np.concatenate([values, np.expand_dims(next_values, 0)])
         dones = np.concatenate([dones, np.expand_dims(dones[-1], 0)])
@@ -67,10 +67,9 @@ class PPO(A2C):
                 + self.gamma * next_values * next_non_terminal
                 - values[step]
             )
-            advantages[step] = last_lam = (
-                delta + self.gamma * self.lam * next_non_terminal * last_lam
-            )
-        return advantages + values[:-1]
+            last_lam = delta + self.gamma * self.lam * next_non_terminal * last_lam
+            returns.append(last_lam)
+        return np.asarray(returns[::-1]) + values[:-1]
 
     def update_gradients(
         self, states, actions, old_values, returns, old_log_probs, advantages
