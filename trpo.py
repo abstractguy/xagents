@@ -5,60 +5,6 @@ from tensorflow_probability.python.distributions import Categorical
 from ppo import PPO
 
 
-def flat_to_weights(flat, trainable_variables, in_place=False):
-    updated_trainable_variables = []
-    start_idx = 0
-    for trainable_variable in trainable_variables:
-        shape = trainable_variable.shape
-        flat_size = tf.math.reduce_prod(shape)
-        updated_trainable_variable = tf.reshape(
-            flat[start_idx : start_idx + flat_size], shape
-        )
-        if in_place:
-            trainable_variable.assign(updated_trainable_variable)
-        else:
-            updated_trainable_variables.append(updated_trainable_variable)
-        start_idx += flat_size
-    return updated_trainable_variables
-
-
-def weights_to_flat(to_flatten, trainable_variables=None):
-    if not trainable_variables:
-        to_concat = [tf.reshape(non_flat, [-1]) for non_flat in to_flatten]
-    else:
-        to_concat = [
-            tf.reshape(
-                non_flat if non_flat is not None else tf.zeros_like(trainable_variable),
-                [-1],
-            )
-            for (non_flat, trainable_variable) in zip(to_flatten, trainable_variables)
-        ]
-    return tf.concat(to_concat, 0)
-
-
-def iterbatches(
-    arrays,
-    *,
-    num_batches=None,
-    batch_size=None,
-    shuffle=True,
-    include_final_partial_batch=True,
-):
-    assert (num_batches is None) != (
-        batch_size is None
-    ), 'Provide num_batches or batch_size, but not both'
-    arrays = tuple(map(np.asarray, arrays))
-    n = arrays[0].shape[0]
-    assert all(a.shape[0] == n for a in arrays[1:])
-    inds = np.arange(n)
-    if shuffle:
-        np.random.shuffle(inds)
-    sections = np.arange(0, n, batch_size)[1:] if num_batches is None else num_batches
-    for batch_inds in np.array_split(inds, sections):
-        if include_final_partial_batch or len(batch_inds) == batch_size:
-            yield tuple(a[batch_inds] for a in arrays)
-
-
 class TRPO(PPO):
     def __init__(
         self,
@@ -107,6 +53,41 @@ class TRPO(PPO):
         self.critic_iterations = critic_iterations
         self.critic_learning_rate = critic_learning_rate
 
+    @staticmethod
+    def flat_to_weights(flat, trainable_variables, in_place=False):
+        updated_trainable_variables = []
+        start_idx = 0
+        for trainable_variable in trainable_variables:
+            shape = trainable_variable.shape
+            flat_size = tf.math.reduce_prod(shape)
+            updated_trainable_variable = tf.reshape(
+                flat[start_idx : start_idx + flat_size], shape
+            )
+            if in_place:
+                trainable_variable.assign(updated_trainable_variable)
+            else:
+                updated_trainable_variables.append(updated_trainable_variable)
+            start_idx += flat_size
+        return updated_trainable_variables
+
+    @staticmethod
+    def weights_to_flat(to_flatten, trainable_variables=None):
+        if not trainable_variables:
+            to_concat = [tf.reshape(non_flat, [-1]) for non_flat in to_flatten]
+        else:
+            to_concat = [
+                tf.reshape(
+                    non_flat
+                    if non_flat is not None
+                    else tf.zeros_like(trainable_variable),
+                    [-1],
+                )
+                for (non_flat, trainable_variable) in zip(
+                    to_flatten, trainable_variables
+                )
+            ]
+        return tf.concat(to_concat, 0)
+
     def calculate_fvp(self, flat_tangent, states):
         with tf.GradientTape() as tape2:
             with tf.GradientTape() as tape1:
@@ -117,7 +98,9 @@ class TRPO(PPO):
                 kl_divergence = old_distribution.kl_divergence(new_distribution)
                 mean_kl = tf.reduce_mean(kl_divergence)
             kl_grads = tape1.gradient(mean_kl, self.actor.trainable_variables)
-            tangents = flat_to_weights(flat_tangent, self.actor.trainable_variables)
+            tangents = self.flat_to_weights(
+                flat_tangent, self.actor.trainable_variables
+            )
             gvp = tf.add_n(
                 [
                     tf.reduce_sum(grad * tangent)
@@ -126,7 +109,7 @@ class TRPO(PPO):
             )
         hessians_products = tape2.gradient(gvp, self.actor.trainable_variables)
         return (
-            weights_to_flat(hessians_products, self.actor.trainable_variables)
+            self.weights_to_flat(hessians_products, self.actor.trainable_variables)
             + self.cg_damping * flat_tangent
         )
 
@@ -169,8 +152,8 @@ class TRPO(PPO):
             * self.optimizer_m
             / (tf.math.sqrt(self.optimizer_v) + self.optimizer_epsilon)
         )
-        update = weights_to_flat(self.critic.trainable_variables) + step
-        flat_to_weights(update, self.critic.trainable_variables, True)
+        update = self.weights_to_flat(self.critic.trainable_variables) + step
+        self.flat_to_weights(update, self.critic.trainable_variables, True)
 
     def train(self):
         np.set_printoptions(precision=3)
@@ -196,7 +179,9 @@ class TRPO(PPO):
                 optimgain = surrgain + entbonus
                 losses = [optimgain, meankl, entbonus, surrgain, meanent]
             gradients = tape.gradient(optimgain, self.actor.trainable_variables)
-            return losses + [weights_to_flat(gradients, self.actor.trainable_variables)]
+            return losses + [
+                self.weights_to_flat(gradients, self.actor.trainable_variables)
+            ]
 
         @tf.function
         def compute_losses(ob, ac, atarg):
@@ -222,7 +207,7 @@ class TRPO(PPO):
             with tf.GradientTape() as tape:
                 pi_vf = self.critic(ob)
                 vferr = tf.reduce_mean(tf.square(pi_vf - ret))
-            return weights_to_flat(
+            return self.weights_to_flat(
                 tape.gradient(vferr, self.critic.trainable_variables),
                 self.critic.trainable_variables,
             )
@@ -257,13 +242,13 @@ class TRPO(PPO):
                 expectedimprove = tf.tensordot(g, fullstep, 1)
                 surrbefore = lossbefore[0]
                 stepsize = 1.0
-                thbefore = weights_to_flat(
+                thbefore = self.weights_to_flat(
                     self.actor.trainable_variables,
                     self.actor.trainable_variables,
                 )
                 for _ in range(10):
                     thnew = thbefore + fullstep * stepsize
-                    flat_to_weights(thnew, self.actor.trainable_variables, True)
+                    self.flat_to_weights(thnew, self.actor.trainable_variables, True)
                     meanlosses = surr, kl, *_ = np.array(compute_losses(*args))
                     improve = surr - surrbefore
                     print("Expected: %.3f Actual: %.3f" % (expectedimprove, improve))
@@ -279,15 +264,11 @@ class TRPO(PPO):
                     stepsize *= 0.5
                 else:
                     print("couldn't compute a good step")
-                    flat_to_weights(thbefore, self.actor.trainable_variables, True)
+                    self.flat_to_weights(thbefore, self.actor.trainable_variables, True)
             for (lossname, lossval) in zip(loss_names, meanlosses):
                 print(lossname, np.around(lossval, 2))
             for _ in range(self.critic_iterations):
-                for (mbob, mbret) in iterbatches(
-                    [states, returns],
-                    include_final_partial_batch=False,
-                    batch_size=64,
-                ):
+                for (mbob, mbret) in self.get_mini_batches(states, returns):
                     g = compute_vflossandgrad(mbob, mbret).numpy()
                     self.update_critic_weights(g, self.critic_learning_rate)
 
