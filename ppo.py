@@ -195,7 +195,7 @@ if __name__ == '__main__':
 
     from utils import ModelHandler, create_gym_env
 
-    envi = create_gym_env('PongNoFrameskip-v4', 2)
+    envi = create_gym_env('PongNoFrameskip-v4', 16)
     mh = ModelHandler('models/cnn-ac.cfg', [envi[0].action_space.n, 1])
     m = mh.build_model()
     agn = PPO(envi, m, optimizer=Adam(25e-5))
