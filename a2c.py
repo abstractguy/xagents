@@ -14,7 +14,6 @@ class A2C(BaseAgent):
         value_loss_coef=0.5,
         n_steps=5,
         grad_norm=0.5,
-        *args,
         **kwargs,
     ):
         """
@@ -27,10 +26,9 @@ class A2C(BaseAgent):
             n_steps: n-step transition for example given s1, s2, s3, s4 and n_step = 4,
                 transition will be s1 -> s4 (defaults to 1, s1 -> s2)
             grad_norm: Gradient clipping value passed to tf.clip_by_global_norm()
-            *args: args Passed to BaseAgent.
             **kwargs: kwargs Passed to BaseAgent.
         """
-        super(A2C, self).__init__(envs, model, *args, n_steps=n_steps, **kwargs)
+        super(A2C, self).__init__(envs, model, n_steps=n_steps, **kwargs)
         self.output_models = self.model
         self.entropy_coef = entropy_coef
         self.value_loss_coef = value_loss_coef

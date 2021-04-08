@@ -20,7 +20,6 @@ class ACER(A2C):
         importance_c=10.0,
         delta=1,
         trust_region=True,
-        *args,
         **kwargs,
     ):
         """
@@ -41,11 +40,10 @@ class ACER(A2C):
             importance_c: Importance weight truncation parameter.
             delta: Delta parameter used for trust region update.
             trust_region: If False, no trust region updates will be used.
-            *args: args Passed to BaseAgent.
             **kwargs: kwargs Passed to BaseAgent.
         """
         super(ACER, self).__init__(
-            envs, model, n_steps=n_steps, grad_norm=grad_norm, *args, **kwargs
+            envs, model, n_steps=n_steps, grad_norm=grad_norm, **kwargs
         )
         self.avg_model = tf.keras.models.clone_model(self.model)
         self.ema = tf.train.ExponentialMovingAverage(ema_alpha)

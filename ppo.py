@@ -15,7 +15,6 @@ class PPO(A2C):
         mini_batches=4,
         advantage_epsilon=1e-8,
         clip_norm=0.1,
-        *args,
         **kwargs,
     ):
         """
@@ -30,10 +29,9 @@ class PPO(A2C):
             mini_batches: Number of mini batches to use per gradient update.
             advantage_epsilon: Epsilon value added to estimated advantage.
             clip_norm: Clipping value passed to tf.clip_by_value()
-            *args: args Passed to BaseAgent
             **kwargs: kwargs Passed to BaseAgent
         """
-        super(PPO, self).__init__(envs, model, n_steps=n_steps, *args, **kwargs)
+        super(PPO, self).__init__(envs, model, n_steps=n_steps, **kwargs)
         self.lam = lam
         self.ppo_epochs = ppo_epochs
         self.mini_batches = mini_batches

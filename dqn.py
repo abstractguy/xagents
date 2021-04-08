@@ -19,7 +19,6 @@ class DQN(BaseAgent):
         update_target_steps=1000,
         decay_n_steps=150000,
         custom_loss='mse',
-        *args,
         **kwargs,
     ):
         """
@@ -38,10 +37,9 @@ class DQN(BaseAgent):
             update_target_steps: Update target network every n steps.
             decay_n_steps: Decay epsilon for n steps.
             custom_loss: Loss passed to tf.keras.models.Model.compile()
-            *args: args Passed to BaseAgent
             **kwargs: kwargs Passed to BaseAgent
         """
-        super(DQN, self).__init__(envs, model, custom_loss=custom_loss, *args, **kwargs)
+        super(DQN, self).__init__(envs, model, custom_loss=custom_loss, **kwargs)
         self.buffers = [
             ReplayBuffer(
                 buffer_max_size // self.n_envs,
