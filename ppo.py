@@ -53,6 +53,11 @@ class PPO(A2C):
             returns as numpy array.
         """
         next_values = self.get_model_outputs(states[-1], self.output_models)[2].numpy()
+        next_values = (
+            np.expand_dims(next_values, 0)
+            if not len(next_values.shape)
+            else next_values
+        )
         returns = []
         last_lam = 0
         values = np.concatenate([values, np.expand_dims(next_values, 0)])
@@ -168,10 +173,11 @@ class PPO(A2C):
             log_probs,
             *_,
         ) = [np.asarray(item, np.float32) for item in super(PPO, self).get_batch()]
+        values = np.expand_dims(values, -1) if len(values.shape) <= 1 else values
         returns = self.calculate_returns(states, rewards, values, dones)
         return self.concat_step_batches(states, actions, returns, values, log_probs)
 
-    @tf.function
+    # @tf.function
     def train_step(self):
         """
         Perform 1 step which controls action_selection, interaction with environments
@@ -189,7 +195,7 @@ if __name__ == '__main__':
 
     from utils import ModelHandler, create_gym_env
 
-    envi = create_gym_env('PongNoFrameskip-v4', 16)
+    envi = create_gym_env('PongNoFrameskip-v4', 2)
     mh = ModelHandler('models/cnn-ac.cfg', [envi[0].action_space.n, 1])
     m = mh.build_model()
     agn = PPO(envi, m, optimizer=Adam(25e-5))
