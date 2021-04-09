@@ -132,7 +132,7 @@ class TRPO(PPO):
         old_distribution = Categorical(old_actor_output)
         new_distribution = Categorical(new_actor_output)
         return (
-            old_distribution.kl_divergence(new_distribution),
+            tf.reduce_mean(old_distribution.kl_divergence(new_distribution)),
             old_distribution,
             new_distribution,
         )
@@ -143,7 +143,6 @@ class TRPO(PPO):
             old_distribution,
             new_distribution,
         ) = self.calculate_kl_divergence(states)
-        kl_divergence = tf.reduce_mean(old_distribution.kl_divergence(new_distribution))
         entropy = tf.reduce_mean(new_distribution.entropy())
         entropy_loss = self.entropy_coef * entropy
         ratio = tf.exp(
