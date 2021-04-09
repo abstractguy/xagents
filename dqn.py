@@ -24,7 +24,8 @@ class DQN(BaseAgent):
         Initialize DQN agent.
         Args:
             envs: A list of gym environments.
-            model: tf.keras.models.Model
+            model: tf.keras.models.Model that is expected to be compiled
+                with an optimizer before training starts.
             buffer_max_size: Maximum size for each replay buffer used by its
                 respective environment.
             buffer_initial_size: Initial replay buffer size, if not specified,
@@ -60,8 +61,20 @@ class DQN(BaseAgent):
         )[:, tf.newaxis]
 
     @tf.function
-    def get_model_outputs(self, inputs, model, training=True):
-        q_values = super(DQN, self).get_model_outputs(inputs, model, training)
+    def get_model_outputs(self, inputs, models, training=True):
+        """
+        Get inputs and apply normalization if `scale_factor` was specified earlier,
+        then return model outputs.
+        Args:
+            inputs: Inputs as tensors / numpy arrays that are expected
+                by the given model.
+            models: A tf.keras.Model
+            training: `training` parameter passed to model call.
+
+        Returns:
+            Outputs that is expected from the given model.
+        """
+        q_values = super(DQN, self).get_model_outputs(inputs, models, training)
         return tf.argmax(q_values, 1), q_values
 
     def get_actions(self):
@@ -117,7 +130,7 @@ class DQN(BaseAgent):
 
     def fill_buffers(self):
         """
-        Fill self.buffer up to its initial size.
+        Fill each buffer in self.buffers up to its initial size.
 
         Returns:
             None
@@ -164,7 +177,7 @@ class DQN(BaseAgent):
 
     def at_step_start(self):
         """
-        Execute steps that will run before self.train_step().
+        Execute steps that will run before self.train_step() which decays epsilon.
 
         Returns:
             None
@@ -194,7 +207,8 @@ class DQN(BaseAgent):
 
     def at_step_end(self):
         """
-        Execute steps that will run after self.train_step().
+        Execute steps that will run after self.train_step() which
+        updates target model.
 
         Returns:
             None

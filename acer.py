@@ -26,12 +26,12 @@ class ACER(A2C):
         Initialize ACER agent.
         Args:
             envs: A list of gym environments.
-            model: tf.keras.models.Model used for training.
+            model: tf.keras.models.Model that is expected to be compiled
+                with an optimizer before training starts.
             ema_alpha: Moving average decay passed to tf.train.ExponentialMovingAverage()
-            buffer_max_size: Maximum size for each replay buffer used by its
-                respective environment.
-            buffer_initial_size: Initial replay buffer size, if not specified,
-                buffer_max_size is used.
+            buffer_max_size: Maximum total size of all replay buffer items combined.
+            buffer_initial_size: Minimum total size of all initial (before sampling is allowed),
+                if not specified, buffer_max_size is used.
             n_steps: n-step transition for example given s1, s2, s3, s4 and n_step = 4,
                 transition will be s1 -> s4 (defaults to 1, s1 -> s2)
             grad_norm: Gradient clipping value passed to tf.clip_by_global_norm()
@@ -148,8 +148,8 @@ class ACER(A2C):
 
     def get_batch(self):
         """
-        Get a batch of (states, rewards, actions, dones, actor output)
-        and adjust shapes for gradient update.
+        Get a batch of (states, rewards, actions, dones, actor output),
+        save batch to replay buffers and adjust shapes for gradient update.
 
         Returns:
             Merged environment outputs.
@@ -346,7 +346,8 @@ class ACER(A2C):
     @tf.function
     def train_step(self):
         """
-        Do 1 training step.
+        Perform 1 step which controls action_selection, interaction with environments
+        in self.envs, batching and gradient updates.
 
         Returns:
             None
@@ -376,5 +377,5 @@ if __name__ == '__main__':
     optimizer = tf.keras.optimizers.Adam(7e-4)
     mh = ModelHandler('models/cnn-acer.cfg', [6, 6], optimizer, seed)
     m = mh.build_model()
-    agn = ACER(es, m, seed=seed, scale_inputs=True)
+    agn = ACER(es, m, seed=seed, scale_factor=255)
     agn.fit(19)

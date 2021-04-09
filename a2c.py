@@ -20,7 +20,8 @@ class A2C(BaseAgent):
         Initialize A2C agent.
         Args:
             envs: A list of gym environments.
-            model: tf.keras.models.Model
+            model: tf.keras.models.Model that is expected to be compiled
+                with an optimizer before training starts.
             entropy_coef: Entropy coefficient used for entropy loss calculation.
             value_loss_coef: Value coefficient used for value loss calculation.
             n_steps: n-step transition for example given s1, s2, s3, s4 and n_step = 4,
@@ -36,14 +37,36 @@ class A2C(BaseAgent):
         self.output_is_softmax = tf.keras.activations.softmax in activations
 
     def get_distribution(self, actor_output):
+        """
+        Get a probability distribution from probabilities or logits.
+        Args:
+            actor_output: Output by the actor model (probabilities/logits).
+
+        Returns:
+            tfp.python.distributions.Categorical
+        """
         if self.output_is_softmax:
             return Categorical(probs=actor_output)
         return Categorical(logits=actor_output)
 
     @tf.function
-    def get_model_outputs(self, inputs, model, training=True, actions=None):
+    def get_model_outputs(self, inputs, models, training=True, actions=None):
+        """
+        Get actor and critic outputs, and determine actions sampled from
+        respective probability distribution.
+        Args:
+            inputs: Inputs as tensors / numpy arrays that are expected
+                by the given model(s).
+            models: A tf.keras.Model or a list of tf.keras.Model(s)
+            training: `training` parameter passed to model call.
+            actions: If not specified, a sample is drawn from corresponding
+                distribution and used for calculation of log probs.
+
+        Returns:
+            [actions, log probs, critic output, entropy, actor output]
+        """
         actor_output, critic_output = super(A2C, self).get_model_outputs(
-            inputs, model, training
+            inputs, models, training
         )
         distribution = self.get_distribution(actor_output)
         critic_output = tf.squeeze(critic_output)
@@ -146,7 +169,8 @@ class A2C(BaseAgent):
     @tf.function
     def train_step(self):
         """
-        Do 1 training step.
+        Perform 1 step which controls action_selection, interaction with environments
+        in self.envs, batching and gradient updates.
 
         Returns:
             None

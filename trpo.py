@@ -23,6 +23,28 @@ class TRPO(PPO):
         fvp_n_steps=5,
         **kwargs,
     ):
+        """
+        Initialize TRPO agent.
+        Args:
+            envs: A list of gym environments.
+            actor_model: Actor separate model as a tf.keras.Model.
+            critic_model: Critic separate model as a tf.keras.Model.
+            entropy_coef: Entropy coefficient used for entropy loss calculation.
+            lam: GAE-Lambda for advantage estimation.
+            n_steps: n-step transition for example given s1, s2, s3, s4 and n_step = 4,
+                transition will be s1 -> s4 (defaults to 1, s1 -> s2)
+            max_kl: Maximum KL divergence used for calculating Lagrange multiplier
+                and actor weight updates.
+            cg_iterations: Gradient conjugation maximum number of iterations per train step.
+            cg_residual_tolerance: Gradient conjugation residual tolerance parameter,
+                which controls proceeding/stopping iterations.
+            cg_damping: Gradient conjugation damping parameter used for calculation
+                of Fisher vector product(FVP).
+            actor_iterations: Maximum number of actor optimizations steps per train step.
+            critic_iterations: Maximum number of critic optimizations steps per train step.
+            fvp_n_steps: Value used to skip every n-frames used to calculate FVP
+            **kwargs: kwargs passed to BaseAgent.
+        """
         super(TRPO, self).__init__(
             envs,
             actor_model,
@@ -44,6 +66,20 @@ class TRPO(PPO):
 
     @staticmethod
     def flat_to_weights(flat, trainable_variables, in_place=False):
+        """
+        Convert a flat tensor which should be of the same size as flattened
+        `trainable_variables` concatenated to a list of variables and assign
+        the new values(optional) to previous `trainable_variables` values.
+        Args:
+            flat: Flat tensor that is compatible with the given trainable variables
+                shapes.
+            trainable_variables: A list of tf.Variable objects that should be
+                compatible with the given flat tensor.
+            in_place: If True, the new values will be assigned to given variables.
+
+        Returns:
+            A list of reshaped variables/ an empty list if `in_place`.
+        """
         updated_trainable_variables = []
         start_idx = 0
         for trainable_variable in trainable_variables:
@@ -61,6 +97,17 @@ class TRPO(PPO):
 
     @staticmethod
     def weights_to_flat(to_flatten, trainable_variables=None):
+        """
+        Flatten and concatenate a list of gradients/tf.Variable objects.
+        Args:
+            to_flatten: A list of tf.Variable objects.
+            trainable_variables: If specified and the list of gradients
+                has None values, these values will be replaced by zeros
+                in the flat output.
+
+        Returns:
+            Flat tensor.
+        """
         if not trainable_variables:
             to_concat = [tf.reshape(non_flat, [-1]) for non_flat in to_flatten]
         else:
@@ -78,6 +125,15 @@ class TRPO(PPO):
         return tf.concat(to_concat, 0)
 
     def calculate_fvp(self, flat_tangent, states):
+        """
+        Calculate Fisher vector product.
+        Args:
+            flat_tangent: Flattened gradients obtained by `self.weights_to_flat()`
+            states: States tensor expected by the actor model.
+
+        Returns:
+            FVP as a flat tensor.
+        """
         with tf.GradientTape() as tape2:
             with tf.GradientTape() as tape1:
                 kl_divergence, *_ = self.calculate_kl_divergence(states)
@@ -98,6 +154,15 @@ class TRPO(PPO):
         )
 
     def conjugate_gradients(self, flat_grads, states):
+        """
+        Get conjugated gradients.
+        Args:
+            flat_grads: Flat gradient tensor.
+            states: States tensor expected by the actor model.
+
+        Returns:
+            Conjugated gradients as a flat tensor.
+        """
         p = tf.identity(flat_grads)
         r = tf.identity(flat_grads)
         x = tf.zeros_like(flat_grads)
@@ -118,6 +183,15 @@ class TRPO(PPO):
         return x
 
     def calculate_kl_divergence(self, states):
+        """
+        Calculate probability distribution of both new and old actor models
+        and calculate Kullback–Leibler divergence.
+        Args:
+            states: States tensor expected by the actor models.
+
+        Returns:
+            Mean KL divergence, old distribution and new distribution.
+        """
         old_actor_output = self.get_model_outputs(
             states, [self.old_actor, self.critic]
         )[4]
@@ -131,6 +205,16 @@ class TRPO(PPO):
         )
 
     def calculate_losses(self, states, actions, advantages):
+        """
+        Calculate surrogate loss and KL divergence.
+        Args:
+            states: States tensor expected by the actor models.
+            actions: Tensor of actions taken.
+            advantages: Tensor of calculated advantages.
+
+        Returns:
+            Surrogate loss and KL divergence.
+        """
         (
             kl_divergence,
             old_distribution,
@@ -146,6 +230,13 @@ class TRPO(PPO):
         return surrogate_loss, kl_divergence
 
     def at_step_start(self):
+        """
+        Execute steps that will run before self.train_step() which updates
+        old actor weights with the optimized weights.
+
+        Returns:
+            None
+        """
         self.old_actor.set_weights(self.actor.get_weights())
 
     def update_actor_weights(
@@ -157,6 +248,21 @@ class TRPO(PPO):
         actions,
         advantages,
     ):
+        """
+        Calculate losses, and run actor iterations until reaching `actor_iterations`
+        specified earlier or reaching stop/ok conditions.
+        Args:
+            flat_weights: A tensor of flattened actor weights.
+            full_step: FVP / Lagrange multiplier.
+            surrogate_loss: The lower bound of the original objective - the expected
+                cumulative return of the policy
+            states: States tensor expected by the actor models.
+            actions: Tensor of actions taken.
+            advantages: Tensor of calculated advantages.
+
+        Returns:
+            None
+        """
         learning_rate = 1.0
         for _ in range(self.actor_iterations):
             updated_weights = flat_weights + full_step * learning_rate
@@ -177,6 +283,15 @@ class TRPO(PPO):
             self.flat_to_weights(flat_weights, self.actor.trainable_variables, True)
 
     def update_critic_weights(self, states, returns):
+        """
+        Calculate value loss and apply gradients.
+        Args:
+            states: States tensor expected by the critic model.
+            returns: The cumulative returns tensor.
+
+        Returns:
+            None
+        """
         for _ in range(self.critic_iterations):
             for (states_mb, returns_mb) in self.get_mini_batches(states, returns):
                 with tf.GradientTape() as tape:
@@ -189,6 +304,13 @@ class TRPO(PPO):
 
     @tf.function
     def train_step(self):
+        """
+        Perform 1 step which controls action_selection, interaction with environments
+        in self.envs, batching and gradient updates.
+
+        Returns:
+            None
+        """
         states, actions, returns, values, _ = tf.numpy_function(
             self.get_batch, [], 5 * [tf.float32]
         )
@@ -230,7 +352,6 @@ class TRPO(PPO):
             [],
         )
         self.update_critic_weights(states, returns)
-        return True
 
 
 if __name__ == '__main__':

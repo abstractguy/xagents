@@ -30,7 +30,7 @@ class AtariPreprocessor(gym.Wrapper):
             frame_skips: Number of frame skips to use per environment step.
             resize_shape: (m, n) output frame size.
             state_buffer_size: Buffer size which is used to hold frames during steps.
-            scale_frames: If False, frames will not be scaled / normalized (divided by 255.0)
+            scale_frames: If False, frames will not be scaled / normalized (divided by 255)
         """
         assert frame_skips > 1, 'frame_skips must be >= 1'
         super(AtariPreprocessor, self).__init__(env)
@@ -44,7 +44,7 @@ class AtariPreprocessor(gym.Wrapper):
         """
         Resize and convert atari frame to grayscale.
         Args:
-            frame: Image as numpy.ndarray
+            frame: Atari frame as numpy.ndarray
 
         Returns:
             Processed frame.
@@ -193,7 +193,21 @@ def create_gym_env(env_name, n=1, preprocess=True, *args, **kwargs):
 
 
 class ModelHandler:
+    """
+    Model utility class to create keras models from configuration files.
+    """
+
     def __init__(self, cfg_file, output_units, optimizer=None, seed=None):
+        """
+        Initialize model parser.
+        Args:
+            cfg_file: Path to .cfg file having that will be created.
+            output_units: A list of output units that must be of the
+                same size as the number of dense layers in the configuration
+                without specified units.
+            optimizer: tf.keras.optimizers.Optimizer
+            seed: Random seed used by layer initializers.
+        """
         self.initializers = {'orthogonal': Orthogonal, 'glorot_uniform': GlorotUniform}
         with open(cfg_file) as cfg:
             self.parser = configparser.ConfigParser()
@@ -204,6 +218,14 @@ class ModelHandler:
         self.output_count = 0
 
     def create_input(self, section):
+        """
+        Parse input shape and create input layer.
+        Args:
+            section: str, representing section unique name.
+
+        Returns:
+            tf.keras.layer.Input
+        """
         height = int(self.parser[section]['height'])
         width = int(self.parser[section]['width'])
         channels = int(self.parser[section]['channels'])
@@ -211,6 +233,14 @@ class ModelHandler:
         return x
 
     def get_initializer(self, section):
+        """
+        Get layer initializer if specified in the configuration.
+        Args:
+            section: str, representing section unique name.
+
+        Returns:
+            tf.keras.initializers.Initializer
+        """
         initializer_name = self.parser[section].get('initializer')
         gain = self.parser[section].get('gain')
         initializer_kwargs = {'seed': self.seed}
@@ -221,6 +251,14 @@ class ModelHandler:
             return initializer(**initializer_kwargs)
 
     def create_convolution(self, section):
+        """
+        Parse convolution layer parameters and create layer.
+        Args:
+            section: str, representing section unique name.
+
+        Returns:
+            tf.keras.layers.Conv2D
+        """
         filters = int(self.parser[section]['filters'])
         kernel_size = int(self.parser[section]['size'])
         stride = int(self.parser[section]['stride'])
@@ -234,6 +272,14 @@ class ModelHandler:
         )
 
     def create_dense(self, section):
+        """
+        Parse dense layer parameters and create layer.
+        Args:
+            section: str, representing section unique name.
+
+        Returns:
+            tf.keras.layers.Dense
+        """
         units = self.parser[section].get('units')
         if not units:
             assert (
@@ -247,6 +293,12 @@ class ModelHandler:
         )
 
     def build_model(self):
+        """
+        Parse all configuration sections, create layers and model.
+
+        Returns:
+            tf.keras.Model
+        """
         outputs = []
         input_layer, current_layer, common_layer = None, None, None
         for section in self.parser.sections():

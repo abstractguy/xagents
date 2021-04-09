@@ -21,7 +21,8 @@ class PPO(A2C):
         Initialize PPO agent.
         Args:
             envs: A list of gym environments.
-            model: tf.keras.models.Model used for training.
+            model: tf.keras.models.Model that is expected to be compiled
+                with an optimizer before training starts.
             n_steps: n-step transition for example given s1, s2, s3, s4 and n_step = 4,
                 transition will be s1 -> s4 (defaults to 1, s1 -> s2)
             lam: GAE-Lambda for advantage estimation
@@ -118,6 +119,14 @@ class PPO(A2C):
         self.model.optimizer.apply_gradients(zip(grads, self.model.trainable_variables))
 
     def get_mini_batches(self, *args):
+        """
+        Split each item in args into mini-batches of size self.mini_batch_size.
+        Args:
+            *args: Tensors of the same size to split.
+
+        Returns:
+            A list of mini-batches as tensors.
+        """
         mini_batches = []
         indices = tf.range(self.batch_size)
         for _ in range(self.ppo_epochs):
@@ -164,6 +173,14 @@ class PPO(A2C):
             )
 
     def get_batch(self):
+        """
+        Get n-step batch which is the result of running self.envs step() for
+        self.n_steps times, calculate returns and adjust n-step batch shapes
+        for gradient updates.
+
+        Returns:
+            [states, actions, returns, values, log probs] with adjusted shapes.
+        """
         (
             states,
             rewards,

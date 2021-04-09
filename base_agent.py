@@ -22,14 +22,15 @@ class BaseAgent:
         gamma=0.99,
         metric_digits=2,
         seed=None,
-        scale_inputs=False,
+        scale_factor=False,
         output_models=None,
     ):
         """
         Base class for various types of agents.
         Args:
             envs: A list of gym environments.
-            model: tf.keras.models.Model used for training.
+            model: tf.keras.models.Model that is expected to be compiled
+                with an optimizer before training starts.
             checkpoint: Path to .tf filename under which the trained model will be saved.
             reward_buffer_size: Size of the reward buffer that will hold the last n total
                 rewards which will be used for calculating the mean reward.
@@ -39,6 +40,9 @@ class BaseAgent:
             metric_digits: Rounding decimals for display purposes.
             seed: Random seed passed to random.seed(), np.random.seed(), tf.random.seed(),
                 env.seed()
+            scale_factor: Input normalization value to divide inputs by.
+            output_models: Model(s) that control the output of self.get_model_outputs().
+                If not specified, it defaults to self.model
         """
         assert envs, 'No Environments given'
         self.n_envs = len(envs)
@@ -50,7 +54,7 @@ class BaseAgent:
         self.gamma = gamma
         self.metric_digits = metric_digits
         self.seed = seed
-        self.scale_inputs = scale_inputs
+        self.scale_factor = scale_factor
         self.output_models = output_models or self.model
         self.target_reward = None
         self.max_steps = None
@@ -81,7 +85,7 @@ class BaseAgent:
 
     def reset_envs(self):
         """
-        Reset all environments in self.envs
+        Reset all environments in self.envs and update self.states
 
         Returns:
             None
@@ -104,7 +108,15 @@ class BaseAgent:
 
     def display_metrics(self):
         """
-        Display progress metrics to the console.
+        Display progress metrics to the console when environments complete a full episode each.
+        Metrics consist of:
+            - time: Time since training started.
+            - steps: Time steps so far.
+            - games: Finished games / episodes that resulted in a terminal state.
+            - speed: Frame speed/s
+            - mean reward: Mean game total rewards.
+            - best reward: Highest total episode score obtained.
+            - episode rewards: A list of n scores where n is the number of environments.
 
         Returns:
             None
@@ -134,7 +146,9 @@ class BaseAgent:
 
     def update_metrics(self):
         """
-        Update progress metrics.
+        Update progress metrics which consist of last reset step and time used
+        for calculation of fps, and update mean and best rewards. The model is
+        saved if there is a checkpoint path specified.
 
         Returns:
             None
@@ -202,7 +216,7 @@ class BaseAgent:
         Step environments in self.envs, update metrics (if any done games)
             and return / store results.
         Args:
-            actions: A list / numpy array of actions to execute by environments.
+            actions: An iterable of actions to execute by environments.
             get_observation: If True, a list of [states, actions, rewards, dones, new_states]
                 of length self.n_envs each will be returned.
             store_in_buffers: If True, each observation is saved separately in respective buffer.
@@ -240,8 +254,9 @@ class BaseAgent:
         """
         Initialize training start time, wandb session & models (self.model / self.target_model)
         Args:
-            target_reward: Scalar values whenever achieved, the training will stop.
-            max_steps: Maximum steps, if exceeded, the training will stop.
+            target_reward: Total reward per game value that whenever achieved,
+                the training will stop.
+            max_steps: Maximum time steps, if exceeded, the training will stop.
             monitor_session: Wandb session name.
             weights: Path to .tf weights file compatible with self.model
 
@@ -272,6 +287,19 @@ class BaseAgent:
         )
 
     def get_model_outputs(self, inputs, models, training=True):
+        """
+        Get inputs and apply normalization if `scale_factor` was specified earlier,
+        then return model outputs.
+        Args:
+            inputs: Inputs as tensors / numpy arrays that are expected
+                by the given model(s).
+            models: A tf.keras.Model or a list of tf.keras.Model(s)
+            training: `training` parameter passed to model call.
+
+        Returns:
+            Outputs as a list in case of multiple models or any other shape
+            that is expected from the given model(s).
+        """
         inputs = self.get_model_inputs(inputs)
         if isinstance(models, tf.keras.models.Model):
             return models(inputs, training=training)
@@ -322,7 +350,7 @@ class BaseAgent:
             actions: Action tensor of same shape as the batch size.
 
         Returns:
-            Indices as tf tensors.
+            Indices as a tensor.
         """
         return tf.concat((batch_indices, tf.cast(actions[:, tf.newaxis], tf.int64)), -1)
 
@@ -339,9 +367,17 @@ class BaseAgent:
         return [a.swapaxes(0, 1).reshape(-1, *a.shape[2:]) for a in args]
 
     def get_model_inputs(self, inputs):
-        if not self.scale_inputs:
+        """
+        Get inputs and apply normalization if `scale_factor` was specified earlier.
+        Args:
+            inputs: Inputs as tensors / numpy arrays that are expected
+                by the given model(s).
+        Returns:
+
+        """
+        if not self.scale_factor:
             return inputs
-        return tf.cast(inputs, tf.float32) / 255.0
+        return tf.cast(inputs, tf.float32) / self.scale_factor
 
     def fit(
         self,
