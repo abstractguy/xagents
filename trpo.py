@@ -34,7 +34,6 @@ class TRPO(PPO):
         self.old_actor = tf.keras.models.clone_model(self.model)
         self.actor = self.model
         self.critic = critic_model
-        self.output_models = self.actor, self.critic
         self.cg_iterations = cg_iterations
         self.cg_residual_tolerance = cg_residual_tolerance
         self.cg_damping = cg_damping
@@ -84,9 +83,7 @@ class TRPO(PPO):
                 old_actor_output = self.get_model_outputs(
                     states, [self.old_actor, self.critic]
                 )[4]
-                new_actor_output = self.get_model_outputs(
-                    states, [self.actor, self.critic]
-                )[4]
+                new_actor_output = self.get_model_outputs(states, self.output_models)[4]
                 old_distribution = Categorical(old_actor_output)
                 new_distribution = Categorical(new_actor_output)
                 kl_divergence = old_distribution.kl_divergence(new_distribution)
@@ -131,7 +128,7 @@ class TRPO(PPO):
         old_actor_output = self.get_model_outputs(
             states, [self.old_actor, self.critic]
         )[4]
-        new_actor_output = self.get_model_outputs(states, [self.actor, self.critic])[4]
+        new_actor_output = self.get_model_outputs(states, self.output_models)[4]
         old_distribution = Categorical(old_actor_output)
         new_distribution = Categorical(new_actor_output)
         return (
@@ -154,7 +151,7 @@ class TRPO(PPO):
         )
         surrogate_gain = tf.reduce_mean(ratio * advantages)
         surrogate_loss = surrogate_gain + entropy_loss
-        return [surrogate_loss, kl_divergence, entropy_loss, surrogate_gain, entropy]
+        return surrogate_loss, kl_divergence
 
     def at_step_start(self):
         self.old_actor.set_weights(self.actor.get_weights())
@@ -172,7 +169,7 @@ class TRPO(PPO):
         for _ in range(self.actor_iterations):
             updated_weights = flat_weights + full_step * learning_rate
             self.flat_to_weights(updated_weights, self.actor.trainable_variables, True)
-            losses = new_surrogate_loss, new_kl_divergence, *_ = self.calculate_losses(
+            losses = new_surrogate_loss, new_kl_divergence = self.calculate_losses(
                 states, actions, advantages
             )
             improvement = new_surrogate_loss - surrogate_loss
@@ -191,9 +188,7 @@ class TRPO(PPO):
         for _ in range(self.critic_iterations):
             for (states_mb, returns_mb) in self.get_mini_batches(states, returns):
                 with tf.GradientTape() as tape:
-                    values = self.get_model_outputs(
-                        states_mb, [self.actor, self.critic]
-                    )[2]
+                    values = self.get_model_outputs(states_mb, self.output_models)[2]
                     value_loss = tf.reduce_mean(tf.square(values - returns_mb))
                 grads = tape.gradient(value_loss, self.critic.trainable_variables)
                 self.critic.optimizer.apply_gradients(
@@ -210,18 +205,16 @@ class TRPO(PPO):
             advantages
         )
         with tf.GradientTape() as tape:
-            losses = self.calculate_losses(states, actions, advantages)
+            surrogate_loss, kl_divergence = self.calculate_losses(
+                states, actions, advantages
+            )
         flat_grads = self.weights_to_flat(
-            tape.gradient(losses[0], self.actor.trainable_variables),
+            tape.gradient(surrogate_loss, self.actor.trainable_variables),
             self.actor.trainable_variables,
         )
-        if not tf.numpy_function(np.allclose, [flat_grads, 0], tf.bool):
-            pass
         step_direction = self.conjugate_gradients(
             flat_grads, states[:: self.fvp_n_steps]
         )
-        if not tf.reduce_all(tf.math.is_finite(step_direction)):
-            pass
         shs = 0.5 * tf.tensordot(
             step_direction,
             self.calculate_fvp(step_direction, states[:: self.fvp_n_steps]),
@@ -229,7 +222,6 @@ class TRPO(PPO):
         )
         lagrange_multiplier = tf.math.sqrt(shs / self.max_kl)
         full_step = step_direction / lagrange_multiplier
-        surrogate_loss = losses[0]
         pre_actor_weights = self.weights_to_flat(
             self.actor.trainable_variables,
         )
@@ -246,6 +238,7 @@ class TRPO(PPO):
             [],
         )
         self.update_critic_weights(states, returns)
+        return True
 
 
 if __name__ == '__main__':
@@ -258,5 +251,5 @@ if __name__ == '__main__':
     c_mh = ModelHandler('models/cnn-c-tiny.cfg', [1], critic_optimizer, seed)
     a_m = a_mh.build_model()
     c_m = c_mh.build_model()
-    agn = TRPO(en, a_m, c_m, seed=seed)
+    agn = TRPO(en, a_m, c_m, seed=seed, output_models=[a_m, c_m])
     agn.fit(19)
