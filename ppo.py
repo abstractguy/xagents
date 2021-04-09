@@ -177,7 +177,7 @@ class PPO(A2C):
         returns = self.calculate_returns(states, rewards, values, dones)
         return self.concat_step_batches(states, actions, returns, values, log_probs)
 
-    # @tf.function
+    @tf.function
     def train_step(self):
         """
         Perform 1 step which controls action_selection, interaction with environments

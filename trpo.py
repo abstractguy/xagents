@@ -18,12 +18,8 @@ class TRPO(PPO):
         cg_iterations=10,
         cg_residual_tolerance=1e-10,
         cg_damping=1e-3,
-        beta1=0.9,
-        beta2=0.999,
-        epsilon=1e-08,
         actor_iterations=10,
         critic_iterations=3,
-        critic_learning_rate=3e-4,
         fvp_n_steps=5,
         **kwargs,
     ):
@@ -43,18 +39,8 @@ class TRPO(PPO):
         self.cg_residual_tolerance = cg_residual_tolerance
         self.cg_damping = cg_damping
         self.max_kl = max_kl
-        self.critic_updates = 0
-        self.critic_flat_size = sum(
-            tf.math.reduce_prod(v.shape) for v in self.critic.trainable_variables
-        )
-        self.optimizer_beta1 = beta1
-        self.optimizer_beta2 = beta2
-        self.optimizer_epsilon = epsilon
-        self.optimizer_m = tf.zeros(self.critic_flat_size)
-        self.optimizer_v = tf.zeros(self.critic_flat_size)
         self.critic_iterations = critic_iterations
         self.actor_iterations = actor_iterations
-        self.critic_learning_rate = critic_learning_rate
         self.fvp_n_steps = fvp_n_steps
 
     @staticmethod
@@ -141,28 +127,6 @@ class TRPO(PPO):
             iterations += 1
         return x
 
-    def optimizer_step(self, flat_update):
-        self.critic_updates += 1
-        a = (
-            self.critic_learning_rate
-            * tf.math.sqrt(1 - self.optimizer_beta2 ** self.critic_updates)
-            / (1 - self.optimizer_beta1 ** self.critic_updates)
-        )
-        self.optimizer_m = (
-            self.optimizer_beta1 * self.optimizer_m
-            + (1 - self.optimizer_beta1) * flat_update
-        )
-        self.optimizer_v = self.optimizer_beta2 * self.optimizer_v + (
-            1 - self.optimizer_beta2
-        ) * (flat_update * flat_update)
-        step = (
-            (-a)
-            * self.optimizer_m
-            / (tf.math.sqrt(self.optimizer_v) + self.optimizer_epsilon)
-        )
-        update = self.weights_to_flat(self.critic.trainable_variables) + step
-        self.flat_to_weights(update, self.critic.trainable_variables, True)
-
     def calculate_kl_divergence(self, states):
         old_actor_output = self.get_model_outputs(
             states, [self.old_actor, self.critic]
@@ -203,7 +167,6 @@ class TRPO(PPO):
         states,
         actions,
         advantages,
-        expected_improvement,
     ):
         step_size = 1.0
         for _ in range(self.actor_iterations):
@@ -213,19 +176,15 @@ class TRPO(PPO):
                 states, actions, advantages
             )
             improvement = new_surrogate_loss - surrogate_loss
-            print(f'Expected: {expected_improvement} Got: {improvement}')
-            if not np.isfinite(losses).all():
-                print('Got non-finite value of losses -- bad!')
-            elif new_kl_divergence > self.max_kl * 1.5:
-                print('Violated KL constraint. shrinking step.')
-            elif improvement < 0:
-                print('Surrogate did not improve. shrinking step.')
-            else:
-                print('Step size OK!')
+            ok_conditions = [
+                np.isfinite(losses).all(),
+                new_kl_divergence <= self.max_kl * 1.5,
+                improvement > 0,
+            ]
+            if all(ok_conditions):
                 break
             step_size *= 0.5
         else:
-            print('Could not compute a good step')
             self.flat_to_weights(flat_weights, self.actor.trainable_variables, True)
 
     def update_critic_weights(self, states, returns):
@@ -236,11 +195,10 @@ class TRPO(PPO):
                         states_mb, [self.actor, self.critic]
                     )[2]
                     value_loss = tf.reduce_mean(tf.square(values - returns_mb))
-                grads = self.weights_to_flat(
-                    tape.gradient(value_loss, self.critic.trainable_variables),
-                    self.critic.trainable_variables,
+                grads = tape.gradient(value_loss, self.critic.trainable_variables)
+                self.critic.optimizer.apply_gradients(
+                    zip(grads, self.critic.trainable_variables)
                 )
-                self.optimizer_step(grads)
 
     @tf.function
     def train_step(self):
@@ -271,7 +229,6 @@ class TRPO(PPO):
         )
         lagrange_multiplier = tf.math.sqrt(shs / self.max_kl)
         full_step = step_direction / lagrange_multiplier
-        expected_improvement = tf.tensordot(flat_grads, full_step, 1)
         surrogate_loss = losses[0]
         pre_actor_weights = self.weights_to_flat(
             self.actor.trainable_variables,
@@ -285,7 +242,6 @@ class TRPO(PPO):
                 states,
                 actions,
                 advantages,
-                expected_improvement,
             ],
             [],
         )
@@ -300,5 +256,6 @@ if __name__ == '__main__':
     c_mh = ModelHandler('models/cnn-c-tiny.cfg', [1])
     a_m = a_mh.build_model()
     c_m = c_mh.build_model()
+    c_m.compile(tf.keras.optimizers.Adam(3e-4))
     agn = TRPO(en, a_m, c_m)
     agn.fit(19)
