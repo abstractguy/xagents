@@ -372,7 +372,7 @@ if __name__ == '__main__':
     from utils import ModelHandler, create_gym_env
 
     seed = None
-    es = create_gym_env('PongNoFrameskip-v4', 2, scale_frames=False)
+    es = create_gym_env('PongNoFrameskip-v4', 16, scale_frames=False)
     optimizer = tf.keras.optimizers.Adam(7e-4)
     mh = ModelHandler('models/cnn-acer.cfg', [6, 6], optimizer, seed)
     m = mh.build_model()

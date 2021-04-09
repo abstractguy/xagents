@@ -23,6 +23,7 @@ class BaseAgent:
         metric_digits=2,
         seed=None,
         scale_inputs=False,
+        output_models=None,
     ):
         """
         Base class for various types of agents.
@@ -50,6 +51,7 @@ class BaseAgent:
         self.metric_digits = metric_digits
         self.seed = seed
         self.scale_inputs = scale_inputs
+        self.output_models = output_models or self.model
         self.target_reward = None
         self.max_steps = None
         self.input_shape = self.envs[0].observation_space.shape
@@ -269,10 +271,11 @@ class BaseAgent:
             'train_step() should be implemented by BaseAgent subclasses'
         )
 
-    def get_model_outputs(self, inputs, model, training=True):
-        raise NotImplementedError(
-            'get_model_outputs() should be implemented by BaseAgent subclasses'
-        )
+    def get_model_outputs(self, inputs, models, training=True):
+        inputs = self.get_model_inputs(inputs)
+        if isinstance(models, tf.keras.models.Model):
+            return models(inputs, training=training)
+        return [sub_model(inputs, training=training) for sub_model in models]
 
     def at_step_start(self):
         """

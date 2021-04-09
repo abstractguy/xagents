@@ -29,7 +29,6 @@ class A2C(BaseAgent):
             **kwargs: kwargs Passed to BaseAgent.
         """
         super(A2C, self).__init__(envs, model, n_steps=n_steps, **kwargs)
-        self.output_models = self.model
         self.entropy_coef = entropy_coef
         self.value_loss_coef = value_loss_coef
         self.grad_norm = grad_norm
@@ -43,13 +42,9 @@ class A2C(BaseAgent):
 
     @tf.function
     def get_model_outputs(self, inputs, model, training=True, actions=None):
-        inputs = self.get_model_inputs(inputs)
-        if isinstance(model, tf.keras.models.Model):
-            actor_output, critic_output = model(inputs, training=training)
-        else:
-            actor_output, critic_output = [
-                sub_model(inputs, training=training) for sub_model in model
-            ]
+        actor_output, critic_output = super(A2C, self).get_model_outputs(
+            inputs, model, training
+        )
         distribution = self.get_distribution(actor_output)
         critic_output = tf.squeeze(critic_output)
         if actions is None:

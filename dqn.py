@@ -61,8 +61,7 @@ class DQN(BaseAgent):
 
     @tf.function
     def get_model_outputs(self, inputs, model, training=True):
-        inputs = self.get_model_inputs(inputs)
-        q_values = model(inputs, training=training)
+        q_values = super(DQN, self).get_model_outputs(inputs, model, training)
         return tf.argmax(q_values, 1), q_values
 
     def get_actions(self):
@@ -74,7 +73,7 @@ class DQN(BaseAgent):
         """
         if np.random.random() < self.epsilon:
             return np.random.randint(0, self.n_actions, self.n_envs)
-        return self.get_model_outputs(self.get_states(), self.model)[0]
+        return self.get_model_outputs(self.get_states(), self.output_models)[0]
 
     def get_targets(self, states, actions, rewards, dones, new_states):
         """
