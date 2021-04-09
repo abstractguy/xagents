@@ -21,8 +21,10 @@ class TRPO(PPO):
         beta1=0.9,
         beta2=0.999,
         epsilon=1e-08,
+        actor_iterations=10,
         critic_iterations=3,
         critic_learning_rate=3e-4,
+        fvp_n_steps=5,
         **kwargs,
     ):
         super(TRPO, self).__init__(
@@ -51,7 +53,9 @@ class TRPO(PPO):
         self.optimizer_m = tf.zeros(self.critic_flat_size)
         self.optimizer_v = tf.zeros(self.critic_flat_size)
         self.critic_iterations = critic_iterations
+        self.actor_iterations = actor_iterations
         self.critic_learning_rate = critic_learning_rate
+        self.fvp_n_steps = fvp_n_steps
 
     @staticmethod
     def flat_to_weights(flat, trainable_variables, in_place=False):
@@ -91,8 +95,12 @@ class TRPO(PPO):
     def calculate_fvp(self, flat_tangent, states):
         with tf.GradientTape() as tape2:
             with tf.GradientTape() as tape1:
-                old_actor_output = self.old_actor(states)
-                new_actor_output = self.actor(states)
+                old_actor_output = self.get_model_outputs(
+                    states, [self.old_actor, self.critic]
+                )[4]
+                new_actor_output = self.get_model_outputs(
+                    states, [self.actor, self.critic]
+                )[4]
                 old_distribution = Categorical(old_actor_output)
                 new_distribution = Categorical(new_actor_output)
                 kl_divergence = old_distribution.kl_divergence(new_distribution)
@@ -133,10 +141,10 @@ class TRPO(PPO):
             iterations += 1
         return x
 
-    def update_critic_weights(self, flat_update, step_size):
+    def optimizer_step(self, flat_update):
         self.critic_updates += 1
         a = (
-            step_size
+            self.critic_learning_rate
             * tf.math.sqrt(1 - self.optimizer_beta2 ** self.critic_updates)
             / (1 - self.optimizer_beta1 ** self.critic_updates)
         )
@@ -155,135 +163,142 @@ class TRPO(PPO):
         update = self.weights_to_flat(self.critic.trainable_variables) + step
         self.flat_to_weights(update, self.critic.trainable_variables, True)
 
-    def train(self):
-        np.set_printoptions(precision=3)
-        loss_names = ["optimgain", "meankl", "entloss", "surrgain", "entropy"]
-        self.init_training(19, None, None, None)
+    def calculate_kl_divergence(self, states):
+        old_actor_output = self.get_model_outputs(
+            states, [self.old_actor, self.critic]
+        )[4]
+        new_actor_output = self.get_model_outputs(states, [self.actor, self.critic])[4]
+        old_distribution = Categorical(old_actor_output)
+        new_distribution = Categorical(new_actor_output)
+        return (
+            old_distribution.kl_divergence(new_distribution),
+            old_distribution,
+            new_distribution,
+        )
 
-        @tf.function
-        def compute_lossandgrad(ob, ac, atarg):
-            with tf.GradientTape() as tape:
-                old_actor_output = self.old_actor(ob)
-                new_actor_output = self.actor(ob)
-                old_distribution = Categorical(old_actor_output)
-                new_distribution = Categorical(new_actor_output)
-                kloldnew = old_distribution.kl_divergence(new_distribution)
-                ent = new_distribution.entropy()
-                meankl = tf.reduce_mean(kloldnew)
-                meanent = tf.reduce_mean(ent)
-                entbonus = self.entropy_coef * meanent
-                ratio = tf.exp(
-                    new_distribution.log_prob(ac) - old_distribution.log_prob(ac)
-                )
-                surrgain = tf.reduce_mean(ratio * atarg)
-                optimgain = surrgain + entbonus
-                losses = [optimgain, meankl, entbonus, surrgain, meanent]
-            gradients = tape.gradient(optimgain, self.actor.trainable_variables)
-            return losses + [
-                self.weights_to_flat(gradients, self.actor.trainable_variables)
-            ]
+    def calculate_losses(self, states, actions, advantages):
+        (
+            kl_divergence,
+            old_distribution,
+            new_distribution,
+        ) = self.calculate_kl_divergence(states)
+        kl_divergence = tf.reduce_mean(old_distribution.kl_divergence(new_distribution))
+        entropy = tf.reduce_mean(new_distribution.entropy())
+        entropy_loss = self.entropy_coef * entropy
+        ratio = tf.exp(
+            new_distribution.log_prob(actions) - old_distribution.log_prob(actions)
+        )
+        surrogate_gain = tf.reduce_mean(ratio * advantages)
+        surrogate_loss = surrogate_gain + entropy_loss
+        return [surrogate_loss, kl_divergence, entropy_loss, surrogate_gain, entropy]
 
-        @tf.function
-        def compute_losses(ob, ac, atarg):
-            old_actor_output = self.old_actor(ob)
-            new_actor_output = self.actor(ob)
-            old_distribution = Categorical(old_actor_output)
-            new_distribution = Categorical(new_actor_output)
-            kloldnew = old_distribution.kl_divergence(new_distribution)
-            ent = new_distribution.entropy()
-            meankl = tf.reduce_mean(kloldnew)
-            meanent = tf.reduce_mean(ent)
-            entbonus = self.entropy_coef * meanent
-            ratio = tf.exp(
-                new_distribution.log_prob(ac) - old_distribution.log_prob(ac)
+    def at_step_start(self):
+        self.old_actor.set_weights(self.actor.get_weights())
+
+    def update_actor_weights(
+        self,
+        flat_weights,
+        full_step,
+        surrogate_loss,
+        states,
+        actions,
+        advantages,
+        expected_improvement,
+    ):
+        step_size = 1.0
+        for _ in range(self.actor_iterations):
+            updated_weights = flat_weights + full_step * step_size
+            self.flat_to_weights(updated_weights, self.actor.trainable_variables, True)
+            losses = new_surrogate_loss, new_kl_divergence, *_ = self.calculate_losses(
+                states, actions, advantages
             )
-            surrgain = tf.reduce_mean(ratio * atarg)
-            optimgain = surrgain + entbonus
-            losses = [optimgain, meankl, entbonus, surrgain, meanent]
-            return losses
-
-        @tf.function
-        def compute_vflossandgrad(ob, ret):
-            with tf.GradientTape() as tape:
-                pi_vf = self.critic(ob)
-                vferr = tf.reduce_mean(tf.square(pi_vf - ret))
-            return self.weights_to_flat(
-                tape.gradient(vferr, self.critic.trainable_variables),
-                self.critic.trainable_variables,
-            )
-
-        while True:
-            print(100 * '=')
-            self.check_episodes()
-            if self.training_done():
-                break
-            self.updates += 1
-            (states, actions, returns, values, _) = tf.numpy_function(
-                self.get_batch, [], 5 * [tf.float32]
-            )
-            atarg = returns - values
-            atarg = (atarg - tf.reduce_mean(atarg)) / tf.math.reduce_std(atarg)
-            args = states, actions, atarg
-            fvpargs = [arr[::5] for arr in args]
-
-            self.old_actor.set_weights(self.actor.get_weights())
-            *lossbefore, g = compute_lossandgrad(*args)
-            lossbefore = np.array(lossbefore)
-            if np.allclose(g, 0):
-                print("Got zero gradient. not updating")
+            improvement = new_surrogate_loss - surrogate_loss
+            print(f'Expected: {expected_improvement} Got: {improvement}')
+            if not np.isfinite(losses).all():
+                print('Got non-finite value of losses -- bad!')
+            elif new_kl_divergence > self.max_kl * 1.5:
+                print('Violated KL constraint. shrinking step.')
+            elif improvement < 0:
+                print('Surrogate did not improve. shrinking step.')
             else:
-                stepdir = self.conjugate_gradients(g, fvpargs[0])
-                assert np.isfinite(stepdir).all()
-                shs = 0.5 * tf.tensordot(
-                    stepdir, self.calculate_fvp(stepdir, fvpargs[0]), 1
-                )
-                lagrange_multiplier = np.sqrt(shs / self.max_kl)
-                fullstep = stepdir / lagrange_multiplier
-                expectedimprove = tf.tensordot(g, fullstep, 1)
-                surrbefore = lossbefore[0]
-                stepsize = 1.0
-                thbefore = self.weights_to_flat(
-                    self.actor.trainable_variables,
-                    self.actor.trainable_variables,
-                )
-                for _ in range(10):
-                    thnew = thbefore + fullstep * stepsize
-                    self.flat_to_weights(thnew, self.actor.trainable_variables, True)
-                    meanlosses = surr, kl, *_ = np.array(compute_losses(*args))
-                    improve = surr - surrbefore
-                    print("Expected: %.3f Actual: %.3f" % (expectedimprove, improve))
-                    if not np.isfinite(meanlosses).all():
-                        print("Got non-finite value of losses -- bad!")
-                    elif kl > self.max_kl * 1.5:
-                        print("violated KL constraint. shrinking step.")
-                    elif improve < 0:
-                        print("surrogate didn't improve. shrinking step.")
-                    else:
-                        print("Stepsize OK!")
-                        break
-                    stepsize *= 0.5
-                else:
-                    print("couldn't compute a good step")
-                    self.flat_to_weights(thbefore, self.actor.trainable_variables, True)
-            for (lossname, lossval) in zip(loss_names, meanlosses):
-                print(lossname, np.around(lossval, 2))
-            for _ in range(self.critic_iterations):
-                for (mbob, mbret) in self.get_mini_batches(states, returns):
-                    g = compute_vflossandgrad(mbob, mbret).numpy()
-                    self.update_critic_weights(g, self.critic_learning_rate)
+                print('Step size OK!')
+                break
+            step_size *= 0.5
+        else:
+            print('Could not compute a good step')
+            self.flat_to_weights(flat_weights, self.actor.trainable_variables, True)
 
+    def update_critic_weights(self, states, returns):
+        for _ in range(self.critic_iterations):
+            for (states_mb, returns_mb) in self.get_mini_batches(states, returns):
+                with tf.GradientTape() as tape:
+                    values = self.get_model_outputs(
+                        states_mb, [self.actor, self.critic]
+                    )[2]
+                    value_loss = tf.reduce_mean(tf.square(values - returns_mb))
+                grads = self.weights_to_flat(
+                    tape.gradient(value_loss, self.critic.trainable_variables),
+                    self.critic.trainable_variables,
+                )
+                self.optimizer_step(grads)
 
-def flatten_lists(listoflists):
-    return [el for list_ in listoflists for el in list_]
+    @tf.function
+    def train_step(self):
+        states, actions, returns, values, _ = tf.numpy_function(
+            self.get_batch, [], 5 * [tf.float32]
+        )
+        advantages = returns - values
+        advantages = (advantages - tf.reduce_mean(advantages)) / tf.math.reduce_std(
+            advantages
+        )
+        with tf.GradientTape() as tape:
+            losses = self.calculate_losses(states, actions, advantages)
+        flat_grads = self.weights_to_flat(
+            tape.gradient(losses[0], self.actor.trainable_variables),
+            self.actor.trainable_variables,
+        )
+        if not tf.numpy_function(np.allclose, [flat_grads, 0], tf.bool):
+            pass
+        step_direction = self.conjugate_gradients(
+            flat_grads, states[:: self.fvp_n_steps]
+        )
+        if not tf.reduce_all(tf.math.is_finite(step_direction)):
+            pass
+        shs = 0.5 * tf.tensordot(
+            step_direction,
+            self.calculate_fvp(step_direction, states[:: self.fvp_n_steps]),
+            1,
+        )
+        lagrange_multiplier = tf.math.sqrt(shs / self.max_kl)
+        full_step = step_direction / lagrange_multiplier
+        expected_improvement = tf.tensordot(flat_grads, full_step, 1)
+        surrogate_loss = losses[0]
+        pre_actor_weights = self.weights_to_flat(
+            self.actor.trainable_variables,
+        )
+        tf.numpy_function(
+            self.update_actor_weights,
+            [
+                pre_actor_weights,
+                full_step,
+                surrogate_loss,
+                states,
+                actions,
+                advantages,
+                expected_improvement,
+            ],
+            [],
+        )
+        self.update_critic_weights(states, returns)
 
 
 if __name__ == '__main__':
     from utils import ModelHandler, create_gym_env
 
-    en = create_gym_env('PongNoFrameskip-v4')
+    en = create_gym_env('PongNoFrameskip-v4', 16)
     a_mh = ModelHandler('models/cnn-a-tiny.cfg', [en[0].action_space.n])
     c_mh = ModelHandler('models/cnn-c-tiny.cfg', [1])
     a_m = a_mh.build_model()
     c_m = c_mh.build_model()
     agn = TRPO(en, a_m, c_m)
-    agn.train()
+    agn.fit(19)
