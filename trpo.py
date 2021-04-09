@@ -80,15 +80,8 @@ class TRPO(PPO):
     def calculate_fvp(self, flat_tangent, states):
         with tf.GradientTape() as tape2:
             with tf.GradientTape() as tape1:
-                old_actor_output = self.get_model_outputs(
-                    states, [self.old_actor, self.critic]
-                )[4]
-                new_actor_output = self.get_model_outputs(states, self.output_models)[4]
-                old_distribution = Categorical(old_actor_output)
-                new_distribution = Categorical(new_actor_output)
-                kl_divergence = old_distribution.kl_divergence(new_distribution)
-                mean_kl = tf.reduce_mean(kl_divergence)
-            kl_grads = tape1.gradient(mean_kl, self.actor.trainable_variables)
+                kl_divergence, *_ = self.calculate_kl_divergence(states)
+            kl_grads = tape1.gradient(kl_divergence, self.actor.trainable_variables)
             tangents = self.flat_to_weights(
                 flat_tangent, self.actor.trainable_variables
             )
