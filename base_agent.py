@@ -16,13 +16,11 @@ class BaseAgent:
         self,
         envs,
         model,
-        optimizer=None,
         checkpoint=None,
         reward_buffer_size=100,
         n_steps=1,
         gamma=0.99,
         metric_digits=2,
-        custom_loss=None,
         seed=None,
         scale_inputs=False,
     ):
@@ -31,7 +29,6 @@ class BaseAgent:
         Args:
             envs: A list of gym environments.
             model: tf.keras.models.Model used for training.
-            optimizer: tf.keras.optimizers.Optimizer.
             checkpoint: Path to .tf filename under which the trained model will be saved.
             reward_buffer_size: Size of the reward buffer that will hold the last n total
                 rewards which will be used for calculating the mean reward.
@@ -39,7 +36,6 @@ class BaseAgent:
                 transition will be s1 -> s4 (defaults to 1, s1 -> s2)
             gamma: Discount factor used for gradient updates.
             metric_digits: Rounding decimals for display purposes.
-            custom_loss: Loss passed to tf.keras.models.Model.compile()
             seed: Random seed passed to random.seed(), np.random.seed(), tf.random.seed(),
                 env.seed()
         """
@@ -47,13 +43,11 @@ class BaseAgent:
         self.n_envs = len(envs)
         self.envs = envs
         self.model = model
-        self.optimizer = optimizer
         self.checkpoint_path = checkpoint
         self.total_rewards = deque(maxlen=reward_buffer_size)
         self.n_steps = n_steps
         self.gamma = gamma
         self.metric_digits = metric_digits
-        self.custom_loss = custom_loss
         self.seed = seed
         self.scale_inputs = scale_inputs
         self.target_reward = None
@@ -260,10 +254,6 @@ class BaseAgent:
             self.model.load_weights(weights)
             if hasattr(self, 'target_model'):
                 self.target_model.load_weights(weights)
-        if self.optimizer:
-            self.model.compile(self.optimizer, loss=self.custom_loss)
-            if hasattr(self, 'target_model'):
-                self.target_model.compile(self.optimizer, loss=self.custom_loss)
         self.training_start_time = perf_counter()
         self.last_reset_time = perf_counter()
 

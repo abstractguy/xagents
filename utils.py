@@ -193,11 +193,12 @@ def create_gym_env(env_name, n=1, preprocess=True, *args, **kwargs):
 
 
 class ModelHandler:
-    def __init__(self, cfg_file, output_units, seed=None):
+    def __init__(self, cfg_file, output_units, optimizer=None, seed=None):
         self.initializers = {'orthogonal': Orthogonal, 'glorot_uniform': GlorotUniform}
         with open(cfg_file) as cfg:
             self.parser = configparser.ConfigParser()
             self.parser.read_file(cfg)
+        self.optimizer = optimizer
         self.output_units = output_units
         self.seed = seed
         self.output_count = 0
@@ -265,4 +266,7 @@ class ModelHandler:
             if self.parser[section].get('output'):
                 outputs.append(current_layer)
         self.output_count = 0
-        return Model(input_layer, outputs)
+        model = Model(input_layer, outputs)
+        if self.optimizer:
+            model.compile(self.optimizer)
+        return model

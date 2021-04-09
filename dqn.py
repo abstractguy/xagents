@@ -18,7 +18,6 @@ class DQN(BaseAgent):
         double=False,
         update_target_steps=1000,
         decay_n_steps=150000,
-        custom_loss='mse',
         **kwargs,
     ):
         """
@@ -36,10 +35,9 @@ class DQN(BaseAgent):
             double: If True, DDQN is used.
             update_target_steps: Update target network every n steps.
             decay_n_steps: Decay epsilon for n steps.
-            custom_loss: Loss passed to tf.keras.models.Model.compile()
             **kwargs: kwargs Passed to BaseAgent
         """
-        super(DQN, self).__init__(envs, model, custom_loss=custom_loss, **kwargs)
+        super(DQN, self).__init__(envs, model, **kwargs)
         self.buffers = [
             ReplayBuffer(
                 buffer_max_size // self.n_envs,
@@ -161,9 +159,7 @@ class DQN(BaseAgent):
         """
         with tf.GradientTape() as tape:
             y_pred = self.get_model_outputs(x, self.model)[1]
-            loss = self.model.compiled_loss(
-                y, y_pred, sample_weight, regularization_losses=self.model.losses
-            )
+            loss = tf.reduce_mean(tf.square(y - y_pred))
         self.model.optimizer.minimize(loss, self.model.trainable_variables, tape=tape)
         self.model.compiled_metrics.update_state(y, y_pred, sample_weight)
 
@@ -212,14 +208,15 @@ if __name__ == '__main__':
     from utils import ModelHandler, create_gym_env
 
     gym_envs = create_gym_env('PongNoFrameskip-v4', 3)
-    seed = 55
+    seed = None
     from tensorflow.keras.optimizers import Adam
 
-    mh = ModelHandler('models/cnn-dqn.cfg', [6])
+    optimizer = Adam(1e-4)
+    mh = ModelHandler('models/cnn-dqn.cfg', [6], optimizer, seed)
     m = mh.build_model()
-    agn = DQN(gym_envs, m, optimizer=Adam(1e-4), buffer_max_size=10000, seed=seed)
-    # agn.fit(18)
-    agn.play(
-        '/Users/emadboctor/Desktop/code/models-drl/dqn-pong-19-model/pong_test.tf',
-        render=True,
-    )
+    agn = DQN(gym_envs, m, buffer_max_size=10000, seed=seed)
+    agn.fit(19)
+    # agn.play(
+    #     '/Users/emadboctor/Desktop/code/models-drl/dqn-pong-19-model/pong_test.tf',
+    #     render=True,
+    # )

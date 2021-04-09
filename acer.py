@@ -371,11 +371,10 @@ class ACER(A2C):
 if __name__ == '__main__':
     from utils import ModelHandler, create_gym_env
 
-    sd = 555
+    seed = None
     es = create_gym_env('PongNoFrameskip-v4', 2, scale_frames=False)
-    mh = ModelHandler('models/cnn-acer.cfg', [6, 6])
+    optimizer = tf.keras.optimizers.Adam(7e-4)
+    mh = ModelHandler('models/cnn-acer.cfg', [6, 6], optimizer, seed)
     m = mh.build_model()
-    agn = ACER(
-        es, m, seed=sd, optimizer=tf.keras.optimizers.Adam(7e-4), scale_inputs=True
-    )
+    agn = ACER(es, m, seed=seed, scale_inputs=True)
     agn.fit(19)

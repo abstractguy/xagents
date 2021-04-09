@@ -168,9 +168,9 @@ class TRPO(PPO):
         actions,
         advantages,
     ):
-        step_size = 1.0
+        learning_rate = 1.0
         for _ in range(self.actor_iterations):
-            updated_weights = flat_weights + full_step * step_size
+            updated_weights = flat_weights + full_step * learning_rate
             self.flat_to_weights(updated_weights, self.actor.trainable_variables, True)
             losses = new_surrogate_loss, new_kl_divergence, *_ = self.calculate_losses(
                 states, actions, advantages
@@ -183,7 +183,7 @@ class TRPO(PPO):
             ]
             if all(ok_conditions):
                 break
-            step_size *= 0.5
+            learning_rate *= 0.5
         else:
             self.flat_to_weights(flat_weights, self.actor.trainable_variables, True)
 
@@ -251,11 +251,12 @@ class TRPO(PPO):
 if __name__ == '__main__':
     from utils import ModelHandler, create_gym_env
 
+    seed = None
     en = create_gym_env('PongNoFrameskip-v4', 16)
-    a_mh = ModelHandler('models/cnn-a-tiny.cfg', [en[0].action_space.n])
-    c_mh = ModelHandler('models/cnn-c-tiny.cfg', [1])
+    critic_optimizer = tf.keras.optimizers.Adam(3e-4)
+    a_mh = ModelHandler('models/cnn-a-tiny.cfg', [en[0].action_space.n], seed=seed)
+    c_mh = ModelHandler('models/cnn-c-tiny.cfg', [1], critic_optimizer, seed)
     a_m = a_mh.build_model()
     c_m = c_mh.build_model()
-    c_m.compile(tf.keras.optimizers.Adam(3e-4))
-    agn = TRPO(en, a_m, c_m)
+    agn = TRPO(en, a_m, c_m, seed=seed)
     agn.fit(19)
