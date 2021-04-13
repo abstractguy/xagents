@@ -212,7 +212,9 @@ if __name__ == '__main__':
     o = tfa.optimizers.RectifiedAdam(
         learning_rate=7e-4, epsilon=1e-5, beta_1=0.0, beta_2=0.99
     )
-    mh = ModelHandler('models/cnn-ac.cfg', [ens[0].action_space.n, 1], o, seed)
+    mh = ModelHandler(
+        'models/cnn/actor-critic.cfg', [ens[0].action_space.n, 1], o, seed
+    )
     m = mh.build_model()
     ac = A2C(ens, m, seed=seed)
     ac.fit(19)

@@ -360,8 +360,8 @@ if __name__ == '__main__':
     seed = None
     en = create_gym_env('PongNoFrameskip-v4', 16)
     critic_optimizer = tf.keras.optimizers.Adam(3e-4)
-    a_mh = ModelHandler('models/cnn-a-tiny.cfg', [en[0].action_space.n], seed=seed)
-    c_mh = ModelHandler('models/cnn-c-tiny.cfg', [1], critic_optimizer, seed)
+    a_mh = ModelHandler('models/cnn/tiny-actor.cfg', [en[0].action_space.n], seed=seed)
+    c_mh = ModelHandler('models/cnn/tiny-critic.cfg', [1], critic_optimizer, seed)
     a_m = a_mh.build_model()
     c_m = c_mh.build_model()
     agn = TRPO(en, a_m, c_m, seed=seed, output_models=[a_m, c_m])

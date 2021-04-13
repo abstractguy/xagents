@@ -225,7 +225,7 @@ if __name__ == '__main__':
     from tensorflow.keras.optimizers import Adam
 
     optimizer = Adam(1e-4)
-    mh = ModelHandler('models/cnn-dqn.cfg', [6], optimizer, seed)
+    mh = ModelHandler('models/cnn/dqn.cfg', [6], optimizer, seed)
     m = mh.build_model()
     agn = DQN(gym_envs, m, buffer_max_size=10000, seed=seed)
     agn.fit(19)

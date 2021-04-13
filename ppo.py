@@ -215,7 +215,9 @@ if __name__ == '__main__':
     seed = None
     envi = create_gym_env('PongNoFrameskip-v4', 16)
     optimizer = Adam(25e-5)
-    mh = ModelHandler('models/cnn-ac.cfg', [envi[0].action_space.n, 1], optimizer, seed)
+    mh = ModelHandler(
+        'models/cnn/actor-critic.cfg', [envi[0].action_space.n, 1], optimizer, seed
+    )
     m = mh.build_model()
     agn = PPO(envi, m)
     agn.fit(19)
