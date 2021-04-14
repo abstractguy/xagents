@@ -9,6 +9,8 @@ import gym
 import numpy as np
 import tensorflow as tf
 import wandb
+from gym.spaces.box import Box
+from gym.spaces.discrete import Discrete
 
 
 class BaseAgent:
@@ -20,7 +22,7 @@ class BaseAgent:
         reward_buffer_size=100,
         n_steps=1,
         gamma=0.99,
-        metric_digits=2,
+        display_precision=2,
         seed=None,
         scale_factor=False,
         output_models=None,
@@ -37,7 +39,7 @@ class BaseAgent:
             n_steps: n-step transition for example given s1, s2, s3, s4 and n_step = 4,
                 transition will be s1 -> s4 (defaults to 1, s1 -> s2)
             gamma: Discount factor used for gradient updates.
-            metric_digits: Rounding decimals for display purposes.
+            display_precision: Decimal precision for display purposes.
             seed: Random seed passed to random.seed(), np.random.seed(), tf.random.seed(),
                 env.seed()
             scale_factor: Input normalization value to divide inputs by.
@@ -52,14 +54,14 @@ class BaseAgent:
         self.total_rewards = deque(maxlen=reward_buffer_size)
         self.n_steps = n_steps
         self.gamma = gamma
-        self.metric_digits = metric_digits
+        self.display_precision = display_precision
         self.seed = seed
         self.scale_factor = scale_factor
         self.output_models = output_models or self.model
         self.target_reward = None
         self.max_steps = None
         self.input_shape = self.envs[0].observation_space.shape
-        self.n_actions = self.envs[0].action_space.n
+        self.n_actions = None
         self.best_reward = -float('inf')
         self.mean_reward = -float('inf')
         self.states = [None] * self.n_envs
@@ -82,6 +84,7 @@ class BaseAgent:
             os.environ['PYTHONHASHSEED'] = f'{seed}'
             random.seed(seed)
         self.reset_envs()
+        self.set_action_count()
 
     def reset_envs(self):
         """
@@ -92,6 +95,13 @@ class BaseAgent:
         """
         for i, env in enumerate(self.envs):
             self.states[i] = env.reset()
+
+    def set_action_count(self):
+        action_space = self.envs[0].action_space
+        if isinstance(action_space, Discrete):
+            self.n_actions = action_space.n
+        if isinstance(action_space, Box):
+            self.n_actions = action_space.shape[0]
 
     def checkpoint(self):
         """
@@ -128,7 +138,7 @@ class BaseAgent:
             'speed',
             'mean reward',
             'best reward',
-            'episode rewards',
+            # 'episode rewards',
         )
         display_values = (
             timedelta(seconds=perf_counter() - self.training_start_time),
@@ -137,7 +147,7 @@ class BaseAgent:
             f'{round(self.frame_speed)} steps/s',
             self.mean_reward,
             self.best_reward,
-            [*self.episode_scores],
+            # [*self.episode_scores],
         )
         display = (
             f'{title}: {value}' for title, value in zip(display_titles, display_values)
@@ -158,7 +168,9 @@ class BaseAgent:
             perf_counter() - self.last_reset_time
         )
         self.last_reset_step = self.steps
-        self.mean_reward = np.around(np.mean(self.total_rewards), self.metric_digits)
+        self.mean_reward = np.around(
+            np.mean(self.total_rewards), self.display_precision
+        )
 
     def check_episodes(self):
         """

@@ -1,5 +1,6 @@
 import numpy as np
 import tensorflow as tf
+from gym.spaces.discrete import Discrete
 
 from base_agent import BaseAgent
 from utils import ReplayBuffer
@@ -39,6 +40,10 @@ class DQN(BaseAgent):
             **kwargs: kwargs Passed to BaseAgent
         """
         super(DQN, self).__init__(envs, model, **kwargs)
+        assert isinstance(envs[0].action_space, Discrete), (
+            f'Invalid environment: {envs[0].spec.id}. DQN supports '
+            f'environments with a discrete action space only, got {envs[0].action_space}'
+        )
         self.buffers = [
             ReplayBuffer(
                 buffer_max_size // self.n_envs,
@@ -149,7 +154,7 @@ class DQN(BaseAgent):
                     state = env.reset()
                 sizes[i] = len(buffer)
                 filled = sum(sizes.values())
-                complete = round((filled / total_size) * 100, self.metric_digits)
+                complete = round((filled / total_size) * 100, self.display_precision)
                 print(
                     f'\rFilling replay buffer {i + 1}/{self.n_envs} ==> {complete}% | '
                     f'{filled}/{total_size}',

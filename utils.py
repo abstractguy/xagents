@@ -226,11 +226,14 @@ class ModelHandler:
         Returns:
             tf.keras.layer.Input
         """
-        height = int(self.parser[section]['height'])
-        width = int(self.parser[section]['width'])
-        channels = int(self.parser[section]['channels'])
-        x = Input((height, width, channels))
-        return x
+        flat_size = self.parser[section].get('flat_size')
+        if flat_size:
+            return Input(int(flat_size))
+        height = self.parser[section].get('height')
+        width = self.parser[section].get('width')
+        channels = self.parser[section].get('channels')
+        if height and width and channels:
+            return Input((int(height), int(width), int(channels)))
 
     def get_initializer(self, section):
         """
@@ -322,3 +325,20 @@ class ModelHandler:
         if self.optimizer:
             model.compile(self.optimizer)
         return model
+
+
+def scratch_model():
+    import tensorflow as tf
+
+    initializer = tf.keras.initializers.orthogonal(tf.math.sqrt(2.0))
+    x0 = Input(24)
+    x = Dense(64, 'tanh', kernel_initializer=initializer)(x0)
+    x = Dense(64, 'tanh', kernel_initializer=initializer)(x)
+    actor = Dense(4, kernel_initializer=tf.keras.initializers.orthogonal(0.01))(x)
+    critic = Dense(1, kernel_initializer=tf.keras.initializers.orthogonal())(x)
+    return Model(x0, [actor, critic])
+
+
+if __name__ == '__main__':
+    mh = ModelHandler('models/mlp/actor-critic.cfg', [4, 1])
+    mh.build_model().summary()

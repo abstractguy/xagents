@@ -1,6 +1,8 @@
 import numpy as np
 import tensorflow as tf
-from tensorflow_probability.python.distributions import Categorical
+from gym.spaces.discrete import Discrete
+from tensorflow_probability.python.distributions import (
+    Categorical, MultivariateNormalDiag)
 
 from base_agent import BaseAgent
 
@@ -35,6 +37,11 @@ class A2C(BaseAgent):
         self.grad_norm = grad_norm
         activations = [layer.activation for layer in model.layers[-2:]]
         self.output_is_softmax = tf.keras.activations.softmax in activations
+        self.distribution_type = (
+            Categorical
+            if isinstance(self.envs[0].action_space, Discrete)
+            else MultivariateNormalDiag
+        )
 
     def get_distribution(self, actor_output):
         """
@@ -45,6 +52,8 @@ class A2C(BaseAgent):
         Returns:
             tfp.python.distributions.Categorical
         """
+        if self.distribution_type == MultivariateNormalDiag:
+            return MultivariateNormalDiag(actor_output)
         if self.output_is_softmax:
             return Categorical(probs=actor_output)
         return Categorical(logits=actor_output)
@@ -207,15 +216,20 @@ if __name__ == '__main__':
     from utils import ModelHandler, create_gym_env
 
     seed = None
-    ens = create_gym_env('PongNoFrameskip-v4', 16)
+    ens = create_gym_env('BipedalWalker-v3', 16, False)
 
     o = tfa.optimizers.RectifiedAdam(
         learning_rate=7e-4, epsilon=1e-5, beta_1=0.0, beta_2=0.99
     )
+    # mh = ModelHandler(
+    #     'models/cnn/actor-critic.cfg', [ens[0].action_space.n, 1], o, seed
+    # )
     mh = ModelHandler(
-        'models/cnn/actor-critic.cfg', [ens[0].action_space.n, 1], o, seed
+        'models/mlp/actor-critic.cfg', [ens[0].action_space.shape[0], 1], o, seed
     )
     m = mh.build_model()
+
+    m.compile(o)
     ac = A2C(ens, m, seed=seed)
     ac.fit(19)
     # ac.play(
