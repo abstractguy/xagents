@@ -232,6 +232,7 @@ if __name__ == '__main__':
     mh = ModelHandler(
         'models/cnn/actor-critic.cfg',
         [envi[0].action_space.n, 1],
+        envi[0].observation_space.shape,
         optimizer,
         seed,
     )

@@ -63,8 +63,12 @@ class ACER(A2C):
         self.importance_c = importance_c
         self.delta = delta
         self.trust_region = trust_region
-        self.tf_batch_dtypes = [tf.uint8] + 4 * [tf.float32]
-        self.np_batch_dtypes = [np.uint8] + 4 * [np.float32]
+        self.tf_batch_dtypes = [
+            tf.uint8 if len(self.input_shape) > 1 else tf.float32
+        ] + 4 * [tf.float32]
+        self.np_batch_dtypes = [
+            np.uint8 if len(self.input_shape) > 1 else np.float32
+        ] + 4 * [np.float32]
         self.batch_shapes = [
             (self.n_envs * (self.n_steps + 1), *self.input_shape),
             (self.n_envs * self.n_steps),
@@ -382,7 +386,13 @@ if __name__ == '__main__':
     seed = None
     es = create_gym_env('PongNoFrameskip-v4', 16, scale_frames=False)
     optimizer = tf.keras.optimizers.Adam(7e-4)
-    mh = ModelHandler('models/cnn/acer.cfg', [6, 6], optimizer, seed)
+    mh = ModelHandler(
+        'models/cnn/acer.cfg',
+        [es[0].action_space.n, es[0].action_space.n],
+        es[0].observation_space.shape,
+        optimizer,
+        seed,
+    )
     m = mh.build_model()
-    agn = ACER(es, m, seed=seed, scale_factor=255)
+    agn = ACER(es, m, seed=seed, scale_factor=255.0)
     agn.fit(19)

@@ -197,7 +197,7 @@ class ModelHandler:
     Model utility class to create keras models from configuration files.
     """
 
-    def __init__(self, cfg_file, output_units, optimizer=None, seed=None):
+    def __init__(self, cfg_file, output_units, input_shape, optimizer=None, seed=None):
         """
         Initialize model parser.
         Args:
@@ -214,26 +214,9 @@ class ModelHandler:
             self.parser.read_file(cfg)
         self.optimizer = optimizer
         self.output_units = output_units
+        self.input_shape = input_shape
         self.seed = seed
         self.output_count = 0
-
-    def create_input(self, section):
-        """
-        Parse input shape and create input layer.
-        Args:
-            section: str, representing section unique name.
-
-        Returns:
-            tf.keras.layer.Input
-        """
-        flat_size = self.parser[section].get('flat_size')
-        if flat_size:
-            return Input(int(flat_size))
-        height = self.parser[section].get('height')
-        width = self.parser[section].get('width')
-        channels = self.parser[section].get('channels')
-        if height and width and channels:
-            return Input((int(height), int(width), int(channels)))
 
     def get_initializer(self, section):
         """
@@ -303,11 +286,9 @@ class ModelHandler:
             tf.keras.Model
         """
         outputs = []
-        input_layer, current_layer, common_layer = None, None, None
+        common_layer = None
+        input_layer = current_layer = Input(self.input_shape)
         for section in self.parser.sections():
-            if section.startswith('settings'):
-                input_layer = self.create_input(section)
-                current_layer = input_layer
             if section.startswith('convolutional'):
                 current_layer = self.create_convolution(section)(current_layer)
             if section.startswith('flatten'):
@@ -325,20 +306,3 @@ class ModelHandler:
         if self.optimizer:
             model.compile(self.optimizer)
         return model
-
-
-def scratch_model():
-    import tensorflow as tf
-
-    initializer = tf.keras.initializers.orthogonal(tf.math.sqrt(2.0))
-    x0 = Input(24)
-    x = Dense(64, 'tanh', kernel_initializer=initializer)(x0)
-    x = Dense(64, 'tanh', kernel_initializer=initializer)(x)
-    actor = Dense(4, kernel_initializer=tf.keras.initializers.orthogonal(0.01))(x)
-    critic = Dense(1, kernel_initializer=tf.keras.initializers.orthogonal())(x)
-    return Model(x0, [actor, critic])
-
-
-if __name__ == '__main__':
-    mh = ModelHandler('models/ann/actor-critic.cfg', [4, 1])
-    mh.build_model().summary()

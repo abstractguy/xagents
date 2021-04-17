@@ -1,6 +1,5 @@
 import numpy as np
 import tensorflow as tf
-from tensorflow_probability.python.distributions import Categorical
 
 from ppo import PPO
 
@@ -196,8 +195,8 @@ class TRPO(PPO):
             states, [self.old_actor, self.critic]
         )[4]
         new_actor_output = self.get_model_outputs(states, self.output_models)[4]
-        old_distribution = Categorical(old_actor_output)
-        new_distribution = Categorical(new_actor_output)
+        old_distribution = self.get_distribution(old_actor_output)
+        new_distribution = self.get_distribution(new_actor_output)
         return (
             tf.reduce_mean(old_distribution.kl_divergence(new_distribution)),
             old_distribution,
@@ -358,10 +357,21 @@ if __name__ == '__main__':
     from utils import ModelHandler, create_gym_env
 
     seed = None
-    en = create_gym_env('PongNoFrameskip-v4', 16)
+    en = create_gym_env('BipedalWalker-v3', 16, False)
     critic_optimizer = tf.keras.optimizers.Adam(3e-4)
-    a_mh = ModelHandler('models/cnn/tiny-actor.cfg', [en[0].action_space.n], seed=seed)
-    c_mh = ModelHandler('models/cnn/tiny-critic.cfg', [1], critic_optimizer, seed)
+    a_mh = ModelHandler(
+        'models/ann/tiny-actor.cfg',
+        [en[0].action_space.shape[0]],
+        en[0].observation_space.shape,
+        seed=seed,
+    )
+    c_mh = ModelHandler(
+        'models/ann/tiny-critic.cfg',
+        [1],
+        en[0].observation_space.shape,
+        critic_optimizer,
+        seed,
+    )
     a_m = a_mh.build_model()
     c_m = c_mh.build_model()
     agn = TRPO(en, a_m, c_m, seed=seed, output_models=[a_m, c_m])
