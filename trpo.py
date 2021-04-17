@@ -360,13 +360,13 @@ if __name__ == '__main__':
     en = create_gym_env('BipedalWalker-v3', 16, False)
     critic_optimizer = tf.keras.optimizers.Adam(3e-4)
     a_mh = ModelHandler(
-        'models/ann/tiny-actor.cfg',
+        'models/ann/actor.cfg',
         [en[0].action_space.shape[0]],
         en[0].observation_space.shape,
         seed=seed,
     )
     c_mh = ModelHandler(
-        'models/ann/tiny-critic.cfg',
+        'models/ann/critic.cfg',
         [1],
         en[0].observation_space.shape,
         critic_optimizer,

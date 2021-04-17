@@ -227,11 +227,11 @@ if __name__ == '__main__':
     from utils import ModelHandler, create_gym_env
 
     seed = None
-    envi = create_gym_env('PongNoFrameskip-v4', 16)
-    optimizer = Adam(25e-5)
+    envi = create_gym_env('BipedalWalker-v3', 16, False)
+    optimizer = Adam(7e-4)
     mh = ModelHandler(
-        'models/cnn/actor-critic.cfg',
-        [envi[0].action_space.n, 1],
+        'models/ann/actor-critic.cfg',
+        [envi[0].action_space.shape[0], 1],
         envi[0].observation_space.shape,
         optimizer,
         seed,
