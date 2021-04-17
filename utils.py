@@ -340,5 +340,5 @@ def scratch_model():
 
 
 if __name__ == '__main__':
-    mh = ModelHandler('models/mlp/actor-critic.cfg', [4, 1])
+    mh = ModelHandler('models/ann/actor-critic.cfg', [4, 1])
     mh.build_model().summary()

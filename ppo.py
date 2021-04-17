@@ -53,7 +53,9 @@ class PPO(A2C):
         Returns:
             returns as numpy array.
         """
-        next_values = self.get_model_outputs(states[-1], self.output_models)[2].numpy()
+        next_values = self.get_model_outputs(self.get_states(), self.output_models)[
+            2
+        ].numpy()
         next_values = (
             np.expand_dims(next_values, 0)
             if not len(next_values.shape)
@@ -213,11 +215,11 @@ if __name__ == '__main__':
     from utils import ModelHandler, create_gym_env
 
     seed = None
-    envi = create_gym_env('BipedalWalker-v3', 16, False)
+    envi = create_gym_env('PongNoFrameskip-v4', 16)
     optimizer = Adam(25e-5)
     mh = ModelHandler(
-        'models/mlp/actor-critic.cfg',
-        [envi[0].action_space.shape[0], 1],
+        'models/cnn/actor-critic.cfg',
+        [envi[0].action_space.n, 1],
         optimizer,
         seed,
     )

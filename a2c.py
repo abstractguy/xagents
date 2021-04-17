@@ -135,45 +135,28 @@ class A2C(BaseAgent):
         dones.append(step_dones)
         return batch
 
-    def calculate_loss(
-        self,
-        returns,
-        values,
-        entropies,
-        log_probs,
-    ):
-        """
-        Calculate total model loss.
-        Args:
-            returns: A list, the result of self.calculate_returns()
-            values: list that will be the same size as self.n_steps and
-                contains n step values and each step contains self.n_envs values.
-            entropies: list that will be the same size as self.n_steps and
-                contains n step entropies and each step contains self.n_envs entropies.
-            log_probs: list that will be the same size as self.n_steps and
-                contains n step log_probs and each step contains self.n_envs log_probs.
-
-        Returns:
-            Total loss as tf.Tensor
-        """
-        value_loss = 0.0
-        action_loss = 0.0
-        entropy_loss = 0.0
-        for step in range(self.n_steps):
-            advantages = tf.stop_gradient(returns[step]) - values[step]
-            value_loss += tf.reduce_mean(tf.square(advantages))
-            action_loss += -tf.reduce_mean(
-                tf.stop_gradient(advantages) * log_probs[step]
+    def calculate_returns(self, rewards, dones):
+        next_values = self.get_model_outputs(self.get_states(), self.output_models)[2]
+        returns = [next_values]
+        for step in reversed(range(self.n_steps)):
+            returns.append(
+                rewards[step] + self.gamma * returns[-1] * (1.0 - dones[step + 1])
             )
-            entropy_loss += tf.reduce_mean(entropies[step])
-        value_loss /= self.n_steps
-        action_loss /= self.n_steps
-        entropy_loss /= self.n_steps
-        return (
-            self.value_loss_coef * value_loss
-            + action_loss
-            - entropy_loss * self.entropy_coef
-        )
+        return np.asarray(returns[::-1], np.float32)[:-1]
+
+    def np_train_step(self):
+        (
+            states,
+            rewards,
+            actions,
+            critic_output,
+            dones,
+            log_probs,
+            entropies,
+            actor_output,
+        ) = [np.asarray(item, np.float32) for item in self.get_batch()]
+        returns = self.calculate_returns(rewards, dones)
+        return self.concat_step_batches(states, returns, actions, critic_output)
 
     @tf.function
     def train_step(self):
@@ -184,26 +167,22 @@ class A2C(BaseAgent):
         Returns:
             None
         """
+        states, returns, actions, old_values = tf.numpy_function(
+            self.np_train_step, [], 4 * [tf.float32]
+        )
+        advantages = returns - old_values
         with tf.GradientTape() as tape:
-            (
-                states,
-                rewards,
-                actions,
-                values,
-                dones,
-                log_probs,
-                entropies,
-                _,
-            ) = self.get_batch()
-            masks = 1 - np.array(dones)
-            next_values = self.get_model_outputs(states[-1], self.output_models)[2]
-            returns = [next_values]
-            for step in reversed(range(self.n_steps)):
-                returns.append(
-                    rewards[step] + masks[step + 1] * self.gamma * returns[-1]
-                )
-            returns.reverse()
-            loss = self.calculate_loss(returns, values, entropies, log_probs)
+            _, log_probs, critic_output, entropy, actor_output = self.get_model_outputs(
+                states, self.output_models, actions=actions
+            )
+            entropy = tf.reduce_mean(entropy)
+            pg_loss = -tf.reduce_mean(advantages * log_probs)
+            value_loss = tf.reduce_mean(tf.square(critic_output - returns))
+            loss = (
+                pg_loss
+                - entropy * self.entropy_coef
+                + value_loss * self.value_loss_coef
+            )
         grads = tape.gradient(loss, self.model.trainable_variables)
         if self.grad_norm is not None:
             grads, _ = tf.clip_by_global_norm(grads, self.grad_norm)
@@ -221,12 +200,12 @@ if __name__ == '__main__':
     o = tfa.optimizers.RectifiedAdam(
         learning_rate=7e-4, epsilon=1e-5, beta_1=0.0, beta_2=0.99
     )
-    # mh = ModelHandler(
-    #     'models/cnn/actor-critic.cfg', [ens[0].action_space.n, 1], o, seed
-    # )
     mh = ModelHandler(
-        'models/mlp/actor-critic.cfg', [ens[0].action_space.shape[0], 1], o, seed
+        'models/ann/actor-critic.cfg', [ens[0].action_space.shape[0], 1], o, seed
     )
+    # mh = ModelHandler(
+    #     'models/ann/actor-critic.cfg', [ens[0].action_space.shape[0], 1], o, seed
+    # )
     m = mh.build_model()
 
     m.compile(o)
