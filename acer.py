@@ -173,19 +173,26 @@ class ACER(A2C):
         return [item.reshape(-1, *item.shape[2:]) for item in batch]
 
     def calculate_returns(
-        self, rewards, dones, selected_critic_logits, values, selected_importance
+        self,
+        rewards,
+        dones,
+        values=None,
+        selected_critic_logits=None,
+        selected_importance=None,
     ):
         """
         Get a batch of returns.
         Args:
             rewards: Rewards tensor of shape (self.n_steps, self.n_envs)
             dones: Dones tensor of shape (self.n_steps, self.n_envs)
+            values: Values tensor of shape (self.n_steps + 1, self.n_envs).
+                required for PPO, TRPO and ACER
             selected_critic_logits: Critic output respective to selected actions
-                of shape (self.n_steps, self.n_envs)
-            values: Values tensor of shape (self.n_steps + 1, self.n_envs)
+                of shape (self.n_steps, self.n_envs).
+                Required for ACER.
             selected_importance: Importance weights respective to selected
-                actions of shape (self.n_steps, self.n_envs)
-
+                actions of shape (self.n_steps, self.n_envs).
+                Required for ACER
         Returns:
             Tensor of n-step returns.
         """
@@ -326,7 +333,7 @@ class ACER(A2C):
             importance_weights = action_probs / (previous_action_probs + self.epsilon)
             selected_importance = tf.gather_nd(importance_weights, action_indices)
             returns = self.calculate_returns(
-                rewards, dones, selected_critic_logits, values, selected_importance
+                rewards, dones, values, selected_critic_logits, selected_importance
             )
             losses = self.calculate_losses(
                 action_probs,

@@ -135,7 +135,30 @@ class A2C(BaseAgent):
         dones.append(step_dones)
         return batch
 
-    def calculate_returns(self, rewards, dones):
+    def calculate_returns(
+        self,
+        rewards,
+        dones,
+        values=None,
+        selected_critic_logits=None,
+        selected_importance=None,
+    ):
+        """
+        Get a batch of returns.
+        Args:
+            rewards: Rewards tensor of shape (self.n_steps, self.n_envs)
+            dones: Dones tensor of shape (self.n_steps, self.n_envs)
+            values: Values tensor of shape (self.n_steps + 1, self.n_envs).
+                required for PPO, TRPO and ACER
+            selected_critic_logits: Critic output respective to selected actions
+                of shape (self.n_steps, self.n_envs).
+                Required for ACER.
+            selected_importance: Importance weights respective to selected
+                actions of shape (self.n_steps, self.n_envs).
+                Required for ACER
+        Returns:
+            Tensor of n-step returns.
+        """
         next_values = self.get_model_outputs(self.get_states(), self.output_models)[2]
         returns = [next_values]
         for step in reversed(range(self.n_steps)):

@@ -41,17 +41,29 @@ class PPO(A2C):
         self.batch_size = self.n_envs * self.n_steps
         self.mini_batch_size = self.batch_size // self.mini_batches
 
-    def calculate_returns(self, states, rewards, values, dones):
+    def calculate_returns(
+        self,
+        rewards,
+        dones,
+        values=None,
+        selected_critic_logits=None,
+        selected_importance=None,
+    ):
         """
         Get a batch of returns.
         Args:
-            states: states as numpy array of shape (self.n_steps, self.n_envs, *self.input_shape)
-            rewards: rewards as numpy array of shape (self.n_steps, self.n_envs)
-            values: values as numpy array of shape (self.n_steps, self.n_envs)
-            dones: dones as numpy array of shape (self.n_steps, self.n_envs)
-
+            rewards: Rewards tensor of shape (self.n_steps, self.n_envs)
+            dones: Dones tensor of shape (self.n_steps, self.n_envs)
+            values: Values tensor of shape (self.n_steps + 1, self.n_envs).
+                required for PPO, TRPO and ACER
+            selected_critic_logits: Critic output respective to selected actions
+                of shape (self.n_steps, self.n_envs).
+                Required for ACER.
+            selected_importance: Importance weights respective to selected
+                actions of shape (self.n_steps, self.n_envs).
+                Required for ACER
         Returns:
-            returns as numpy array.
+            Tensor of n-step returns.
         """
         next_values = self.get_model_outputs(self.get_states(), self.output_models)[
             2
@@ -193,7 +205,7 @@ class PPO(A2C):
             *_,
         ) = [np.asarray(item, np.float32) for item in super(PPO, self).get_batch()]
         values = np.expand_dims(values, -1) if len(values.shape) <= 1 else values
-        returns = self.calculate_returns(states, rewards, values, dones)
+        returns = self.calculate_returns(rewards, dones, values)
         return self.concat_step_batches(states, actions, returns, values, log_probs)
 
     @tf.function
