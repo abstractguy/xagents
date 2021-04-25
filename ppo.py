@@ -8,7 +8,6 @@ class PPO(A2C):
         self,
         envs,
         model,
-        n_steps=128,
         lam=0.95,
         ppo_epochs=4,
         mini_batches=4,
@@ -22,8 +21,6 @@ class PPO(A2C):
             envs: A list of gym environments.
             model: tf.keras.models.Model that is expected to be compiled
                 with an optimizer before training starts.
-            n_steps: n-step transition for example given s1, s2, s3, s4 and n_step = 4,
-                transition will be s1 -> s4 (defaults to 1, s1 -> s2)
             lam: GAE-Lambda for advantage estimation
             ppo_epochs: Gradient updates per training step.
             mini_batches: Number of mini batches to use per gradient update.
@@ -31,7 +28,7 @@ class PPO(A2C):
             clip_norm: Clipping value passed to tf.clip_by_value()
             **kwargs: kwargs Passed to OnPolicy
         """
-        super(PPO, self).__init__(envs, model, n_steps=n_steps, **kwargs)
+        super(PPO, self).__init__(envs, model, **kwargs)
         self.lam = lam
         self.ppo_epochs = ppo_epochs
         self.mini_batches = mini_batches
@@ -235,5 +232,5 @@ if __name__ == '__main__':
         seed,
     )
     m = mh.build_model()
-    agn = PPO(envi, m)
+    agn = PPO(envi, m, n_steps=128)
     agn.fit(19)

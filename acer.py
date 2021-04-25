@@ -12,8 +12,6 @@ class ACER(A2C):
         ema_alpha=0.99,
         buffer_max_size=5000,
         buffer_initial_size=500,
-        n_steps=20,
-        grad_norm=10,
         replay_ratio=4,
         epsilon=1e-6,
         importance_c=10.0,
@@ -31,9 +29,6 @@ class ACER(A2C):
             buffer_max_size: Maximum total size of all replay buffer items combined.
             buffer_initial_size: Minimum total size of all initial (before sampling is allowed),
                 if not specified, buffer_max_size is used.
-            n_steps: n-step transition for example given s1, s2, s3, s4 and n_step = 4,
-                transition will be s1 -> s4 (defaults to 1, s1 -> s2)
-            grad_norm: Gradient clipping value passed to tf.clip_by_global_norm()
             replay_ratio: Lam value passed to np.random.poisson()
             epsilon: epsilon value used in several calculations during gradient update.
             importance_c: Importance weight truncation parameter.
@@ -41,9 +36,7 @@ class ACER(A2C):
             trust_region: If False, no trust region updates will be used.
             **kwargs: kwargs Passed to OnPolicy.
         """
-        super(ACER, self).__init__(
-            envs, model, n_steps=n_steps, grad_norm=grad_norm, **kwargs
-        )
+        super(ACER, self).__init__(envs, model, **kwargs)
         self.avg_model = tf.keras.models.clone_model(self.model)
         self.ema = tf.train.ExponentialMovingAverage(ema_alpha)
         self.buffers = [
@@ -393,5 +386,5 @@ if __name__ == '__main__':
         seed,
     )
     m = mh.build_model()
-    agn = ACER(es, m, seed=seed, scale_factor=255.0)
+    agn = ACER(es, m, seed=seed, scale_factor=255.0, n_steps=20, grad_norm=10)
     agn.fit(19)

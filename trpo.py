@@ -9,9 +9,6 @@ class TRPO(PPO):
         envs,
         actor_model,
         critic_model,
-        entropy_coef=0.0,
-        lam=1.0,
-        n_steps=512,
         max_kl=1e-3,
         cg_iterations=10,
         cg_residual_tolerance=1e-10,
@@ -27,10 +24,6 @@ class TRPO(PPO):
             envs: A list of gym environments.
             actor_model: Actor separate model as a tf.keras.Model.
             critic_model: Critic separate model as a tf.keras.Model.
-            entropy_coef: Entropy coefficient used for entropy loss calculation.
-            lam: GAE-Lambda for advantage estimation.
-            n_steps: n-step transition for example given s1, s2, s3, s4 and n_step = 4,
-                transition will be s1 -> s4 (defaults to 1, s1 -> s2)
             max_kl: Maximum KL divergence used for calculating Lagrange multiplier
                 and actor weight updates.
             cg_iterations: Gradient conjugation maximum number of iterations per train step.
@@ -46,9 +39,6 @@ class TRPO(PPO):
         super(TRPO, self).__init__(
             envs,
             actor_model,
-            n_steps=n_steps,
-            lam=lam,
-            entropy_coef=entropy_coef,
             **kwargs,
         )
         self.old_actor = tf.keras.models.clone_model(self.model)
@@ -373,5 +363,14 @@ if __name__ == '__main__':
     )
     a_m = a_mh.build_model()
     c_m = c_mh.build_model()
-    agn = TRPO(en, a_m, c_m, seed=seed, output_models=[a_m, c_m])
+    agn = TRPO(
+        en,
+        a_m,
+        c_m,
+        seed=seed,
+        output_models=[a_m, c_m],
+        entropy_coef=0.0,
+        lam=1.0,
+        n_steps=512,
+    )
     agn.fit(19)

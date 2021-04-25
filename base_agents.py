@@ -1,5 +1,6 @@
 import os
 import random
+from abc import ABC
 from collections import deque
 from datetime import timedelta
 from time import perf_counter, sleep
@@ -11,11 +12,10 @@ import tensorflow as tf
 import wandb
 from gym.spaces.box import Box
 from gym.spaces.discrete import Discrete
-
 from utils import ReplayBuffer
 
 
-class OnPolicy:
+class BaseAgent(ABC):
     def __init__(
         self,
         envs,
@@ -293,7 +293,7 @@ class OnPolicy:
             None
         """
         raise NotImplementedError(
-            'train_step() should be implemented by OnPolicy subclasses'
+            f'train_step() should be implemented by {self.__class__.__name__} subclasses'
         )
 
     def get_model_outputs(self, inputs, models, training=True):
@@ -468,20 +468,26 @@ class OnPolicy:
             sleep(frame_delay)
 
 
-class OffPolicy(OnPolicy):
+class OnPolicy(BaseAgent, ABC):
+    def __init__(self, envs, model, **kwargs):
+        super(OnPolicy, self).__init__(envs, model, **kwargs)
+
+
+class OffPolicy(BaseAgent, ABC):
     def __init__(
         self,
-        epsilon_start,
-        epsilon_end,
-        epsilon_decay_steps,
-        target_sync_steps,
-        buffer_max_size,
-        buffer_initial_size,
-        buffer_batch_size,
-        *args,
+        envs,
+        model,
+        epsilon_start=1.0,
+        epsilon_end=0.02,
+        epsilon_decay_steps=150000,
+        target_sync_steps=1000,
+        buffer_max_size=10000,
+        buffer_initial_size=None,
+        buffer_batch_size=32,
         **kwargs,
     ):
-        super(OffPolicy, self).__init__(*args, **kwargs)
+        super(OffPolicy, self).__init__(envs, model, **kwargs)
         self.buffers = [
             ReplayBuffer(
                 buffer_max_size // self.n_envs,
@@ -498,18 +504,6 @@ class OffPolicy(OnPolicy):
         self.epsilon_end = epsilon_end
         self.epsilon_decay_steps = epsilon_decay_steps
         self.target_sync_steps = target_sync_steps
-
-    def train_step(self):
-        """
-        Perform 1 step which controls action_selection, interaction with environments
-        in self.envs, batching and gradient updates.
-
-        Returns:
-            None
-        """
-        raise NotImplementedError(
-            'train_step() should be implemented by OffPolicy subclasses'
-        )
 
     def update_epsilon(self):
         self.epsilon = max(

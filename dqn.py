@@ -9,14 +9,7 @@ class DQN(OffPolicy):
         self,
         envs,
         model,
-        buffer_max_size=10000,
-        buffer_initial_size=None,
-        buffer_batch_size=32,
-        epsilon_start=1.0,
-        epsilon_end=0.02,
         double=False,
-        target_sync_steps=1000,
-        epsilon_decay_steps=150000,
         **kwargs,
     ):
         """
@@ -37,18 +30,7 @@ class DQN(OffPolicy):
             epsilon_decay_steps: Decay epsilon for n steps.
             **kwargs: kwargs Passed to OnPolicy
         """
-        super(DQN, self).__init__(
-            epsilon_start,
-            epsilon_end,
-            epsilon_decay_steps,
-            target_sync_steps,
-            buffer_max_size,
-            buffer_initial_size,
-            buffer_batch_size,
-            envs,
-            model,
-            **kwargs,
-        )
+        super(DQN, self).__init__(envs, model, **kwargs)
         assert isinstance(envs[0].action_space, Discrete), (
             f'Invalid environment: {envs[0].spec.id}. DQN supports '
             f'environments with a discrete action space only, got {envs[0].action_space}'

@@ -13,7 +13,6 @@ class A2C(OnPolicy):
         model,
         entropy_coef=0.01,
         value_loss_coef=0.5,
-        n_steps=5,
         grad_norm=0.5,
         **kwargs,
     ):
@@ -25,12 +24,10 @@ class A2C(OnPolicy):
                 with an optimizer before training starts.
             entropy_coef: Entropy coefficient used for entropy loss calculation.
             value_loss_coef: Value coefficient used for value loss calculation.
-            n_steps: n-step transition for example given s1, s2, s3, s4 and n_step = 4,
-                transition will be s1 -> s4 (defaults to 1, s1 -> s2)
             grad_norm: Gradient clipping value passed to tf.clip_by_global_norm()
             **kwargs: kwargs Passed to OnPolicy.
         """
-        super(A2C, self).__init__(envs, model, n_steps=n_steps, **kwargs)
+        super(A2C, self).__init__(envs, model, **kwargs)
         self.entropy_coef = entropy_coef
         self.value_loss_coef = value_loss_coef
         self.grad_norm = grad_norm
@@ -234,7 +231,7 @@ if __name__ == '__main__':
     m = mh.build_model()
 
     m.compile(o)
-    ac = A2C(ens, m, seed=seed)
+    ac = A2C(ens, m, seed=seed, n_steps=5)
     ac.fit(19)
     # ac.play(
     #     '/Users/emadboctor/Desktop/code/drl-models/a2c-pong-17-model/a2c-pong.tf',
