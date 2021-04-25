@@ -1,6 +1,5 @@
 import numpy as np
 import tensorflow as tf
-
 from a2c import A2C
 
 
@@ -30,7 +29,7 @@ class PPO(A2C):
             mini_batches: Number of mini batches to use per gradient update.
             advantage_epsilon: Epsilon value added to estimated advantage.
             clip_norm: Clipping value passed to tf.clip_by_value()
-            **kwargs: kwargs Passed to BaseAgent
+            **kwargs: kwargs Passed to OnPolicy
         """
         super(PPO, self).__init__(envs, model, n_steps=n_steps, **kwargs)
         self.lam = lam
@@ -223,7 +222,6 @@ class PPO(A2C):
 
 if __name__ == '__main__':
     from tensorflow.keras.optimizers import Adam
-
     from utils import ModelHandler, create_gym_env
 
     seed = None

@@ -12,8 +12,10 @@ import wandb
 from gym.spaces.box import Box
 from gym.spaces.discrete import Discrete
 
+from utils import ReplayBuffer
 
-class BaseAgent:
+
+class OnPolicy:
     def __init__(
         self,
         envs,
@@ -28,7 +30,7 @@ class BaseAgent:
         output_models=None,
     ):
         """
-        Base class for various types of agents.
+        Base class for on-policy agents.
         Args:
             envs: A list of gym environments.
             model: tf.keras.models.Model that is expected to be compiled
@@ -74,7 +76,6 @@ class BaseAgent:
         self.last_reset_time = None
         self.games = 0
         self.episode_rewards = np.zeros(self.n_envs)
-        self.episode_scores = deque(maxlen=self.n_envs)
         self.done_envs = []
         if seed:
             tf.random.set_seed(seed)
@@ -138,7 +139,6 @@ class BaseAgent:
             'speed',
             'mean reward',
             'best reward',
-            # 'episode rewards',
         )
         display_values = (
             timedelta(seconds=perf_counter() - self.training_start_time),
@@ -147,7 +147,6 @@ class BaseAgent:
             f'{round(self.frame_speed)} steps/s',
             self.mean_reward,
             self.best_reward,
-            # [*self.episode_scores],
         )
         display = (
             f'{title}: {value}' for title, value in zip(display_titles, display_values)
@@ -256,7 +255,6 @@ class BaseAgent:
             if done:
                 self.done_envs.append(1)
                 self.total_rewards.append(self.episode_rewards[i])
-                self.episode_scores.append(self.episode_rewards[i])
                 self.games += 1
                 self.episode_rewards[i] = 0
                 self.states[i] = env.reset()
@@ -295,7 +293,7 @@ class BaseAgent:
             None
         """
         raise NotImplementedError(
-            'train_step() should be implemented by BaseAgent subclasses'
+            'train_step() should be implemented by OnPolicy subclasses'
         )
 
     def get_model_outputs(self, inputs, models, training=True):
@@ -410,8 +408,6 @@ class BaseAgent:
         Returns:
             None
         """
-        if hasattr(self, 'fill_buffers'):
-            self.fill_buffers()
         self.init_training(target_reward, max_steps, monitor_session, weights)
         while True:
             self.check_episodes()
@@ -470,3 +466,96 @@ class BaseAgent:
                 break
             steps += 1
             sleep(frame_delay)
+
+
+class OffPolicy(OnPolicy):
+    def __init__(
+        self,
+        epsilon_start,
+        epsilon_end,
+        epsilon_decay_steps,
+        target_sync_steps,
+        buffer_max_size,
+        buffer_initial_size,
+        buffer_batch_size,
+        *args,
+        **kwargs,
+    ):
+        super(OffPolicy, self).__init__(*args, **kwargs)
+        self.buffers = [
+            ReplayBuffer(
+                buffer_max_size // self.n_envs,
+                buffer_initial_size,
+                self.n_steps,
+                self.gamma,
+                buffer_batch_size,
+            )
+            for _ in range(self.n_envs)
+        ]
+        self.buffer_batch_size = buffer_batch_size
+        self.target_model = tf.keras.models.clone_model(self.model)
+        self.epsilon_start = self.epsilon = epsilon_start
+        self.epsilon_end = epsilon_end
+        self.epsilon_decay_steps = epsilon_decay_steps
+        self.target_sync_steps = target_sync_steps
+
+    def train_step(self):
+        """
+        Perform 1 step which controls action_selection, interaction with environments
+        in self.envs, batching and gradient updates.
+
+        Returns:
+            None
+        """
+        raise NotImplementedError(
+            'train_step() should be implemented by OffPolicy subclasses'
+        )
+
+    def update_epsilon(self):
+        self.epsilon = max(
+            self.epsilon_end, self.epsilon_start - self.steps / self.epsilon_decay_steps
+        )
+
+    def sync_target_model(self):
+        if self.steps % self.target_sync_steps == 0:
+            self.target_model.set_weights(self.model.get_weights())
+
+    def fill_buffers(self):
+        """
+        Fill each buffer in self.buffers up to its initial size.
+
+        Returns:
+            None
+        """
+        total_size = sum(buffer.initial_size for buffer in self.buffers)
+        sizes = {}
+        for i, env in enumerate(self.envs):
+            buffer = self.buffers[i]
+            state = self.states[i]
+            while len(buffer) < buffer.initial_size:
+                action = np.random.randint(0, self.n_actions)
+                new_state, reward, done, _ = env.step(action)
+                buffer.append((state, action, reward, done, new_state))
+                state = new_state
+                if done:
+                    state = env.reset()
+                sizes[i] = len(buffer)
+                filled = sum(sizes.values())
+                complete = round((filled / total_size) * 100, self.display_precision)
+                print(
+                    f'\rFilling replay buffer {i + 1}/{self.n_envs} ==> {complete}% | '
+                    f'{filled}/{total_size}',
+                    end='',
+                )
+        print()
+        self.reset_envs()
+
+    def fit(
+        self,
+        target_reward,
+        max_steps=None,
+        monitor_session=None,
+        weights=None,
+    ):
+        self.fill_buffers()
+        super(OffPolicy, self).fit(target_reward, max_steps, monitor_session, weights)

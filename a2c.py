@@ -1,13 +1,12 @@
 import numpy as np
 import tensorflow as tf
+from base_agents import OnPolicy
 from gym.spaces.discrete import Discrete
 from tensorflow_probability.python.distributions import (
     Categorical, MultivariateNormalDiag)
 
-from base_agent import BaseAgent
 
-
-class A2C(BaseAgent):
+class A2C(OnPolicy):
     def __init__(
         self,
         envs,
@@ -29,7 +28,7 @@ class A2C(BaseAgent):
             n_steps: n-step transition for example given s1, s2, s3, s4 and n_step = 4,
                 transition will be s1 -> s4 (defaults to 1, s1 -> s2)
             grad_norm: Gradient clipping value passed to tf.clip_by_global_norm()
-            **kwargs: kwargs Passed to BaseAgent.
+            **kwargs: kwargs Passed to OnPolicy.
         """
         super(A2C, self).__init__(envs, model, n_steps=n_steps, **kwargs)
         self.entropy_coef = entropy_coef
@@ -214,7 +213,6 @@ class A2C(BaseAgent):
 
 if __name__ == '__main__':
     import tensorflow_addons as tfa
-
     from utils import ModelHandler, create_gym_env
 
     seed = None

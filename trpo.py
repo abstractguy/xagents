@@ -1,6 +1,5 @@
 import numpy as np
 import tensorflow as tf
-
 from ppo import PPO
 
 
@@ -42,7 +41,7 @@ class TRPO(PPO):
             actor_iterations: Maximum number of actor optimizations steps per train step.
             critic_iterations: Maximum number of critic optimizations steps per train step.
             fvp_n_steps: Value used to skip every n-frames used to calculate FVP
-            **kwargs: kwargs passed to BaseAgent.
+            **kwargs: kwargs passed to OnPolicy.
         """
         super(TRPO, self).__init__(
             envs,

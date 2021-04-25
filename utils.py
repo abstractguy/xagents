@@ -5,7 +5,7 @@ from collections import deque
 import cv2
 import gym
 import numpy as np
-from tensorflow.keras.initializers import GlorotUniform, Orthogonal
+from tensorflow.keras.initializers import Orthogonal
 from tensorflow.keras.layers import Conv2D, Dense, Flatten, Input
 from tensorflow.keras.models import Model
 
@@ -208,7 +208,7 @@ class ModelHandler:
             optimizer: tf.keras.optimizers.Optimizer
             seed: Random seed used by layer initializers.
         """
-        self.initializers = {'orthogonal': Orthogonal, 'glorot_uniform': GlorotUniform}
+        self.initializers = {'orthogonal': Orthogonal}
         with open(cfg_file) as cfg:
             self.parser = configparser.ConfigParser()
             self.parser.read_file(cfg)

@@ -1,6 +1,5 @@
 import numpy as np
 import tensorflow as tf
-
 from a2c import A2C
 from utils import ReplayBuffer
 
@@ -40,7 +39,7 @@ class ACER(A2C):
             importance_c: Importance weight truncation parameter.
             delta: Delta parameter used for trust region update.
             trust_region: If False, no trust region updates will be used.
-            **kwargs: kwargs Passed to BaseAgent.
+            **kwargs: kwargs Passed to OnPolicy.
         """
         super(ACER, self).__init__(
             envs, model, n_steps=n_steps, grad_norm=grad_norm, **kwargs

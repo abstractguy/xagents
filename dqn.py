@@ -1,12 +1,10 @@
 import numpy as np
 import tensorflow as tf
+from base_agents import OffPolicy
 from gym.spaces.discrete import Discrete
 
-from base_agent import BaseAgent
-from utils import ReplayBuffer
 
-
-class DQN(BaseAgent):
+class DQN(OffPolicy):
     def __init__(
         self,
         envs,
@@ -17,8 +15,8 @@ class DQN(BaseAgent):
         epsilon_start=1.0,
         epsilon_end=0.02,
         double=False,
-        update_target_steps=1000,
-        decay_n_steps=150000,
+        target_sync_steps=1000,
+        epsilon_decay_steps=150000,
         **kwargs,
     ):
         """
@@ -35,32 +33,27 @@ class DQN(BaseAgent):
             epsilon_start: Epsilon value at training start.
             epsilon_end: Epsilon value at training end.
             double: If True, DDQN is used.
-            update_target_steps: Update target network every n steps.
-            decay_n_steps: Decay epsilon for n steps.
-            **kwargs: kwargs Passed to BaseAgent
+            target_sync_steps: Update target network every n steps.
+            epsilon_decay_steps: Decay epsilon for n steps.
+            **kwargs: kwargs Passed to OnPolicy
         """
-        super(DQN, self).__init__(envs, model, **kwargs)
+        super(DQN, self).__init__(
+            epsilon_start,
+            epsilon_end,
+            epsilon_decay_steps,
+            target_sync_steps,
+            buffer_max_size,
+            buffer_initial_size,
+            buffer_batch_size,
+            envs,
+            model,
+            **kwargs,
+        )
         assert isinstance(envs[0].action_space, Discrete), (
             f'Invalid environment: {envs[0].spec.id}. DQN supports '
             f'environments with a discrete action space only, got {envs[0].action_space}'
         )
-        self.buffers = [
-            ReplayBuffer(
-                buffer_max_size // self.n_envs,
-                buffer_initial_size,
-                self.n_steps,
-                self.gamma,
-                buffer_batch_size,
-            )
-            for _ in range(self.n_envs)
-        ]
-        self.target_model = tf.keras.models.clone_model(self.model)
-        self.buffer_batch_size = buffer_batch_size
-        self.epsilon_start = self.epsilon = epsilon_start
-        self.epsilon_end = epsilon_end
         self.double = double
-        self.update_target_steps = update_target_steps
-        self.decay_n_steps = decay_n_steps
         self.batch_indices = tf.range(
             self.buffer_batch_size * self.n_envs, dtype=tf.int64
         )[:, tf.newaxis]
@@ -133,36 +126,6 @@ class DQN(BaseAgent):
         )
         return target_values
 
-    def fill_buffers(self):
-        """
-        Fill each buffer in self.buffers up to its initial size.
-
-        Returns:
-            None
-        """
-        total_size = sum(buffer.initial_size for buffer in self.buffers)
-        sizes = {}
-        for i, env in enumerate(self.envs):
-            buffer = self.buffers[i]
-            state = self.states[i]
-            while len(buffer) < buffer.initial_size:
-                action = np.random.randint(0, self.n_actions)
-                new_state, reward, done, _ = env.step(action)
-                buffer.append((state, action, reward, done, new_state))
-                state = new_state
-                if done:
-                    state = env.reset()
-                sizes[i] = len(buffer)
-                filled = sum(sizes.values())
-                complete = round((filled / total_size) * 100, self.display_precision)
-                print(
-                    f'\rFilling replay buffer {i + 1}/{self.n_envs} ==> {complete}% | '
-                    f'{filled}/{total_size}',
-                    end='',
-                )
-        print()
-        self.reset_envs()
-
     def train_on_batch(self, x, y, sample_weight=None):
         """
         Train on a given batch.
@@ -187,9 +150,7 @@ class DQN(BaseAgent):
         Returns:
             None
         """
-        self.epsilon = max(
-            self.epsilon_end, self.epsilon_start - self.steps / self.decay_n_steps
-        )
+        self.update_epsilon()
 
     @tf.function
     def train_step(self):
@@ -218,8 +179,7 @@ class DQN(BaseAgent):
         Returns:
             None
         """
-        if self.steps % self.update_target_steps == 0:
-            self.target_model.set_weights(self.model.get_weights())
+        self.sync_target_model()
 
 
 if __name__ == '__main__':
