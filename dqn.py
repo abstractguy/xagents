@@ -1,7 +1,8 @@
 import numpy as np
 import tensorflow as tf
-from base_agents import OffPolicy
 from gym.spaces.discrete import Discrete
+
+from base_agents import OffPolicy
 
 
 class DQN(OffPolicy):
@@ -35,6 +36,7 @@ class DQN(OffPolicy):
             f'Invalid environment: {envs[0].spec.id}. DQN supports '
             f'environments with a discrete action space only, got {envs[0].action_space}'
         )
+        self.target_model = tf.keras.models.clone_model(self.model)
         self.double = double
         self.batch_indices = tf.range(
             self.buffer_batch_size * self.n_envs, dtype=tf.int64
@@ -56,6 +58,10 @@ class DQN(OffPolicy):
         """
         q_values = super(DQN, self).get_model_outputs(inputs, models, training)
         return tf.argmax(q_values, 1), q_values
+
+    def sync_target_model(self):
+        if self.steps % self.target_sync_steps == 0:
+            self.target_model.set_weights(self.model.get_weights())
 
     def get_actions(self):
         """

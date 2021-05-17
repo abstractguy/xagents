@@ -12,7 +12,9 @@ import tensorflow as tf
 import wandb
 from gym.spaces.box import Box
 from gym.spaces.discrete import Discrete
+
 from utils import ReplayBuffer
+from pathlib import Path
 
 
 class BaseAgent(ABC):
@@ -52,7 +54,7 @@ class BaseAgent(ABC):
         self.n_envs = len(envs)
         self.envs = envs
         self.model = model
-        self.checkpoint_path = checkpoint
+        self.checkpoint_path = Path(checkpoint) if checkpoint else checkpoint
         self.total_rewards = deque(maxlen=reward_buffer_size)
         self.n_steps = n_steps
         self.gamma = gamma
@@ -82,6 +84,7 @@ class BaseAgent(ABC):
             np.random.seed(seed)
             for env in self.envs:
                 env.seed(seed)
+                env.action_space.seed(seed)
             os.environ['PYTHONHASHSEED'] = f'{seed}'
             random.seed(seed)
         self.reset_envs()
@@ -114,7 +117,19 @@ class BaseAgent(ABC):
         if self.mean_reward > self.best_reward:
             print(f'Best reward updated: {self.best_reward} -> {self.mean_reward}')
             if self.checkpoint_path:
-                self.model.save_weights(self.checkpoint_path)
+                if isinstance(self.output_models, (list, tuple)):
+                    actor_weights_path = (
+                        self.checkpoint_path.parent
+                        / f'actor-{self.checkpoint_path.name}'
+                    )
+                    critic_weights_path = (
+                        self.checkpoint_path.parent
+                        / f'critic-{self.checkpoint_path.name}'
+                    )
+                    self.output_models[0].save_weights(actor_weights_path.as_posix())
+                    self.output_models[1].save_weights(critic_weights_path.as_posix())
+                else:
+                    self.output_models.save_weights(self.checkpoint_path.as_posix())
         self.best_reward = max(self.mean_reward, self.best_reward)
 
     def display_metrics(self):
@@ -262,13 +277,13 @@ class BaseAgent(ABC):
 
     def init_training(self, target_reward, max_steps, monitor_session, weights):
         """
-        Initialize training start time, wandb session & models (self.model / self.target_model)
+        Initialize training start time, wandb session & models (main and target models if any)
         Args:
             target_reward: Total reward per game value that whenever achieved,
                 the training will stop.
             max_steps: Maximum time steps, if exceeded, the training will stop.
             monitor_session: Wandb session name.
-            weights: Path to .tf weights file compatible with self.model
+            weights: Path(s) to .tf weights file(s) compatible with self.output_models.
 
         Returns:
             None
@@ -277,7 +292,20 @@ class BaseAgent(ABC):
         self.max_steps = max_steps
         if monitor_session:
             wandb.init(name=monitor_session)
-        if weights:
+        if isinstance(weights, (list, tuple)):
+            assert isinstance(
+                self.output_models, (list, tuple)
+            ), 'Multiple weights provided for a single model in output_models'
+            assert len(weights) == len(
+                self.output_models
+            ), f'Expected {len(self.output_models)} weights got {len(weights)}'
+            self.output_models[0].load_weights(weights[0])
+            self.output_models[1].load_weights(weights[1])
+            if hasattr(self, 'target_actor'):
+                self.target_actor.load_weights(weights[0])
+            if hasattr(self, 'target_critic'):
+                self.target_critic.load_weights(weights[1])
+        elif isinstance(weights, str):
             self.model.load_weights(weights)
             if hasattr(self, 'target_model'):
                 self.target_model.load_weights(weights)
@@ -499,7 +527,6 @@ class OffPolicy(BaseAgent, ABC):
             for _ in range(self.n_envs)
         ]
         self.buffer_batch_size = buffer_batch_size
-        self.target_model = tf.keras.models.clone_model(self.model)
         self.epsilon_start = self.epsilon = epsilon_start
         self.epsilon_end = epsilon_end
         self.epsilon_decay_steps = epsilon_decay_steps
@@ -509,10 +536,6 @@ class OffPolicy(BaseAgent, ABC):
         self.epsilon = max(
             self.epsilon_end, self.epsilon_start - self.steps / self.epsilon_decay_steps
         )
-
-    def sync_target_model(self):
-        if self.steps % self.target_sync_steps == 0:
-            self.target_model.set_weights(self.model.get_weights())
 
     def fill_buffers(self):
         """
@@ -527,7 +550,7 @@ class OffPolicy(BaseAgent, ABC):
             buffer = self.buffers[i]
             state = self.states[i]
             while len(buffer) < buffer.initial_size:
-                action = np.random.randint(0, self.n_actions)
+                action = env.action_space.sample()
                 new_state, reward, done, _ = env.step(action)
                 buffer.append((state, action, reward, done, new_state))
                 state = new_state
