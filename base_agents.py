@@ -14,7 +14,6 @@ from gym.spaces.box import Box
 from gym.spaces.discrete import Discrete
 
 from utils import ReplayBuffer
-from pathlib import Path
 
 
 class BaseAgent(ABC):
@@ -54,7 +53,7 @@ class BaseAgent(ABC):
         self.n_envs = len(envs)
         self.envs = envs
         self.model = model
-        self.checkpoint_path = Path(checkpoint) if checkpoint else checkpoint
+        self.checkpoint_path = checkpoint
         self.total_rewards = deque(maxlen=reward_buffer_size)
         self.n_steps = n_steps
         self.gamma = gamma
@@ -71,7 +70,6 @@ class BaseAgent(ABC):
         self.states = [None] * self.n_envs
         self.dones = [False] * self.n_envs
         self.steps = 0
-        self.updates = 0
         self.frame_speed = 0
         self.last_reset_step = 0
         self.training_start_time = None
@@ -117,19 +115,7 @@ class BaseAgent(ABC):
         if self.mean_reward > self.best_reward:
             print(f'Best reward updated: {self.best_reward} -> {self.mean_reward}')
             if self.checkpoint_path:
-                if isinstance(self.output_models, (list, tuple)):
-                    actor_weights_path = (
-                        self.checkpoint_path.parent
-                        / f'actor-{self.checkpoint_path.name}'
-                    )
-                    critic_weights_path = (
-                        self.checkpoint_path.parent
-                        / f'critic-{self.checkpoint_path.name}'
-                    )
-                    self.output_models[0].save_weights(actor_weights_path.as_posix())
-                    self.output_models[1].save_weights(critic_weights_path.as_posix())
-                else:
-                    self.output_models.save_weights(self.checkpoint_path.as_posix())
+                self.model.save_weights(self.checkpoint_path)
         self.best_reward = max(self.mean_reward, self.best_reward)
 
     def display_metrics(self):
@@ -277,13 +263,13 @@ class BaseAgent(ABC):
 
     def init_training(self, target_reward, max_steps, monitor_session, weights):
         """
-        Initialize training start time, wandb session & models (main and target models if any)
+        Initialize training start time, wandb session & models (self.model / self.target_model)
         Args:
             target_reward: Total reward per game value that whenever achieved,
                 the training will stop.
             max_steps: Maximum time steps, if exceeded, the training will stop.
             monitor_session: Wandb session name.
-            weights: Path(s) to .tf weights file(s) compatible with self.output_models.
+            weights: Path to .tf weights file compatible with self.model
 
         Returns:
             None
@@ -292,20 +278,7 @@ class BaseAgent(ABC):
         self.max_steps = max_steps
         if monitor_session:
             wandb.init(name=monitor_session)
-        if isinstance(weights, (list, tuple)):
-            assert isinstance(
-                self.output_models, (list, tuple)
-            ), 'Multiple weights provided for a single model in output_models'
-            assert len(weights) == len(
-                self.output_models
-            ), f'Expected {len(self.output_models)} weights got {len(weights)}'
-            self.output_models[0].load_weights(weights[0])
-            self.output_models[1].load_weights(weights[1])
-            if hasattr(self, 'target_actor'):
-                self.target_actor.load_weights(weights[0])
-            if hasattr(self, 'target_critic'):
-                self.target_critic.load_weights(weights[1])
-        elif isinstance(weights, str):
+        if weights:
             self.model.load_weights(weights)
             if hasattr(self, 'target_model'):
                 self.target_model.load_weights(weights)
@@ -444,7 +417,6 @@ class BaseAgent(ABC):
             self.at_step_start()
             self.train_step()
             self.at_step_end()
-            self.updates += 1
 
     def play(
         self,
@@ -516,10 +488,11 @@ class OffPolicy(BaseAgent, ABC):
         **kwargs,
     ):
         super(OffPolicy, self).__init__(envs, model, **kwargs)
+        buffer_initial_size = buffer_initial_size or buffer_max_size
         self.buffers = [
             ReplayBuffer(
                 buffer_max_size // self.n_envs,
-                buffer_initial_size,
+                buffer_initial_size // self.n_envs,
                 self.n_steps,
                 self.gamma,
                 buffer_batch_size,

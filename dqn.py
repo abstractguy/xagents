@@ -149,7 +149,7 @@ class DQN(OffPolicy):
         Returns:
             None
         """
-        actions = tf.numpy_function(self.get_actions, [], tf.int64)
+        actions = self.get_actions()
         tf.numpy_function(self.step_envs, [actions, False, True], [])
         training_batch = tf.numpy_function(
             self.concat_buffer_samples,
