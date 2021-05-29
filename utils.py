@@ -192,7 +192,7 @@ def create_gym_env(env_name, n=1, preprocess=True, *args, **kwargs):
     return envs
 
 
-class ModelHandler:
+class ModelReader:
     """
     Model utility class to create keras models from configuration files.
     """

@@ -343,18 +343,18 @@ class TRPO(PPO):
 
 
 if __name__ == '__main__':
-    from utils import ModelHandler, create_gym_env
+    from utils import ModelReader, create_gym_env
 
     seed = None
     en = create_gym_env('BipedalWalker-v3', 16, False)
     critic_optimizer = tf.keras.optimizers.Adam(3e-4)
-    a_mh = ModelHandler(
+    a_mh = ModelReader(
         'models/ann/actor.cfg',
         [en[0].action_space.shape[0]],
         en[0].observation_space.shape,
         seed=seed,
     )
-    c_mh = ModelHandler(
+    c_mh = ModelReader(
         'models/ann/critic.cfg',
         [1],
         en[0].observation_space.shape,

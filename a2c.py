@@ -210,7 +210,7 @@ class A2C(OnPolicy):
 
 if __name__ == '__main__':
     import tensorflow_addons as tfa
-    from utils import ModelHandler, create_gym_env
+    from utils import ModelReader, create_gym_env
 
     seed = None
     ens = create_gym_env('BipedalWalker-v3', 16, False)
@@ -218,7 +218,7 @@ if __name__ == '__main__':
     o = tfa.optimizers.RectifiedAdam(
         learning_rate=7e-4, epsilon=1e-5, beta_1=0.0, beta_2=0.99
     )
-    mh = ModelHandler(
+    mh = ModelReader(
         'models/ann/actor-critic.cfg',
         [ens[0].action_space.shape[0], 1],
         ens[0].observation_space.shape,
@@ -230,7 +230,6 @@ if __name__ == '__main__':
     # )
     m = mh.build_model()
 
-    m.compile(o)
     ac = A2C(ens, m, seed=seed, n_steps=5)
     ac.fit(19)
     # ac.play(

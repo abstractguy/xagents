@@ -373,12 +373,12 @@ class ACER(A2C):
 
 
 if __name__ == '__main__':
-    from utils import ModelHandler, create_gym_env
+    from utils import ModelReader, create_gym_env
 
     seed = None
     es = create_gym_env('PongNoFrameskip-v4', 16, scale_frames=False)
     optimizer = tf.keras.optimizers.Adam(7e-4)
-    mh = ModelHandler(
+    mh = ModelReader(
         'models/cnn/acer.cfg',
         [es[0].action_space.n, es[0].action_space.n],
         es[0].observation_space.shape,

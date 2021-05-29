@@ -171,14 +171,14 @@ class DQN(OffPolicy):
 
 
 if __name__ == '__main__':
-    from utils import ModelHandler, create_gym_env
+    from utils import ModelReader, create_gym_env
 
     gym_envs = create_gym_env('PongNoFrameskip-v4', 3)
     seed = None
     from tensorflow.keras.optimizers import Adam
 
     optimizer = Adam(1e-4)
-    mh = ModelHandler(
+    mh = ModelReader(
         'models/cnn/dqn.cfg', [6], gym_envs[0].observation_space.shape, optimizer, seed
     )
     m = mh.build_model()
