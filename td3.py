@@ -29,54 +29,19 @@ def critic(input_shape):
     return model
 
 
-class BaseBuffer:
+class ReplayBuffer:
     def __init__(self, buffer_size, obs_dim, action_dim, n_envs=1):
-        super(BaseBuffer, self).__init__()
         self.buffer_size = buffer_size
-        self.obs_dim = obs_dim
-        self.action_dim = action_dim
-        self.pos = 0
         self.full = False
-        self.n_envs = n_envs
-
-    def size(self):
-        if self.full:
-            return self.buffer_size
-        return self.pos
-
-    def add(self, *args, **kwargs):
-        raise NotImplementedError()
-
-    def reset(self):
         self.pos = 0
-        self.full = False
-
-    def sample(self, batch_size):
-        upper_bound = self.buffer_size if self.full else self.pos
-        batch_inds = np.random.randint(0, upper_bound, size=batch_size)
-        return self._get_samples(batch_inds)
-
-    def _get_samples(self, batch_inds):
-        raise NotImplementedError()
-
-
-class ReplayBuffer(BaseBuffer):
-    def __init__(self, buffer_size, obs_dim, action_dim, n_envs=1):
-        super(ReplayBuffer, self).__init__(
-            buffer_size, obs_dim, action_dim, n_envs=n_envs
-        )
         assert n_envs == 1
-        self.observations = np.zeros(
-            (self.buffer_size, self.n_envs, self.obs_dim), dtype=np.float32
-        )
-        self.actions = np.zeros(
-            (self.buffer_size, self.n_envs, self.action_dim), dtype=np.float32
-        )
+        self.observations = np.zeros((buffer_size, n_envs, obs_dim), dtype=np.float32)
+        self.actions = np.zeros((buffer_size, n_envs, action_dim), dtype=np.float32)
         self.next_observations = np.zeros(
-            (self.buffer_size, self.n_envs, self.obs_dim), dtype=np.float32
+            (buffer_size, n_envs, obs_dim), dtype=np.float32
         )
-        self.rewards = np.zeros((self.buffer_size, self.n_envs), dtype=np.float32)
-        self.dones = np.zeros((self.buffer_size, self.n_envs), dtype=np.float32)
+        self.rewards = np.zeros((buffer_size, n_envs), dtype=np.float32)
+        self.dones = np.zeros((buffer_size, n_envs), dtype=np.float32)
 
     def add(self, obs, next_obs, action, reward, done):
         self.observations[self.pos] = np.array(obs).copy()
@@ -89,13 +54,14 @@ class ReplayBuffer(BaseBuffer):
             self.full = True
             self.pos = 0
 
-    def _get_samples(self, batch_inds):
+    def sample(self, batch_size):
+        indices = np.random.randint(0, self.pos, batch_size)
         return (
-            self.observations[batch_inds, 0, :],
-            self.actions[batch_inds, 0, :],
-            self.next_observations[batch_inds, 0, :],
-            self.dones[batch_inds],
-            self.rewards[batch_inds],
+            self.observations[indices, 0, :],
+            self.actions[indices, 0, :],
+            self.next_observations[indices, 0, :],
+            self.dones[indices],
+            self.rewards[indices],
         )
 
 
