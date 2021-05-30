@@ -29,6 +29,7 @@ class BaseAgent(ABC):
         seed=None,
         scale_factor=False,
         output_models=None,
+        log_frequency=None,
     ):
         """
         Base class for on-policy agents.
@@ -61,6 +62,7 @@ class BaseAgent(ABC):
         self.seed = seed
         self.scale_factor = scale_factor
         self.output_models = output_models or self.model
+        self.log_frequency = log_frequency or self.n_envs
         self.target_reward = None
         self.max_steps = None
         self.input_shape = self.envs[0].observation_space.shape
@@ -179,7 +181,7 @@ class BaseAgent(ABC):
         Returns:
             None
         """
-        if len(self.done_envs) >= self.n_envs:
+        if len(self.done_envs) >= self.log_frequency:
             self.update_metrics()
             self.last_reset_time = perf_counter()
             self.display_metrics()
