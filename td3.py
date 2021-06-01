@@ -29,40 +29,24 @@ def critic(input_shape):
     return model
 
 
-class ReplayBuffer:
-    def __init__(self, buffer_size, obs_dim, action_dim, n_envs=1):
-        self.buffer_size = buffer_size
-        self.full = False
-        self.pos = 0
-        assert n_envs == 1
-        self.observations = np.zeros((buffer_size, n_envs, obs_dim), dtype=np.float32)
-        self.actions = np.zeros((buffer_size, n_envs, action_dim), dtype=np.float32)
-        self.next_observations = np.zeros(
-            (buffer_size, n_envs, obs_dim), dtype=np.float32
-        )
-        self.rewards = np.zeros((buffer_size, n_envs), dtype=np.float32)
-        self.dones = np.zeros((buffer_size, n_envs), dtype=np.float32)
+class IAmTheOtherKindOfReplayBufferBecauseFuckTensorflow:
+    def __init__(self, size, slots):
+        self.size = size
+        self.slots = [np.array([])] * slots
+        self.current_size = 0
 
-    def add(self, obs, next_obs, action, reward, done):
-        self.observations[self.pos] = np.array(obs).copy()
-        self.next_observations[self.pos] = np.array(next_obs).copy()
-        self.actions[self.pos] = np.array(action).copy()
-        self.rewards[self.pos] = np.array(reward).copy()
-        self.dones[self.pos] = np.array(done).copy()
-        self.pos += 1
-        if self.pos == self.buffer_size:
-            self.full = True
-            self.pos = 0
+    def add(self, *args):
+        for i, arg in enumerate(args):
+            if not isinstance(arg, np.ndarray):
+                arg = np.array([arg])
+            if not self.slots[i].shape[0]:
+                self.slots[i] = np.zeros((self.size, *arg.shape), np.float32)
+            self.slots[i][self.current_size % self.size] = arg.copy()
+        self.current_size += 1
 
     def sample(self, batch_size):
-        indices = np.random.randint(0, self.pos, batch_size)
-        return (
-            self.observations[indices, 0, :],
-            self.actions[indices, 0, :],
-            self.next_observations[indices, 0, :],
-            self.dones[indices],
-            self.rewards[indices],
-        )
+        indices = np.random.randint(0, min(self.current_size, self.size), batch_size)
+        return [slot[indices] for slot in self.slots]
 
 
 class TD3:
@@ -136,8 +120,8 @@ class TD3:
         ]
         for model in (self.actor, self.critic1, self.critic2):
             model.compile('adam')
-        self.replay_buffer = ReplayBuffer(
-            self.buffer_size, env.observation_space.shape[0], env.action_space.shape[0]
+        self.replay_buffer = IAmTheOtherKindOfReplayBufferBecauseFuckTensorflow(
+            buffer_size, 5
         )
 
     def critic_loss(self, obs, action, next_obs, done, reward):
@@ -195,8 +179,8 @@ class TD3:
 
     def train(self, gradient_steps, batch_size=100, policy_delay=2):
         for gradient_step in range(gradient_steps):
-            obs, action, next_obs, done, reward = self.replay_buffer.sample(batch_size)
-            self._train_critic(obs, action, next_obs, done, reward)
+            obs, new_obs, action, reward, done = self.replay_buffer.sample(batch_size)
+            self._train_critic(obs, action, new_obs, done, reward)
             if gradient_step % policy_delay == 0:
                 self._train_actor(obs)
                 self.update_targets()
