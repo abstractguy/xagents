@@ -1,7 +1,6 @@
 import numpy as np
 import tensorflow as tf
 from a2c import A2C
-from utils import ReplayBuffer
 
 
 class ACER(A2C):
@@ -9,9 +8,8 @@ class ACER(A2C):
         self,
         envs,
         model,
+        buffers,
         ema_alpha=0.99,
-        buffer_max_size=5000,
-        buffer_initial_size=500,
         replay_ratio=4,
         epsilon=1e-6,
         importance_c=10.0,
@@ -39,14 +37,7 @@ class ACER(A2C):
         super(ACER, self).__init__(envs, model, **kwargs)
         self.avg_model = tf.keras.models.clone_model(self.model)
         self.ema = tf.train.ExponentialMovingAverage(ema_alpha)
-        self.buffers = [
-            ReplayBuffer(
-                buffer_max_size // self.n_envs,
-                buffer_initial_size // self.n_envs,
-                batch_size=1,
-            )
-            for _ in range(self.n_envs)
-        ]
+        self.buffers = buffers
         self.batch_indices = tf.range(self.n_steps * self.n_envs, dtype=tf.int64)[
             :, tf.newaxis
         ]
@@ -140,7 +131,7 @@ class ACER(A2C):
             env_outputs = []
             for item in batch:
                 env_outputs.append(item[i])
-            self.buffers[i].append(env_outputs)
+            self.buffers[i].append(*env_outputs)
 
     def get_batch(self):
         """
@@ -361,7 +352,7 @@ class ACER(A2C):
         self.update_gradients(*batch)
         if (
             self.replay_ratio > 0
-            and len(self.buffers[0]) >= self.buffers[0].initial_size
+            and self.buffers[0].current_size >= self.buffers[0].initial_size
         ):
             for _ in range(np.random.poisson(self.replay_ratio)):
                 batch = tf.numpy_function(
@@ -373,7 +364,8 @@ class ACER(A2C):
 
 
 if __name__ == '__main__':
-    from utils import ModelReader, create_gym_env
+    from utils import (IAmTheOtherKindOfReplayBufferBecauseFuckTensorflow,
+                       ModelReader, ReplayBuffer, create_gym_env)
 
     seed = None
     es = create_gym_env('PongNoFrameskip-v4', 16, scale_frames=False)
@@ -386,5 +378,15 @@ if __name__ == '__main__':
         seed,
     )
     m = mh.build_model()
-    agn = ACER(es, m, seed=seed, scale_factor=255.0, n_steps=20, grad_norm=10)
+    bs = [
+        ReplayBuffer(5000 // len(es), initial_size=500 // len(es), batch_size=1)
+        for _ in range(len(es))
+    ]
+    # bs = [
+    #     IAmTheOtherKindOfReplayBufferBecauseFuckTensorflow(
+    #         5000 // len(es), 5, batch_size=1, initial_size=500 // len(es)
+    #     )
+    #     for _ in range(len(es))
+    # ]
+    agn = ACER(es, m, bs, seed=seed, scale_factor=255.0, n_steps=20, grad_norm=10)
     agn.fit(19)

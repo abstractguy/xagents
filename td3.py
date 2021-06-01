@@ -7,6 +7,7 @@ import numpy as np
 import tensorflow as tf
 from tensorflow.keras import Model
 from tensorflow.keras.layers import Dense, Input
+from utils import IAmTheOtherKindOfReplayBufferBecauseFuckTensorflow
 
 
 def actor(input_shape, output_units):
@@ -27,26 +28,6 @@ def critic(input_shape):
     model = Model(x0, ouput)
     model.call = tf.function(model.call)
     return model
-
-
-class IAmTheOtherKindOfReplayBufferBecauseFuckTensorflow:
-    def __init__(self, size, slots):
-        self.size = size
-        self.slots = [np.array([])] * slots
-        self.current_size = 0
-
-    def add(self, *args):
-        for i, arg in enumerate(args):
-            if not isinstance(arg, np.ndarray):
-                arg = np.array([arg])
-            if not self.slots[i].shape[0]:
-                self.slots[i] = np.zeros((self.size, *arg.shape), np.float32)
-            self.slots[i][self.current_size % self.size] = arg.copy()
-        self.current_size += 1
-
-    def sample(self, batch_size):
-        indices = np.random.randint(0, min(self.current_size, self.size), batch_size)
-        return [slot[indices] for slot in self.slots]
 
 
 class TD3:
@@ -121,7 +102,7 @@ class TD3:
         for model in (self.actor, self.critic1, self.critic2):
             model.compile('adam')
         self.replay_buffer = IAmTheOtherKindOfReplayBufferBecauseFuckTensorflow(
-            buffer_size, 5
+            buffer_size, 5, batch_size=batch_size, initial_size=learning_starts
         )
 
     def critic_loss(self, obs, action, next_obs, done, reward):
@@ -177,9 +158,9 @@ class TD3:
             zip(grads_actor, self.actor.trainable_variables)
         )
 
-    def train(self, gradient_steps, batch_size=100, policy_delay=2):
+    def train(self, gradient_steps, policy_delay=2):
         for gradient_step in range(gradient_steps):
-            obs, new_obs, action, reward, done = self.replay_buffer.sample(batch_size)
+            obs, new_obs, action, reward, done = self.replay_buffer.get_sample()
             self._train_critic(obs, action, new_obs, done, reward)
             if gradient_step % policy_delay == 0:
                 self._train_actor(obs)
@@ -198,14 +179,12 @@ class TD3:
                 self.env,
                 learning_starts=self.learning_starts,
                 num_timesteps=self.num_timesteps,
-                replay_buffer=self.replay_buffer,
                 obs=obs,
                 log_interval=log_interval,
             )
             if self.steps > 0 and self.steps > self.learning_starts:
                 self.train(
                     self.gradient_steps or self.last_episode_steps[0],
-                    batch_size=self.batch_size,
                     policy_delay=self.policy_delay,
                 )
         return self
@@ -215,7 +194,6 @@ class TD3:
         env,
         learning_starts=0,
         num_timesteps=0,
-        replay_buffer=None,
         obs=None,
         log_interval=1,
     ):
@@ -227,8 +205,7 @@ class TD3:
             new_obs, reward, done, infos = env.step(action)
             done_bool = float(done)
             self.episode_reward += reward
-            if replay_buffer is not None:
-                replay_buffer.add(obs, new_obs, action, reward, done_bool)
+            self.replay_buffer.append(obs, new_obs, action, reward, done_bool)
             obs = new_obs
             num_timesteps += 1
             self.steps += 1
@@ -276,6 +253,6 @@ class TD3:
 
 
 if __name__ == '__main__':
-    env = gym.make('BipedalWalker-v3')
-    agent = TD3(env)
+    en = gym.make('BipedalWalker-v3')
+    agent = TD3(en)
     agent.learn(1000000, log_interval=10)

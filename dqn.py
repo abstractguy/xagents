@@ -10,6 +10,7 @@ class DQN(OffPolicy):
         self,
         envs,
         model,
+        buffers,
         double=False,
         **kwargs,
     ):
@@ -31,7 +32,7 @@ class DQN(OffPolicy):
             epsilon_decay_steps: Decay epsilon for n steps.
             **kwargs: kwargs Passed to OnPolicy
         """
-        super(DQN, self).__init__(envs, model, **kwargs)
+        super(DQN, self).__init__(envs, model, buffers, **kwargs)
         assert isinstance(envs[0].action_space, Discrete), (
             f'Invalid environment: {envs[0].spec.id}. DQN supports '
             f'environments with a discrete action space only, got {envs[0].action_space}'
@@ -39,7 +40,7 @@ class DQN(OffPolicy):
         self.target_model = tf.keras.models.clone_model(self.model)
         self.double = double
         self.batch_indices = tf.range(
-            self.buffer_batch_size * self.n_envs, dtype=tf.int64
+            self.buffers[0].batch_size * self.n_envs, dtype=tf.int64
         )[:, tf.newaxis]
 
     @tf.function
@@ -149,7 +150,7 @@ class DQN(OffPolicy):
         Returns:
             None
         """
-        actions = self.get_actions()
+        actions = tf.numpy_function(self.get_actions, [], tf.int64)
         tf.numpy_function(self.step_envs, [actions, False, True], [])
         training_batch = tf.numpy_function(
             self.concat_buffer_samples,
@@ -171,18 +172,19 @@ class DQN(OffPolicy):
 
 
 if __name__ == '__main__':
-    from utils import ModelReader, create_gym_env
+    from utils import ModelReader, ReplayBuffer, create_gym_env
 
-    gym_envs = create_gym_env('PongNoFrameskip-v4', 3)
+    en = create_gym_env('PongNoFrameskip-v4', 3)
     seed = None
     from tensorflow.keras.optimizers import Adam
 
     optimizer = Adam(1e-4)
     mh = ModelReader(
-        'models/cnn/dqn.cfg', [6], gym_envs[0].observation_space.shape, optimizer, seed
+        'models/cnn/dqn.cfg', [6], en[0].observation_space.shape, optimizer, seed
     )
     m = mh.build_model()
-    agn = DQN(gym_envs, m, buffer_max_size=10000, seed=seed)
+    bs = [ReplayBuffer(10000 // len(en)) for _ in range(len(en))]
+    agn = DQN(en, m, bs, seed=seed)
     agn.fit(19)
     # agn.play(
     #     '/Users/emadboctor/Desktop/code/models-drl/dqn-pong-19-model/pong_test.tf',

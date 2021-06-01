@@ -13,8 +13,6 @@ import wandb
 from gym.spaces.box import Box
 from gym.spaces.discrete import Discrete
 
-from utils import ReplayBuffer
-
 
 class BaseAgent(ABC):
     def __init__(
@@ -252,7 +250,7 @@ class BaseAgent(ABC):
             self.episode_rewards[i] += reward
             observation = state, action, reward, done, new_state
             if store_in_buffers and hasattr(self, 'buffers'):
-                self.buffers[i].append(observation)
+                self.buffers[i].append(*observation)
             if get_observation:
                 observations.append(observation)
             if done:
@@ -480,28 +478,19 @@ class OffPolicy(BaseAgent, ABC):
         self,
         envs,
         model,
+        buffers,
         epsilon_start=1.0,
         epsilon_end=0.02,
         epsilon_decay_steps=150000,
         target_sync_steps=1000,
-        buffer_max_size=10000,
-        buffer_initial_size=None,
-        buffer_batch_size=32,
         **kwargs,
     ):
         super(OffPolicy, self).__init__(envs, model, **kwargs)
-        buffer_initial_size = buffer_initial_size or buffer_max_size
-        self.buffers = [
-            ReplayBuffer(
-                buffer_max_size // self.n_envs,
-                buffer_initial_size // self.n_envs,
-                self.n_steps,
-                self.gamma,
-                buffer_batch_size,
-            )
-            for _ in range(self.n_envs)
-        ]
-        self.buffer_batch_size = buffer_batch_size
+        assert len(envs) == len(buffers), (
+            f'Expected equal env and replay buffer sizes, got {self.n_envs} '
+            f'and {len(buffers)}'
+        )
+        self.buffers = buffers
         self.epsilon_start = self.epsilon = epsilon_start
         self.epsilon_end = epsilon_end
         self.epsilon_decay_steps = epsilon_decay_steps
@@ -524,14 +513,14 @@ class OffPolicy(BaseAgent, ABC):
         for i, env in enumerate(self.envs):
             buffer = self.buffers[i]
             state = self.states[i]
-            while len(buffer) < buffer.initial_size:
+            while buffer.current_size < buffer.initial_size:
                 action = env.action_space.sample()
                 new_state, reward, done, _ = env.step(action)
-                buffer.append((state, action, reward, done, new_state))
+                buffer.append(state, action, reward, done, new_state)
                 state = new_state
                 if done:
                     state = env.reset()
-                sizes[i] = len(buffer)
+                sizes[i] = buffer.current_size
                 filled = sum(sizes.values())
                 complete = round((filled / total_size) * 100, self.display_precision)
                 print(
