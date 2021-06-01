@@ -5,35 +5,16 @@ from time import perf_counter
 import gym
 import numpy as np
 import tensorflow as tf
-from tensorflow.keras import Model
-from tensorflow.keras.layers import Dense, Input
+
 from utils import IAmTheOtherKindOfReplayBufferBecauseFuckTensorflow
-
-
-def actor(input_shape, output_units):
-    x0 = Input(input_shape)
-    x = Dense(400, 'relu')(x0)
-    x = Dense(300, 'relu')(x)
-    output = Dense(output_units, 'tanh')(x)
-    model = Model(x0, output)
-    model.call = tf.function(model.call)
-    return model
-
-
-def critic(input_shape):
-    x0 = Input(input_shape)
-    x = Dense(400, 'relu')(x0)
-    x = Dense(300, 'relu')(x)
-    ouput = Dense(1)(x)
-    model = Model(x0, ouput)
-    model.call = tf.function(model.call)
-    return model
 
 
 class TD3:
     def __init__(
         self,
         env,
+        actor_model,
+        critic_model,
         buffer_size=int(1e6),
         learning_rate=1e-3,
         policy_delay=2,
@@ -83,11 +64,15 @@ class TD3:
             'mean reward',
             'best reward',
         )
-        self.actor = actor(env.observation_space.shape, env.action_space.shape[0])
-        self.critic1 = critic(
-            env.observation_space.shape[0] + env.action_space.shape[0]
-        )
+        self.actor = actor_model
+        self.critic1 = critic_model
         self.critic2 = tf.keras.models.clone_model(self.critic1)
+        self.critic2.compile(
+            tf.keras.optimizers.get(self.critic1.optimizer.get_config()['name'])
+        )
+        self.critic2.optimizer.learning_rate.assign(
+            self.critic1.optimizer.learning_rate
+        )
         self.target_actor = tf.keras.models.clone_model(self.actor)
         self.target_critic1 = tf.keras.models.clone_model(self.critic1)
         self.target_critic2 = tf.keras.models.clone_model(self.critic1)
@@ -99,8 +84,6 @@ class TD3:
             (self.critic1, self.target_critic1),
             (self.critic2, self.target_critic2),
         ]
-        for model in (self.actor, self.critic1, self.critic2):
-            model.compile('adam')
         self.replay_buffer = IAmTheOtherKindOfReplayBufferBecauseFuckTensorflow(
             buffer_size, 5, batch_size=batch_size, initial_size=learning_starts
         )
@@ -253,6 +236,22 @@ class TD3:
 
 
 if __name__ == '__main__':
+    from utils import ModelReader
+
     en = gym.make('BipedalWalker-v3')
-    agent = TD3(en)
+    amr = ModelReader(
+        'models/ann/td3-actor.cfg',
+        [en.action_space.shape[0]],
+        en.observation_space.shape,
+        'adam',
+    )
+    cmr = ModelReader(
+        'models/ann/td3-critic.cfg',
+        [1],
+        en.observation_space.shape[0] + en.action_space.shape[0],
+        'adam',
+    )
+    am = amr.build_model()
+    cm = cmr.build_model()
+    agent = TD3(en, am, cm)
     agent.learn(1000000, log_interval=10)
