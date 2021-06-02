@@ -1,8 +1,6 @@
-from datetime import timedelta
-from time import perf_counter
-
 import numpy as np
 import tensorflow as tf
+from tensorflow.keras.losses import MSE
 
 from base_agents import OffPolicy
 
@@ -61,9 +59,7 @@ class TD3(OffPolicy):
         critic_input = tf.concat([obs, action], 1)
         current_q1 = self.critic1(critic_input)
         current_q2 = self.critic2(critic_input)
-        return tf.keras.losses.MSE(current_q1, target_q), tf.keras.losses.MSE(
-            current_q2, target_q
-        )
+        return MSE(current_q1, target_q), MSE(current_q2, target_q)
 
     @tf.function
     def actor_loss(self, obs):
@@ -110,91 +106,6 @@ class TD3(OffPolicy):
                 self._train_actor(states)
                 self.update_targets()
 
-    def learn(
-        self,
-        total_timesteps,
-        log_interval=4,
-    ):
-        obs = self.env.reset()
-        self.training_start_time = perf_counter()
-        self.last_reset_time = self.training_start_time
-        while self.num_timesteps < total_timesteps:
-            self.collect_rollouts(
-                self.env,
-                learning_starts=self.learning_starts,
-                num_timesteps=self.num_timesteps,
-                obs=obs,
-                log_interval=log_interval,
-            )
-            if self.steps > 0 and self.steps > self.learning_starts:
-                self.train(
-                    self.gradient_steps or self.last_episode_steps[0],
-                    policy_delay=self.policy_delay,
-                )
-        return self
-
-    def collect_rollouts(
-        self,
-        env,
-        learning_starts=0,
-        num_timesteps=0,
-        obs=None,
-        log_interval=1,
-    ):
-        while True:
-            if self.steps < learning_starts:
-                action = env.action_space.sample()
-            else:
-                action = np.squeeze(self.actor(np.expand_dims(obs, 0)))
-            new_obs, reward, done, infos = env.step(action)
-            done_bool = float(done)
-            self.episode_reward += reward
-            self.replay_buffer.append(obs, new_obs, action, reward, done_bool)
-            obs = new_obs
-            num_timesteps += 1
-            self.steps += 1
-            self.episode_steps += 1
-            if done:
-                env.reset()
-                current_time = perf_counter()
-                self.games += 1
-                interval_steps = self.steps - self.last_reset_step
-                interval_time = current_time - self.last_reset_time
-                fps = interval_steps // interval_time
-                self.total_rewards.append(self.episode_reward)
-                self.mean_reward = int(np.mean(self.total_rewards))
-                self.best_reward = int(max(self.episode_reward, self.best_reward))
-                time_so_far = timedelta(seconds=current_time - self.training_start_time)
-                self.episode_reward = 0
-                self.last_episode_steps.append(self.episode_steps)
-                self.episode_steps = 0
-                self.last_reset_time = current_time
-                self.last_reset_step = self.steps
-                if self.games % log_interval == 0:
-                    self.display_titles = (
-                        'time',
-                        'steps',
-                        'games',
-                        'fps',
-                        'mean reward',
-                        'best reward',
-                    )
-                    values = (
-                        time_so_far,
-                        self.steps,
-                        self.games,
-                        fps,
-                        self.mean_reward,
-                        self.best_reward,
-                    )
-                    print(
-                        ', '.join(
-                            f'{title}: {value}'
-                            for (title, value) in zip(self.display_titles, values)
-                        )
-                    )
-                break
-
     def train_step(self):
         step_actions = self.actor(self.get_states())
         *_, dones, _ = self.step_envs(step_actions, True, True)
@@ -205,11 +116,8 @@ class TD3(OffPolicy):
 
 
 if __name__ == '__main__':
-    from utils import (
-        IAmTheOtherKindOfReplayBufferBecauseFuckTensorflow,
-        ModelReader,
-        create_gym_env,
-    )
+    from utils import (IAmTheOtherKindOfReplayBufferBecauseFuckTensorflow,
+                       ModelReader, create_gym_env)
 
     en = create_gym_env('BipedalWalker-v3', 1, False)
     amr = ModelReader(
