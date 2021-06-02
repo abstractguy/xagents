@@ -1,4 +1,3 @@
-import numpy as np
 import tensorflow as tf
 from tensorflow.keras.losses import MSE
 
@@ -49,65 +48,63 @@ class TD3(OffPolicy):
         ]
         self.batch_dtypes = 5 * [tf.float32]
 
-    def critic_loss(self, obs, action, next_obs, done, reward):
-        noise = (
-            tf.random.normal((self.buffers[0].batch_size * self.n_envs, self.n_actions))
-            * self.policy_noise
-        )
-        noise = tf.clip_by_value(noise, -self.noise_clip, self.noise_clip)
-        next_action = tf.clip_by_value(self.target_actor(next_obs) + noise, -1.0, 1.0)
-        target_critic_input = tf.concat([next_obs, next_action], 1)
-        target_q1 = self.target_critic1(target_critic_input)
-        target_q2 = self.target_critic2(target_critic_input)
-        target_q = tf.minimum(target_q1, target_q2)
-        target_q = reward + tf.stop_gradient((1 - done) * self.gamma * target_q)
-        critic_input = tf.concat([obs, action], 1)
-        current_q1 = self.critic1(critic_input)
-        current_q2 = self.critic2(critic_input)
-        return MSE(current_q1, target_q), MSE(current_q2, target_q)
-
-    def actor_loss(self, obs):
-        return -tf.reduce_mean(self.critic1(tf.concat([obs, self.actor(obs)], 1)))
-
-    def update_targets(self):
+    def update_target_models(self):
         for model, target_model in self.model_groups:
             for var, target_var in zip(
                 model.trainable_variables, target_model.trainable_variables
             ):
                 target_var.assign((1 - self.tau) * target_var + self.tau * var)
 
-    def _train_critic(self, obs, action, next_obs, done, reward):
+    def update_critic_weights(self, states, actions, new_states, dones, rewards):
         with tf.GradientTape(True) as tape:
-            critic1_loss, critic2_loss = self.critic_loss(
-                obs, action, next_obs, done, reward
+            noise = (
+                tf.random.normal(
+                    (self.buffers[0].batch_size * self.n_envs, self.n_actions)
+                )
+                * self.policy_noise
             )
-        critic1_grads = tape.gradient(critic1_loss, self.critic1.trainable_variables)
-        critic2_grads = tape.gradient(critic2_loss, self.critic2.trainable_variables)
-        self.critic1.optimizer.apply_gradients(
-            zip(critic1_grads, self.critic1.trainable_variables)
+            noise = tf.clip_by_value(noise, -self.noise_clip, self.noise_clip)
+            new_actions = tf.clip_by_value(
+                self.target_actor(new_states) + noise, -1.0, 1.0
+            )
+            target_critic_input = tf.concat([new_states, new_actions], 1)
+            target_value1 = self.target_critic1(target_critic_input)
+            target_value2 = self.target_critic2(target_critic_input)
+            target_value = tf.minimum(target_value1, target_value2)
+            target_value = rewards + tf.stop_gradient(
+                (1 - dones) * self.gamma * target_value
+            )
+            critic_input = tf.concat([states, actions], 1)
+            value1 = self.critic1(critic_input)
+            value2 = self.critic2(critic_input)
+            critic1_loss, critic2_loss = MSE(value1, target_value), MSE(
+                value2, target_value
+            )
+        self.critic1.optimizer.minimize(
+            critic1_loss, self.critic1.trainable_variables, tape=tape
         )
-        self.critic2.optimizer.apply_gradients(
-            zip(critic2_grads, self.critic2.trainable_variables)
+        self.critic2.optimizer.minimize(
+            critic2_loss, self.critic2.trainable_variables, tape=tape
         )
 
-    def _train_actor(self, obs):
-        with tf.GradientTape() as actor_tape:
-            actor_tape.watch(self.actor.trainable_variables)
-            actor_loss = self.actor_loss(obs)
-        grads_actor = actor_tape.gradient(actor_loss, self.actor.trainable_variables)
-        self.actor.optimizer.apply_gradients(
-            zip(grads_actor, self.actor.trainable_variables)
+    def update_actor_weights(self, states):
+        with tf.GradientTape() as tape:
+            actor_loss = -tf.reduce_mean(
+                self.critic1(tf.concat([states, self.actor(states)], 1))
+            )
+        self.actor.optimizer.minimize(
+            actor_loss, self.actor.trainable_variables, tape=tape
         )
 
-    def train(self, gradient_steps):
+    def update_weights(self, gradient_steps):
         for gradient_step in range(int(gradient_steps)):
             states, actions, rewards, dones, new_states = tf.numpy_function(
                 self.concat_buffer_samples, [], self.batch_dtypes
             )
-            self._train_critic(states, actions, new_states, dones, rewards)
+            self.update_critic_weights(states, actions, new_states, dones, rewards)
             if gradient_step % self.policy_delay == 0:
-                self._train_actor(states)
-                self.update_targets()
+                self.update_actor_weights(states)
+                self.update_target_models()
 
     @tf.function
     def train_step(self):
@@ -117,7 +114,7 @@ class TD3(OffPolicy):
         )
         for done_idx in tf.where(dones):
             gradient_steps = self.gradient_steps or self.episode_steps[done_idx[0]]
-            self.train(gradient_steps)
+            self.update_weights(gradient_steps)
         self.episode_steps.assign(
             (self.episode_steps + self.step_increment) * (1 - dones)
         )
