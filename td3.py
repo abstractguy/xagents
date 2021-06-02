@@ -27,7 +27,8 @@ class TD3(OffPolicy):
         self.tau = tau
         self.policy_noise = policy_noise
         self.noise_clip = noise_clip
-        self.episode_steps = np.zeros(self.n_envs)
+        self.episode_steps = tf.Variable(tf.zeros(self.n_envs), False)
+        self.step_increment = tf.ones(self.n_envs)
         self.critic2 = tf.keras.models.clone_model(self.critic1)
         self.critic2.compile(
             tf.keras.optimizers.get(self.critic1.optimizer.get_config()['name'])
@@ -46,9 +47,13 @@ class TD3(OffPolicy):
             (self.critic1, self.target_critic1),
             (self.critic2, self.target_critic2),
         ]
+        self.batch_dtypes = 5 * [tf.float32]
 
     def critic_loss(self, obs, action, next_obs, done, reward):
-        noise = tf.random.normal(action.shape) * self.policy_noise
+        noise = (
+            tf.random.normal((self.buffers[0].batch_size * self.n_envs, self.n_actions))
+            * self.policy_noise
+        )
         noise = tf.clip_by_value(noise, -self.noise_clip, self.noise_clip)
         next_action = tf.clip_by_value(self.target_actor(next_obs) + noise, -1.0, 1.0)
         target_critic_input = tf.concat([next_obs, next_action], 1)
@@ -61,11 +66,9 @@ class TD3(OffPolicy):
         current_q2 = self.critic2(critic_input)
         return MSE(current_q1, target_q), MSE(current_q2, target_q)
 
-    @tf.function
     def actor_loss(self, obs):
         return -tf.reduce_mean(self.critic1(tf.concat([obs, self.actor(obs)], 1)))
 
-    @tf.function
     def update_targets(self):
         for model, target_model in self.model_groups:
             for var, target_var in zip(
@@ -73,7 +76,6 @@ class TD3(OffPolicy):
             ):
                 target_var.assign((1 - self.tau) * target_var + self.tau * var)
 
-    @tf.function
     def _train_critic(self, obs, action, next_obs, done, reward):
         with tf.GradientTape(True) as tape:
             critic1_loss, critic2_loss = self.critic_loss(
@@ -88,7 +90,6 @@ class TD3(OffPolicy):
             zip(critic2_grads, self.critic2.trainable_variables)
         )
 
-    @tf.function
     def _train_actor(self, obs):
         with tf.GradientTape() as actor_tape:
             actor_tape.watch(self.actor.trainable_variables)
@@ -99,27 +100,34 @@ class TD3(OffPolicy):
         )
 
     def train(self, gradient_steps):
-        for gradient_step in range(gradient_steps):
-            states, actions, rewards, dones, new_states = self.concat_buffer_samples()
+        for gradient_step in range(int(gradient_steps)):
+            states, actions, rewards, dones, new_states = tf.numpy_function(
+                self.concat_buffer_samples, [], self.batch_dtypes
+            )
             self._train_critic(states, actions, new_states, dones, rewards)
             if gradient_step % self.policy_delay == 0:
                 self._train_actor(states)
                 self.update_targets()
 
+    @tf.function
     def train_step(self):
-        step_actions = self.actor(self.get_states())
-        *_, dones, _ = self.step_envs(step_actions, True, True)
-        for done_idx in np.where(dones)[0]:
-            gradient_steps = self.gradient_steps or self.episode_steps[done_idx]
-            self.train(int(gradient_steps))
-        self.episode_steps = (self.episode_steps + 1) * (1 - dones)
+        step_actions = self.actor(tf.numpy_function(self.get_states, [], tf.float32))
+        *_, dones, _ = tf.numpy_function(
+            self.step_envs, [step_actions, True, True], self.batch_dtypes
+        )
+        for done_idx in tf.where(dones):
+            gradient_steps = self.gradient_steps or self.episode_steps[done_idx[0]]
+            self.train(gradient_steps)
+        self.episode_steps.assign(
+            (self.episode_steps + self.step_increment) * (1 - dones)
+        )
 
 
 if __name__ == '__main__':
     from utils import (IAmTheOtherKindOfReplayBufferBecauseFuckTensorflow,
                        ModelReader, create_gym_env)
 
-    en = create_gym_env('BipedalWalker-v3', 1, False)
+    en = create_gym_env('BipedalWalker-v3', 16, False)
     amr = ModelReader(
         'models/ann/td3-actor.cfg',
         [en[0].action_space.shape[0]],
@@ -143,5 +151,5 @@ if __name__ == '__main__':
         )
         for _ in range(len(en))
     ]
-    agent = TD3(en, am, cm, bs, log_frequency=10)
+    agent = TD3(en, am, cm, bs)
     agent.fit(250)
