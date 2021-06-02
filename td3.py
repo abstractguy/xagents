@@ -1,71 +1,35 @@
-from collections import deque
 from datetime import timedelta
 from time import perf_counter
 
-import gym
 import numpy as np
 import tensorflow as tf
 
-from utils import IAmTheOtherKindOfReplayBufferBecauseFuckTensorflow
+from base_agents import OffPolicy
 
 
-class TD3:
+class TD3(OffPolicy):
     def __init__(
         self,
-        env,
+        envs,
         actor_model,
         critic_model,
-        buffer_size=int(1e6),
-        learning_rate=1e-3,
+        buffers,
         policy_delay=2,
-        learning_starts=100,
-        gamma=0.99,
-        batch_size=100,
-        train_freq=-1,
         gradient_steps=None,
-        n_episodes_rollout=1,
         tau=0.005,
-        action_noise=None,
-        target_policy_noise=0.2,
-        target_noise_clip=0.5,
-        _init_setup_model=True,
+        policy_noise=0.2,
+        noise_clip=0.5,
+        **kwargs,
     ):
-        self.num_timesteps = 0
-        self.env = env
-        self.buffer_size = buffer_size
-        self.learning_rate = learning_rate
-        self.learning_starts = learning_starts
-        self.train_freq = train_freq
-        self.gradient_steps = gradient_steps
-        self.n_episodes_rollout = n_episodes_rollout
-        self.batch_size = batch_size
-        self.tau = tau
-        self.gamma = gamma
-        self.action_noise = action_noise
-        self.policy_delay = policy_delay
-        self.target_noise_clip = target_noise_clip
-        self.target_policy_noise = target_policy_noise
-        self.total_rewards = deque(maxlen=100)
-        self.best_reward = -float('inf')
-        self.mean_reward = -float('inf')
-        self.last_reset_step = 0
-        self.last_reset_time = None
-        self.training_start_time = None
-        self.episode_reward = 0
-        self.episode_steps = 0
-        self.last_episode_steps = deque(maxlen=1)
-        self.steps = 0
-        self.games = 0
-        self.display_titles = (
-            'time',
-            'steps',
-            'games',
-            'fps',
-            'mean reward',
-            'best reward',
-        )
+        super(TD3, self).__init__(envs, actor_model, buffers, **kwargs)
         self.actor = actor_model
         self.critic1 = critic_model
+        self.policy_delay = policy_delay
+        self.gradient_steps = gradient_steps
+        self.tau = tau
+        self.policy_noise = policy_noise
+        self.noise_clip = noise_clip
+        self.episode_steps = np.zeros(self.n_envs)
         self.critic2 = tf.keras.models.clone_model(self.critic1)
         self.critic2.compile(
             tf.keras.optimizers.get(self.critic1.optimizer.get_config()['name'])
@@ -84,13 +48,10 @@ class TD3:
             (self.critic1, self.target_critic1),
             (self.critic2, self.target_critic2),
         ]
-        self.replay_buffer = IAmTheOtherKindOfReplayBufferBecauseFuckTensorflow(
-            buffer_size, 5, batch_size=batch_size, initial_size=learning_starts
-        )
 
     def critic_loss(self, obs, action, next_obs, done, reward):
-        noise = tf.random.normal(action.shape) * self.target_policy_noise
-        noise = tf.clip_by_value(noise, -self.target_noise_clip, self.target_noise_clip)
+        noise = tf.random.normal(action.shape) * self.policy_noise
+        noise = tf.clip_by_value(noise, -self.noise_clip, self.noise_clip)
         next_action = tf.clip_by_value(self.target_actor(next_obs) + noise, -1.0, 1.0)
         target_critic_input = tf.concat([next_obs, next_action], 1)
         target_q1 = self.target_critic1(target_critic_input)
@@ -141,12 +102,12 @@ class TD3:
             zip(grads_actor, self.actor.trainable_variables)
         )
 
-    def train(self, gradient_steps, policy_delay=2):
+    def train(self, gradient_steps):
         for gradient_step in range(gradient_steps):
-            obs, new_obs, action, reward, done = self.replay_buffer.get_sample()
-            self._train_critic(obs, action, new_obs, done, reward)
-            if gradient_step % policy_delay == 0:
-                self._train_actor(obs)
+            states, actions, rewards, dones, new_states = self.concat_buffer_samples()
+            self._train_critic(states, actions, new_states, dones, rewards)
+            if gradient_step % self.policy_delay == 0:
+                self._train_actor(states)
                 self.update_targets()
 
     def learn(
@@ -234,24 +195,45 @@ class TD3:
                     )
                 break
 
+    def train_step(self):
+        step_actions = self.actor(self.get_states())
+        *_, dones, _ = self.step_envs(step_actions, True, True)
+        for done_idx in np.where(dones)[0]:
+            gradient_steps = self.gradient_steps or self.episode_steps[done_idx]
+            self.train(int(gradient_steps))
+        self.episode_steps = (self.episode_steps + 1) * (1 - dones)
+
 
 if __name__ == '__main__':
-    from utils import ModelReader
+    from utils import (
+        IAmTheOtherKindOfReplayBufferBecauseFuckTensorflow,
+        ModelReader,
+        create_gym_env,
+    )
 
-    en = gym.make('BipedalWalker-v3')
+    en = create_gym_env('BipedalWalker-v3', 1, False)
     amr = ModelReader(
         'models/ann/td3-actor.cfg',
-        [en.action_space.shape[0]],
-        en.observation_space.shape,
+        [en[0].action_space.shape[0]],
+        en[0].observation_space.shape,
         'adam',
     )
     cmr = ModelReader(
         'models/ann/td3-critic.cfg',
         [1],
-        en.observation_space.shape[0] + en.action_space.shape[0],
+        en[0].observation_space.shape[0] + en[0].action_space.shape[0],
         'adam',
     )
     am = amr.build_model()
     cm = cmr.build_model()
-    agent = TD3(en, am, cm)
-    agent.learn(1000000, log_interval=10)
+    bs = [
+        IAmTheOtherKindOfReplayBufferBecauseFuckTensorflow(
+            1000000 // len(en),
+            5,
+            initial_size=100 // len(en),
+            batch_size=100 // len(en),
+        )
+        for _ in range(len(en))
+    ]
+    agent = TD3(en, am, cm, bs, log_frequency=10)
+    agent.fit(250)
