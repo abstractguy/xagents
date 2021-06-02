@@ -1,8 +1,7 @@
 import numpy as np
 import tensorflow as tf
-from gym.spaces.discrete import Discrete
-
 from base_agents import OffPolicy
+from gym.spaces.discrete import Discrete
 
 
 class DQN(OffPolicy):
@@ -20,17 +19,10 @@ class DQN(OffPolicy):
             envs: A list of gym environments.
             model: tf.keras.models.Model that is expected to be compiled
                 with an optimizer before training starts.
-            buffer_max_size: Maximum size for each replay buffer used by its
-                respective environment.
-            buffer_initial_size: Initial replay buffer size, if not specified,
-                buffer_max_size is used
-            buffer_batch_size: Sample size returned by each replay buffer sample() call.
-            epsilon_start: Epsilon value at training start.
-            epsilon_end: Epsilon value at training end.
+            buffers: A list of replay buffer objects whose length should match
+                `envs`s'.
             double: If True, DDQN is used.
-            target_sync_steps: Update target network every n steps.
-            epsilon_decay_steps: Decay epsilon for n steps.
-            **kwargs: kwargs Passed to OnPolicy
+            **kwargs: kwargs passed to super classes.
         """
         super(DQN, self).__init__(envs, model, buffers, **kwargs)
         assert isinstance(envs[0].action_space, Discrete), (
@@ -51,7 +43,7 @@ class DQN(OffPolicy):
         Args:
             inputs: Inputs as tensors / numpy arrays that are expected
                 by the given model.
-            models: A tf.keras.Model
+            models: A tf.keras.Model or a list of tf.keras.Model(s)
             training: `training` parameter passed to model call.
 
         Returns:
@@ -61,6 +53,12 @@ class DQN(OffPolicy):
         return tf.argmax(q_values, 1), q_values
 
     def sync_target_model(self):
+        """
+        Sync target model weights with main's
+
+        Returns:
+            None
+        """
         if self.steps % self.target_sync_steps == 0:
             self.target_model.set_weights(self.model.get_weights())
 
@@ -79,14 +77,14 @@ class DQN(OffPolicy):
         """
         Get targets for gradient update.
         Args:
-            states: A tensor of shape (self.n_envs * self.buffer_batch_size, *self.input_shape)
-            actions: A tensor of shape (self.n_envs * self.buffer_batch_size)
-            rewards: A tensor of shape (self.n_envs * self.buffer_batch_size)
-            dones: A tensor of shape (self.n_envs * self.buffer_batch_size)
-            new_states: A tensor of shape (self.n_envs * self.buffer_batch_size, *self.input_shape)
+            states: A tensor of shape (self.n_envs * total buffer batch size, *self.input_shape)
+            actions: A tensor of shape (self.n_envs * total buffer batch size)
+            rewards: A tensor of shape (self.n_envs * total buffer batch size)
+            dones: A tensor of shape (self.n_envs * total buffer batch size)
+            new_states: A tensor of shape (self.n_envs * total buffer batch size, *self.input_shape)
 
         Returns:
-            Target values, a tensor of shape (self.n_envs * self.buffer_batch_size, self.n_actions)
+            Target values, a tensor of shape (self.n_envs * total buffer batch size, self.n_actions)
         """
         q_states = self.get_model_outputs(states, self.model)[1]
         if self.double:

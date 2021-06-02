@@ -1,7 +1,6 @@
 import tensorflow as tf
-from tensorflow.keras.losses import MSE
-
 from base_agents import OffPolicy
+from tensorflow.keras.losses import MSE
 
 
 class TD3(OffPolicy):
@@ -14,17 +13,35 @@ class TD3(OffPolicy):
         policy_delay=2,
         gradient_steps=None,
         tau=0.005,
-        policy_noise=0.2,
+        policy_noise_coef=0.2,
         noise_clip=0.5,
         **kwargs,
     ):
+        """
+
+        Args:
+            envs: A list of gym environments.
+            actor_model: Actor separate model as a tf.keras.Model.
+            critic_model: Critic separate model as a tf.keras.Model.
+            buffers: A list of replay buffer objects whose length should match
+                `envs`s'.
+            policy_delay: Number of gradient steps after which, actor weights
+                will be updated as well as syncing the target models weights.
+            gradient_steps: Number of iterations per train_step() call, if not
+                specified, it defaults to the number of steps per most-recent
+                finished episode per environment.
+            tau: Tau constant used for syncing target model weights.
+            policy_noise_coef: Coefficient multiplied by noise added to target actions.
+            noise_clip: Target noise clipping value.
+            **kwargs: kwargs passed to super classes.
+        """
         super(TD3, self).__init__(envs, actor_model, buffers, **kwargs)
         self.actor = actor_model
         self.critic1 = critic_model
         self.policy_delay = policy_delay
         self.gradient_steps = gradient_steps
         self.tau = tau
-        self.policy_noise = policy_noise
+        self.policy_noise_coef = policy_noise_coef
         self.noise_clip = noise_clip
         self.episode_steps = tf.Variable(tf.zeros(self.n_envs), False)
         self.step_increment = tf.ones(self.n_envs)
@@ -48,7 +65,14 @@ class TD3(OffPolicy):
         ]
         self.batch_dtypes = 5 * [tf.float32]
 
-    def update_target_models(self):
+    def sync_target_models(self):
+        """
+        Sync target actor, target critic 1, and target critic 2 weights
+        with their respective models in self.model_groups.
+
+        Returns:
+            None
+        """
         for model, target_model in self.model_groups:
             for var, target_var in zip(
                 model.trainable_variables, target_model.trainable_variables
@@ -56,12 +80,24 @@ class TD3(OffPolicy):
                 target_var.assign((1 - self.tau) * target_var + self.tau * var)
 
     def update_critic_weights(self, states, actions, new_states, dones, rewards):
+        """
+        Update critic 1 and critic 2 weights.
+        Args:
+            states: A tensor of shape (self.n_envs * total buffer batch size, *self.input_shape)
+            actions: A tensor of shape (self.n_envs * total buffer batch size, self.n_actions)
+            rewards: A tensor of shape (self.n_envs * total buffer batch size)
+            dones: A tensor of shape (self.n_envs * total buffer batch size)
+            new_states: A tensor of shape (self.n_envs * total buffer batch size, *self.input_shape)
+
+        Returns:
+            None
+        """
         with tf.GradientTape(True) as tape:
             noise = (
                 tf.random.normal(
                     (self.buffers[0].batch_size * self.n_envs, self.n_actions)
                 )
-                * self.policy_noise
+                * self.policy_noise_coef
             )
             noise = tf.clip_by_value(noise, -self.noise_clip, self.noise_clip)
             new_actions = tf.clip_by_value(
@@ -88,6 +124,14 @@ class TD3(OffPolicy):
         )
 
     def update_actor_weights(self, states):
+        """
+        Update actor weights.
+        Args:
+            states: A tensor of shape (self.n_envs * total buffer batch size, *self.input_shape)
+
+        Returns:
+            None.
+        """
         with tf.GradientTape() as tape:
             actor_loss = -tf.reduce_mean(
                 self.critic1(tf.concat([states, self.actor(states)], 1))
@@ -97,6 +141,15 @@ class TD3(OffPolicy):
         )
 
     def update_weights(self, gradient_steps):
+        """
+        Run gradient steps and update both actor and critic weights according
+            to self.policy delay for the given gradient steps.
+        Args:
+            gradient_steps: Number of iterations.
+
+        Returns:
+            None.
+        """
         for gradient_step in range(int(gradient_steps)):
             states, actions, rewards, dones, new_states = tf.numpy_function(
                 self.concat_buffer_samples, [], self.batch_dtypes
@@ -104,10 +157,17 @@ class TD3(OffPolicy):
             self.update_critic_weights(states, actions, new_states, dones, rewards)
             if gradient_step % self.policy_delay == 0:
                 self.update_actor_weights(states)
-                self.update_target_models()
+                self.sync_target_models()
 
     @tf.function
     def train_step(self):
+        """
+        Perform 1 step which controls action_selection, interaction with environments
+        in self.envs, batching and gradient updates.
+
+        Returns:
+            None
+        """
         step_actions = self.actor(tf.numpy_function(self.get_states, [], tf.float32))
         *_, dones, _ = tf.numpy_function(
             self.step_envs, [step_actions, True, True], self.batch_dtypes

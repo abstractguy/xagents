@@ -25,7 +25,7 @@ class A2C(OnPolicy):
             entropy_coef: Entropy coefficient used for entropy loss calculation.
             value_loss_coef: Value coefficient used for value loss calculation.
             grad_norm: Gradient clipping value passed to tf.clip_by_global_norm()
-            **kwargs: kwargs Passed to OnPolicy.
+            **kwargs: kwargs Passed to super classes.
         """
         super(A2C, self).__init__(envs, model, **kwargs)
         self.entropy_coef = entropy_coef
@@ -164,6 +164,9 @@ class A2C(OnPolicy):
         return np.asarray(returns[::-1], np.float32)[:-1]
 
     def np_train_step(self):
+        """
+        Perform the batching and return calculation in numpy.
+        """
         (
             states,
             rewards,

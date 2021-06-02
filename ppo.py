@@ -26,7 +26,7 @@ class PPO(A2C):
             mini_batches: Number of mini batches to use per gradient update.
             advantage_epsilon: Epsilon value added to estimated advantage.
             clip_norm: Clipping value passed to tf.clip_by_value()
-            **kwargs: kwargs Passed to OnPolicy
+            **kwargs: kwargs Passed to super classes.
         """
         super(PPO, self).__init__(envs, model, **kwargs)
         self.lam = lam

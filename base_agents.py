@@ -30,7 +30,7 @@ class BaseAgent(ABC):
         log_frequency=None,
     ):
         """
-        Base class for on-policy agents.
+        Base class for various types of agents.
         Args:
             envs: A list of gym environments.
             model: tf.keras.models.Model that is expected to be compiled
@@ -47,6 +47,8 @@ class BaseAgent(ABC):
             scale_factor: Input normalization value to divide inputs by.
             output_models: Model(s) that control the output of self.get_model_outputs().
                 If not specified, it defaults to self.model
+            log_frequency: Interval of done games to display progress after each,
+                defaults to the number of environments given if not specified.
         """
         assert envs, 'No Environments given'
         self.n_envs = len(envs)
@@ -99,6 +101,10 @@ class BaseAgent(ABC):
             self.states[i] = env.reset()
 
     def set_action_count(self):
+        """
+        Set `self.n_actions` to the number of actions for discrete
+        environments or to the shape of the action space for continuous.
+        """
         action_space = self.envs[0].action_space
         if isinstance(action_space, Discrete):
             self.n_actions = action_space.n
@@ -128,7 +134,6 @@ class BaseAgent(ABC):
             - speed: Frame speed/s
             - mean reward: Mean game total rewards.
             - best reward: Highest total episode score obtained.
-            - episode rewards: A list of n scores where n is the number of environments.
 
         Returns:
             None
@@ -469,11 +474,27 @@ class BaseAgent(ABC):
 
 
 class OnPolicy(BaseAgent, ABC):
+    """
+    Base class for on-policy agents.
+    """
+
     def __init__(self, envs, model, **kwargs):
+        """
+        Initialize on-policy agent.
+        Args:
+            envs: A list of gym environments.
+            model: tf.keras.models.Model that is expected to be compiled
+                with an optimizer before training starts.
+            **kwargs: kwargs passed to BaseAgent.
+        """
         super(OnPolicy, self).__init__(envs, model, **kwargs)
 
 
 class OffPolicy(BaseAgent, ABC):
+    """
+    Base class for off-policy agents.
+    """
+
     def __init__(
         self,
         envs,
@@ -485,6 +506,22 @@ class OffPolicy(BaseAgent, ABC):
         target_sync_steps=1000,
         **kwargs,
     ):
+        """
+        Initialize off-policy agent.
+        Args:
+            envs: A list of gym environments.
+            model: tf.keras.models.Model that is expected to be compiled
+                with an optimizer before training starts.
+            buffers: A list of replay buffer objects whose length should match
+                `envs`s'.
+            epsilon_start: Starting epsilon value which is used to control random exploration.
+                It should be decremented and adjusted according to implementation needs.
+            epsilon_end: End epsilon value which is the minimum exploration rate.
+            epsilon_decay_steps: Number of steps for epsilon to reach `epsilon_end`
+                from `epsilon_start`,
+            target_sync_steps: Steps to sync target models after each.
+            **kwargs: kwargs passed to BaseAgent.
+        """
         super(OffPolicy, self).__init__(envs, model, **kwargs)
         assert len(envs) == len(buffers), (
             f'Expected equal env and replay buffer sizes, got {self.n_envs} '
@@ -497,6 +534,12 @@ class OffPolicy(BaseAgent, ABC):
         self.target_sync_steps = target_sync_steps
 
     def update_epsilon(self):
+        """
+        Decrement epsilon which aims to gradually reduce randomization.
+
+        Returns:
+            None
+        """
         self.epsilon = max(
             self.epsilon_end, self.epsilon_start - self.steps / self.epsilon_decay_steps
         )
@@ -538,5 +581,18 @@ class OffPolicy(BaseAgent, ABC):
         monitor_session=None,
         weights=None,
     ):
+        """
+        Common training loop shared by subclasses, monitors training status
+        and progress, performs all training steps, updates metrics, and logs progress.
+        ** Additionally, replay buffers are pre-filled before training starts**
+        Args:
+            target_reward: Target reward, if achieved, the training will stop
+            max_steps: Maximum number of steps, if reached the training will stop.
+            monitor_session: Session name to use for monitoring the training with wandb.
+            weights: Path to .tf trained model weights to continue training.
+
+        Returns:
+            None
+        """
         self.fill_buffers()
         super(OffPolicy, self).fit(target_reward, max_steps, monitor_session, weights)

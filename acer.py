@@ -23,16 +23,15 @@ class ACER(A2C):
             envs: A list of gym environments.
             model: tf.keras.models.Model that is expected to be compiled
                 with an optimizer before training starts.
+            buffers: A list of replay buffer objects whose length should match
+                `envs`s'.
             ema_alpha: Moving average decay passed to tf.train.ExponentialMovingAverage()
-            buffer_max_size: Maximum total size of all replay buffer items combined.
-            buffer_initial_size: Minimum total size of all initial (before sampling is allowed),
-                if not specified, buffer_max_size is used.
             replay_ratio: Lam value passed to np.random.poisson()
             epsilon: epsilon value used in several calculations during gradient update.
             importance_c: Importance weight truncation parameter.
             delta: Delta parameter used for trust region update.
             trust_region: If False, no trust region updates will be used.
-            **kwargs: kwargs Passed to OnPolicy.
+            **kwargs: kwargs Passed to super classes.
         """
         super(ACER, self).__init__(envs, model, **kwargs)
         self.avg_model = tf.keras.models.clone_model(self.model)
@@ -364,8 +363,7 @@ class ACER(A2C):
 
 
 if __name__ == '__main__':
-    from utils import (IAmTheOtherKindOfReplayBufferBecauseFuckTensorflow,
-                       ModelReader, ReplayBuffer, create_gym_env)
+    from utils import ModelReader, ReplayBuffer, create_gym_env
 
     seed = None
     es = create_gym_env('PongNoFrameskip-v4', 16, scale_frames=False)

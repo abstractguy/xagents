@@ -55,7 +55,7 @@ class AtariPreprocessor(gym.Wrapper):
             frame = frame / 255
         return np.expand_dims(frame, -1)
 
-    def step(self, action: int):
+    def step(self, action):
         """
         Step respective to self.skips.
         Args:
@@ -92,7 +92,19 @@ class AtariPreprocessor(gym.Wrapper):
 
 
 class BaseBuffer:
+    """
+    Base class for replay buffers.
+    """
+
     def __init__(self, size, initial_size=None, batch_size=32):
+        """
+        Initialize replay buffer.
+        Args:
+            size: Buffer maximum size.
+            initial_size: Buffer initial size to be filled before training starts.
+                To be used by caller.
+            batch_size: Size of the batch that should be used in get_sample() implementation.
+        """
         if initial_size:
             assert size >= initial_size, 'Buffer initial size exceeds max size'
         self.size = size
@@ -101,11 +113,23 @@ class BaseBuffer:
         self.current_size = 0
 
     def append(self, *args):
+        """
+        Add experience to buffer.
+        Args:
+            *args: Items to store, types are implementation specific.
+
+        """
         raise NotImplementedError(
             f'append() should be implemented by {self.__class__.__name__} subclasses'
         )
 
     def get_sample(self):
+        """
+        Sample from stored experience.
+
+        Returns:
+            Sample as numpy array.
+        """
         raise NotImplementedError(
             f'get_sample() should be implemented by {self.__class__.__name__} subclasses'
         )
@@ -113,15 +137,17 @@ class BaseBuffer:
 
 class ReplayBuffer(BaseBuffer):
     """
-    Replay buffer that holds state transitions
+    deque-based replay buffer that holds state transitions
     """
 
     def __init__(self, size, n_steps=1, gamma=0.99, **kwargs):
         """
-        Initialize buffer settings.
+        Initialize replay buffer.
         Args:
-            n_steps: Steps separating start and end frames.
+            size: Buffer maximum size.
+            n_steps: Steps separating start and end states.
             gamma: Discount factor.
+            **kwargs: kwargs passed to BaseBuffer.
         """
         super(ReplayBuffer, self).__init__(size, **kwargs)
         self.n_steps = n_steps
@@ -169,11 +195,11 @@ class ReplayBuffer(BaseBuffer):
 
     def get_sample(self):
         """
-        Get a sample of the replay buffer.
+        Sample from stored experience.
 
         Returns:
-            A batch of observations that has the same length as the
-                previously appended experience.
+            Same number of args passed to append, having self.batch_size as
+            first shape.
         """
         memories = random.sample(self.main_buffer, self.batch_size)
         if self.batch_size > 1:
@@ -182,7 +208,19 @@ class ReplayBuffer(BaseBuffer):
 
 
 class IAmTheOtherKindOfReplayBufferBecauseFuckTensorflow(BaseBuffer):
+    """
+    numpy-based replay buffer added for compatibility with tensorflow shortcomings.
+    """
+
     def __init__(self, size, slots, **kwargs):
+        """
+        Initialize replay buffer.
+
+        Args:
+            size: Buffer maximum size.
+            slots: Number of args that will be passed to self.append()
+            **kwargs: kwargs passed to BaseBuffer.
+        """
         super(IAmTheOtherKindOfReplayBufferBecauseFuckTensorflow, self).__init__(
             size, **kwargs
         )
@@ -190,6 +228,14 @@ class IAmTheOtherKindOfReplayBufferBecauseFuckTensorflow(BaseBuffer):
         self.current_size = 0
 
     def append(self, *args):
+        """
+        Add experience to buffer.
+        Args:
+            *args: Items to store.
+
+        Returns:
+            None
+        """
         self.current_size += 1
         for i, arg in enumerate(args):
             if not isinstance(arg, np.ndarray):
@@ -199,6 +245,13 @@ class IAmTheOtherKindOfReplayBufferBecauseFuckTensorflow(BaseBuffer):
             self.slots[i][self.current_size % self.size] = arg.copy()
 
     def get_sample(self):
+        """
+        Sample from stored experience.
+
+        Returns:
+            Same number of args passed to append, having self.batch_size as
+            first shape.
+        """
         indices = np.random.randint(
             0, min(self.current_size, self.size), self.batch_size
         )
@@ -226,7 +279,7 @@ def create_gym_env(env_name, n=1, preprocess=True, *args, **kwargs):
 
 class ModelReader:
     """
-    Model utility class to create keras models from configuration files.
+    Model utility class to create basic keras models from configuration files.
     """
 
     def __init__(self, cfg_file, output_units, input_shape, optimizer=None, seed=None):
@@ -237,7 +290,9 @@ class ModelReader:
             output_units: A list of output units that must be of the
                 same size as the number of dense layers in the configuration
                 without specified units.
-            optimizer: tf.keras.optimizers.Optimizer
+            input_shape: input shape passed to tf.keras.layers.Input()
+            optimizer: tf.keras.optimizers.Optimizer with which the resulting
+                model will be compiled.
             seed: Random seed used by layer initializers.
         """
         self.initializers = {'orthogonal': Orthogonal}
@@ -312,7 +367,8 @@ class ModelReader:
 
     def build_model(self):
         """
-        Parse all configuration sections, create layers and model.
+        Parse all configuration sections, create respective layers, create and
+        compile model.
 
         Returns:
             tf.keras.Model
