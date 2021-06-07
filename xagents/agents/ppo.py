@@ -1,6 +1,6 @@
 import numpy as np
 import tensorflow as tf
-from a2c import A2C
+from xagents.agents.a2c import A2C
 
 
 class PPO(A2C):
@@ -219,13 +219,14 @@ class PPO(A2C):
 
 if __name__ == '__main__':
     from tensorflow.keras.optimizers import Adam
-    from utils import ModelReader, create_gym_env
+
+    from xagents.utils import ModelReader, create_gym_env
 
     seed = None
     envi = create_gym_env('BipedalWalker-v3', 16, False)
     optimizer = Adam(7e-4)
     mh = ModelReader(
-        'models/ann/actor-critic.cfg',
+        '../models/ann/actor-critic.cfg',
         [envi[0].action_space.shape[0], 1],
         envi[0].observation_space.shape,
         optimizer,

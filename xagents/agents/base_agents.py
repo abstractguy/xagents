@@ -584,7 +584,7 @@ class OffPolicy(BaseAgent, ABC):
         """
         Common training loop shared by subclasses, monitors training status
         and progress, performs all training steps, updates metrics, and logs progress.
-        ** Additionally, replay buffers are pre-filled before training starts**
+        ** Additionally, replay buffers are pre-filled before training starts **
         Args:
             target_reward: Target reward, if achieved, the training will stop
             max_steps: Maximum number of steps, if reached the training will stop.

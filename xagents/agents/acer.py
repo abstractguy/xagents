@@ -1,6 +1,6 @@
 import numpy as np
 import tensorflow as tf
-from a2c import A2C
+from xagents.agents.a2c import A2C
 
 
 class ACER(A2C):
@@ -363,13 +363,13 @@ class ACER(A2C):
 
 
 if __name__ == '__main__':
-    from utils import ModelReader, ReplayBuffer, create_gym_env
+    from xagents.utils import ModelReader, ReplayBuffer, create_gym_env
 
     seed = None
     es = create_gym_env('PongNoFrameskip-v4', 16, scale_frames=False)
     optimizer = tf.keras.optimizers.Adam(7e-4)
     mh = ModelReader(
-        'models/cnn/acer.cfg',
+        '../models/cnn/acer.cfg',
         [es[0].action_space.n, es[0].action_space.n],
         es[0].observation_space.shape,
         optimizer,

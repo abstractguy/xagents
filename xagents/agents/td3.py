@@ -1,6 +1,7 @@
 import tensorflow as tf
-from base_agents import OffPolicy
 from tensorflow.keras.losses import MSE
+
+from xagents.agents.base_agents import OffPolicy
 
 
 class TD3(OffPolicy):
@@ -181,18 +182,19 @@ class TD3(OffPolicy):
 
 
 if __name__ == '__main__':
-    from utils import (IAmTheOtherKindOfReplayBufferBecauseFuckTensorflow,
-                       ModelReader, create_gym_env)
+    from xagents.utils import (
+        IAmTheOtherKindOfReplayBufferBecauseFuckTensorflow, ModelReader,
+        create_gym_env)
 
     en = create_gym_env('BipedalWalker-v3', 16, False)
     amr = ModelReader(
-        'models/ann/td3-actor.cfg',
+        '../models/ann/td3-actor.cfg',
         [en[0].action_space.shape[0]],
         en[0].observation_space.shape,
         'adam',
     )
     cmr = ModelReader(
-        'models/ann/td3-critic.cfg',
+        '../models/ann/td3-critic.cfg',
         [1],
         en[0].observation_space.shape[0] + en[0].action_space.shape[0],
         'adam',
