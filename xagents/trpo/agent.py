@@ -1,7 +1,7 @@
 import numpy as np
 import tensorflow as tf
 
-from xagents.agents.ppo import PPO
+from xagents import PPO
 
 
 class TRPO(PPO):

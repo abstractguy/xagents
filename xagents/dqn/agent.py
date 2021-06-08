@@ -1,7 +1,7 @@
 import numpy as np
 import tensorflow as tf
-from xagents.agents.base_agents import OffPolicy
 from gym.spaces.discrete import Discrete
+from xagents.base import OffPolicy
 
 
 class DQN(OffPolicy):

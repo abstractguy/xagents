@@ -1,7 +1,6 @@
 import tensorflow as tf
 from tensorflow.keras.losses import MSE
-
-from xagents.agents.base_agents import OffPolicy
+from xagents.base import OffPolicy
 
 
 class TD3(OffPolicy):

@@ -1,6 +1,7 @@
 import numpy as np
 import tensorflow as tf
-from xagents.agents.a2c import A2C
+
+from xagents import A2C
 
 
 class PPO(A2C):
@@ -219,7 +220,6 @@ class PPO(A2C):
 
 if __name__ == '__main__':
     from tensorflow.keras.optimizers import Adam
-
     from xagents.utils import ModelReader, create_gym_env
 
     seed = None

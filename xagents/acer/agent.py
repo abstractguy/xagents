@@ -1,6 +1,7 @@
 import numpy as np
 import tensorflow as tf
-from xagents.agents.a2c import A2C
+
+from xagents import A2C
 
 
 class ACER(A2C):

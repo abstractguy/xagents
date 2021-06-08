@@ -1,9 +1,9 @@
 import numpy as np
 import tensorflow as tf
-from xagents.agents.base_agents import OnPolicy
 from gym.spaces.discrete import Discrete
 from tensorflow_probability.python.distributions import (
     Categorical, MultivariateNormalDiag)
+from xagents.base import OnPolicy
 
 
 class A2C(OnPolicy):
@@ -213,8 +213,7 @@ class A2C(OnPolicy):
 
 if __name__ == '__main__':
     import tensorflow_addons as tfa
-
-    from xagents.utils import ModelReader, create_gym_env
+    from xagents.utils.common import ModelReader, create_gym_env
 
     seed = None
     ens = create_gym_env('BipedalWalker-v3', 16, False)
