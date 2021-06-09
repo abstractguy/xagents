@@ -6,12 +6,16 @@ import pandas as pd
 from gym.spaces.box import Box
 from gym.spaces.discrete import Discrete
 from tensorflow.keras.optimizers import Adam
-from xagents.utils.cli import agent_args, non_agent_args, play_args, train_args
-from xagents.utils.common import ModelReader, create_gym_env
 
 import xagents
 from xagents import (A2C, ACER, DQN, PPO, TD3, TRPO, a2c, acer, dqn, ppo, td3,
                      trpo)
+from xagents.base import OffPolicy
+from xagents.utils.buffers import (
+    IAmTheOtherKindOfReplayBufferBecauseFuckTensorflow, ReplayBuffer)
+from xagents.utils.cli import (agent_args, non_agent_args, off_policy_args,
+                               play_args, train_args)
+from xagents.utils.common import ModelReader, create_gym_env
 
 
 def display_section(title, cli_args):
@@ -125,6 +129,8 @@ def execute():
         agent_parser = argparse.ArgumentParser()
         add_args(agent_args, agent_parser)
         add_args(agent_map[agent_id][0].cli_args, agent_parser)
+        if issubclass(agent_map[agent_id][1], OffPolicy):
+            add_args(off_policy_args, agent_parser)
         add_args(non_agent_args, general_parser)
         non_agent_known = general_parser.parse_known_args()[0]
         agent_known = vars(agent_parser.parse_known_args()[0])
@@ -135,7 +141,7 @@ def execute():
         if 'model' in agent_known:
             models_folder = Path(agent_map[agent_id][0].__file__).parent / 'models'
             network_type = network_types[type(envs[0].action_space)]
-            default_model_cfg = [*models_folder.rglob(f'{network_type}-*.cfg')]
+            default_model_cfg = [*models_folder.rglob(f'{network_type}*.cfg')]
             default_model_cfg = (
                 default_model_cfg[0].as_posix() if default_model_cfg else None
             )
@@ -149,8 +155,10 @@ def execute():
             ]
             if agent_id == 'acer':
                 units.append(units[-1])
-            elif 'actor' in model_cfg:
+            elif 'actor' in model_cfg and 'critic' in model_cfg:
                 units.append(1)
+            elif 'critic' in model_cfg:
+                units[0] = 1
             agent_known['model'] = ModelReader(
                 model_cfg,
                 units,
@@ -158,6 +166,32 @@ def execute():
                 Adam(non_agent_known.lr),
                 agent_known['seed'],
             ).build_model()
+        if issubclass(agent_map[agent_id][1], OffPolicy) or agent_id == 'acer':
+            buffer_max_size = non_agent_known.buffer_max_size // (
+                n_envs := non_agent_known.n_envs
+            )
+            buffer_initial_size = non_agent_known.buffer_initial_size // n_envs
+            buffer_batch_size = non_agent_known.buffer_batch_size // n_envs
+            if agent_id == 'td3':
+                agent_known['buffers'] = [
+                    IAmTheOtherKindOfReplayBufferBecauseFuckTensorflow(
+                        buffer_max_size,
+                        5,
+                        initial_size=buffer_initial_size,
+                        batch_size=buffer_batch_size,
+                    )
+                    for _ in range(n_envs)
+                ]
+            else:
+                agent_known['buffers'] = [
+                    ReplayBuffer(
+                        buffer_max_size,
+                        non_agent_known.buffer_n_steps,
+                        agent_known['gamma'],
+                        initial_size=buffer_initial_size,
+                        batch_size=buffer_batch_size,
+                    )
+                ]
         agent = agent_map[agent_id][1](**agent_known)
         pass
 

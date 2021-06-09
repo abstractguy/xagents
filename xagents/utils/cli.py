@@ -26,6 +26,18 @@ non_agent_args = {
         'type': float,
         'default': 0.999,
     },
+    'buffer-max-size': {'help': 'Maximum replay buffer size', 'type': int, 'default': 50000},
+    'buffer-initial-size': {'help': 'Replay buffer initial size', 'type': int, 'default': 10000},
+    'buffer-batch-size': {
+        'help': 'Replay buffer batch size',
+        'type': int,
+        'default': 32,
+    },
+    'buffer-n-steps': {
+        'help': 'Replay buffer transition step',
+        'type': int,
+        'default': 1,
+    },
 }
 
 agent_args = {
@@ -44,6 +56,30 @@ agent_args = {
     'seed': {'help': 'Random seed', 'type': int},
     'scale-factor': {'help': 'Input scale divisor', 'type': int},
     'log-frequency': {'help': 'Log progress every n games', 'type': int},
+}
+
+off_policy_args = {
+    'epsilon-start': {
+        'help': 'Starting epsilon value which is used to control random exploration.\n'
+        'It should be decremented and adjusted according to implementation needs',
+        'type': float,
+        'default': 1.0,
+    },
+    'epsilon-end': {
+        'help': 'Epsilon end value (minimum exploration rate)',
+        'type': float,
+        'default': 0.02,
+    },
+    'epsilon-decay-steps': {
+        'help': 'Number of steps for `epsilon-start` to reach `epsilon-end`',
+        'type': float,
+        'default': 150000,
+    },
+    'target-sync-steps': {
+        'help': 'Sync target models every n steps',
+        'type': int,
+        'default': 1000,
+    },
 }
 
 train_args = {
