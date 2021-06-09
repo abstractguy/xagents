@@ -227,21 +227,3 @@ class ModelReader:
         if self.optimizer:
             model.compile(self.optimizer)
         return model
-
-
-def get_model_configurations():
-    module_path = Path(__file__)
-    models_folder = module_path.parent / 'models'
-    configurations = [
-        (models_folder / cfg_file).as_posix()
-        for cfg_file in models_folder.rglob('*.cfg')
-    ]
-    cnn_configurations, ann_configurations, rnn_configurations = [], [], []
-    for configuration in configurations:
-        if 'cnn' in configuration:
-            cnn_configurations.append(configuration)
-        if 'ann' in configuration:
-            ann_configurations.append(configuration)
-        if 'rnn' in configuration:
-            rnn_configurations.append(configuration)
-    return cnn_configurations, ann_configurations, rnn_configurations

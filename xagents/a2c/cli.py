@@ -5,7 +5,7 @@ cli_args = {
         'type': float,
         'default': 0.01,
     },
-    'value-coef': {
+    'value-loss-coef': {
         'help': 'Value loss coefficient for value loss calculation',
         'type': float,
         'default': 0.5,

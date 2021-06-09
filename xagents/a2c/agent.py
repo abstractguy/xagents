@@ -222,18 +222,19 @@ if __name__ == '__main__':
         learning_rate=7e-4, epsilon=1e-5, beta_1=0.0, beta_2=0.99
     )
     mh = ModelReader(
-        '../models/ann/actor-critic.cfg',
+        'models/ann-actor-critic.cfg',
         [ens[0].action_space.shape[0], 1],
         ens[0].observation_space.shape,
         o,
         seed,
     )
     # mh = ModelHandler(
-    #     'models/ann/actor-critic.cfg', [ens[0].action_space.shape[0], 1],  ens[0].observation_space.shape, o, seed
+    #     'models/ann-actor-critic.cfg', [ens[0].action_space.shape[0], 1],  ens[0].observation_space.shape, o, seed
     # )
     m = mh.build_model()
 
     ac = A2C(ens, m, seed=seed, n_steps=5)
+    print(ac.get_model_configurations())
     ac.fit(19)
     # ac.play(
     #     '/Users/emadboctor/Desktop/code/drl-models/a2c-pong-17-model/a2c-pong.tf',

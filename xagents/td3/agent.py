@@ -187,13 +187,13 @@ if __name__ == '__main__':
 
     en = create_gym_env('BipedalWalker-v3', 16, False)
     amr = ModelReader(
-        '../models/ann/td3-actor.cfg',
+        'models/ann-td3-actor.cfg',
         [en[0].action_space.shape[0]],
         en[0].observation_space.shape,
         'adam',
     )
     cmr = ModelReader(
-        '../models/ann/td3-critic.cfg',
+        'models/ann-td3-critic.cfg',
         [1],
         en[0].observation_space.shape[0] + en[0].action_space.shape[0],
         'adam',

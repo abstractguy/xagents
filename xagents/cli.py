@@ -1,11 +1,17 @@
 import argparse
 import sys
+from pathlib import Path
 
 import pandas as pd
+from gym.spaces.box import Box
+from gym.spaces.discrete import Discrete
+from tensorflow.keras.optimizers import Adam
+from xagents.utils.cli import agent_args, non_agent_args, play_args, train_args
+from xagents.utils.common import ModelReader, create_gym_env
 
 import xagents
-from xagents import a2c, acer, dqn, ppo, td3, trpo
-from xagents.utils.cli import general_args, play_args, train_args
+from xagents import (A2C, ACER, DQN, PPO, TD3, TRPO, a2c, acer, dqn, ppo, td3,
+                     trpo)
 
 
 def display_section(title, cli_args):
@@ -13,7 +19,7 @@ def display_section(title, cli_args):
     section_frame['flags'] = section_frame.index.values
     section_frame['flags'] = section_frame['flags'].apply(lambda flag: f'--{flag}')
     section_frame = section_frame.reset_index(drop=True).set_index('flags')
-    print(f'\n{title.title()}\n')
+    print(f'\n{title}\n')
     print(
         section_frame[
             [
@@ -25,7 +31,7 @@ def display_section(title, cli_args):
     )
 
 
-def display_commands(display_all=False):
+def display_commands(sections=None):
     available_commands = {
         'train': 'Train given an agent and environment',
         'play': 'Play a game given a trained agent and environment',
@@ -37,13 +43,11 @@ def display_commands(display_all=False):
     for command, description in available_commands.items():
         print(f'\t{command:<10} {description}')
     print()
-    print('Use xagents <command> -h to see more info about a command', end='\n\n')
-    print('Use xagents -h to display all command line options')
-    if display_all:
-        titles = 'train', 'play'
-        cli_args = train_args, play_args
-        for title, cli_arg in zip(titles, cli_args):
-            display_section(title, cli_arg)
+    print('Use xagents <command> to see more info about a command')
+    print('Use xagents <command> <agent> to see more info about command + agent')
+    if sections:
+        for title, cli_args in sections.items():
+            display_section(title, cli_args)
 
 
 def add_args(cli_args, parser):
@@ -72,48 +76,90 @@ def add_args(cli_args, parser):
             )
 
 
-def train(cli_args):
-    pass
+def train(cli_args, agent):
+    envs = create_gym_env(cli_args.env, cli_args.n_envs, cli_args.preprocess)
+    assert isinstance(
+        envs[0].action_space, (Discrete, Box)
+    ), f'Invalid env type {envs[0].action_space}'
 
 
-def play(cli_args):
+def play(cli_args, agent):
     pass
 
 
 def execute():
     valid_commands = {'train': (train_args, train), 'play': (play_args, play)}
-    agent_flags = {
-        'a2c': a2c.cli_args,
-        'acer': acer.cli_args,
-        'dqn': dqn.cli_args,
-        'ppo': ppo.cli_args,
-        'td3': td3.cli_args,
-        'trpo': trpo.cli_args,
+    network_types = {Discrete: 'cnn', Box: 'ann'}
+    agent_map = {
+        'a2c': [a2c, A2C],
+        'acer': [acer, ACER],
+        'dqn': [dqn, DQN],
+        'ppo': [ppo, PPO],
+        'td3': [td3, TD3],
+        'trpo': [trpo, TRPO],
     }
     if (total := len(cli_args := sys.argv)) == 1:
         display_commands()
         return
-    if (command := cli_args[1]) in valid_commands and total == 2:
-        display_section(command, valid_commands[command])
+    if (command := cli_args[1]) not in valid_commands:
+        print(f'Invalid command `{command}`')
         return
-    if (help_flags := any(('-h' in cli_args, '--help' in cli_args))) and total == 2:
-        display_commands(True)
+    if total == 2:
+        display_commands({command: valid_commands[command][0]})
         return
-    if total == 3 and command in valid_commands and help_flags:
-        display_section(command, valid_commands[command])
-        return
-    if command not in valid_commands:
-        print(f'Invalid command {command}')
-        return
-    parser = argparse.ArgumentParser()
-    del sys.argv[1]
-    add_args(general_args, parser)
-    add_args(valid_commands[command][0], parser)
-    process_args = parser.parse_args()
-    selected_agent = process_args['algo']
-    add_args(agent_flags[selected_agent], parser)
-    all_args = parser.parse_args()
-    valid_commands[command][1](all_args)
+    if total >= 3:
+        agent_id = cli_args[2]
+        if agent_id not in agent_map:
+            print(f'Invalid agent `{agent_id}`')
+            return
+        if total == 3:
+            title = f'{command} {agent_id}'
+            to_display = valid_commands[command][0].copy()
+            to_display.update(agent_args)
+            to_display.update(non_agent_args)
+            to_display.update(agent_map[agent_id][0])
+            display_commands({title: to_display})
+            return
+        del sys.argv[1:3]
+        general_parser = argparse.ArgumentParser()
+        agent_parser = argparse.ArgumentParser()
+        add_args(agent_args, agent_parser)
+        add_args(agent_map[agent_id][0].cli_args, agent_parser)
+        add_args(non_agent_args, general_parser)
+        non_agent_known = general_parser.parse_known_args()[0]
+        agent_known = vars(agent_parser.parse_known_args()[0])
+        envs = create_gym_env(
+            non_agent_known.env, non_agent_known.n_envs, non_agent_known.preprocess
+        )
+        agent_known['envs'] = envs
+        if 'model' in agent_known:
+            models_folder = Path(agent_map[agent_id][0].__file__).parent / 'models'
+            network_type = network_types[type(envs[0].action_space)]
+            default_model_cfg = [*models_folder.rglob(f'{network_type}-*.cfg')]
+            default_model_cfg = (
+                default_model_cfg[0].as_posix() if default_model_cfg else None
+            )
+            assert (
+                model_cfg := default_model_cfg or agent_known['model']
+            ), f'You should specify --model <model.cfg>, no default model found in {models_folder}'
+            units = [
+                envs[0].action_space.n
+                if isinstance(envs[0].action_space, Discrete)
+                else envs[0].action_space.shape[0]
+            ]
+            if agent_id == 'acer':
+                units.append(units[-1])
+            elif 'actor' in model_cfg:
+                units.append(1)
+            agent_known['model'] = ModelReader(
+                model_cfg,
+                units,
+                envs[0].observation_space.shape,
+                Adam(non_agent_known.lr),
+                agent_known['seed'],
+            ).build_model()
+        agent = agent_map[agent_id][1](**agent_known)
+        pass
 
 
 if __name__ == '__main__':

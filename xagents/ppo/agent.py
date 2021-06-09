@@ -226,7 +226,7 @@ if __name__ == '__main__':
     envi = create_gym_env('BipedalWalker-v3', 16, False)
     optimizer = Adam(7e-4)
     mh = ModelReader(
-        '../models/ann/actor-critic.cfg',
+        'models/ann-actor-critic.cfg',
         [envi[0].action_space.shape[0], 1],
         envi[0].observation_space.shape,
         optimizer,

@@ -178,7 +178,7 @@ if __name__ == '__main__':
 
     optimizer = Adam(1e-4)
     mh = ModelReader(
-        '../models/cnn/dqn.cfg', [6], en[0].observation_space.shape, optimizer, seed
+        'models/cnn-dqn.cfg', [6], en[0].observation_space.shape, optimizer, seed
     )
     m = mh.build_model()
     bs = [ReplayBuffer(10000 // len(en)) for _ in range(len(en))]

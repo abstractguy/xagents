@@ -1,26 +1,9 @@
-general_args = {
+non_agent_args = {
     'env': {'help': 'gym environment id', 'required': True},
-    'algo': {'help': 'Algorithm to use', 'required': True}
-}
-train_args = {
-    'reward-buffer-size': {
-        'help': 'Size of the total reward buffer, used for calculating '
-        'mean reward value to be displayed.',
-        'default': 100,
-        'type': int,
-    },
     'n-envs': {'help': 'Number of environments to create', 'default': 1, 'type': int},
-    'gamma': {'help': 'Discount factor', 'default': 0.99, 'type': float},
-    'display-precision': {
-        'help': 'Number of decimals to be displayed',
-        'default': 2,
-        'type': int,
-    },
-    'seed': {'help': 'Random seed', 'type': int},
-    'scale-factor': {'help': 'Input scale divisor', 'type': int},
-    'log-frequency': {'help': 'Log progress every n games', 'type': int},
     'preprocess': {
-        'help': 'If specified, states will be treated as atari frames and preprocessed accordingly',
+        'help': 'If specified, states will be treated as atari frames\n'
+        'and preprocessed accordingly',
         'action': 'store_true',
     },
     'lr': {
@@ -43,6 +26,27 @@ train_args = {
         'type': float,
         'default': 0.999,
     },
+}
+
+agent_args = {
+    'reward-buffer-size': {
+        'help': 'Size of the total reward buffer, used for calculating\n'
+        'mean reward value to be displayed.',
+        'default': 100,
+        'type': int,
+    },
+    'gamma': {'help': 'Discount factor', 'default': 0.99, 'type': float},
+    'display-precision': {
+        'help': 'Number of decimals to be displayed',
+        'default': 2,
+        'type': int,
+    },
+    'seed': {'help': 'Random seed', 'type': int},
+    'scale-factor': {'help': 'Input scale divisor', 'type': int},
+    'log-frequency': {'help': 'Log progress every n games', 'type': int},
+}
+
+train_args = {
     'target-reward': {
         'help': 'Target reward when reached, training is stopped',
         type: int,
