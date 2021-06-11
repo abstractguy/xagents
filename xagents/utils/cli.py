@@ -26,8 +26,12 @@ non_agent_args = {
         'type': float,
         'default': 0.999,
     },
-    'buffer-max-size': {'help': 'Maximum replay buffer size', 'type': int, 'default': 50000},
-    'buffer-initial-size': {'help': 'Replay buffer initial size', 'type': int, 'default': 10000},
+    'buffer-max-size': {
+        'help': 'Maximum replay buffer size',
+        'type': int,
+        'default': 10000,
+    },
+    'buffer-initial-size': {'help': 'Replay buffer initial size', 'type': int},
     'buffer-batch-size': {
         'help': 'Replay buffer batch size',
         'type': int,
@@ -85,11 +89,11 @@ off_policy_args = {
 train_args = {
     'target-reward': {
         'help': 'Target reward when reached, training is stopped',
-        type: int,
+        'type': int,
     },
     'max-steps': {
         'help': 'Maximum number of environment steps, when reached, training is stopped',
-        type: int,
+        'type': int,
     },
     'monitor-session': {'help': 'Wandb session name'},
 }

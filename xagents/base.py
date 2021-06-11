@@ -397,7 +397,7 @@ class BaseAgent(ABC):
 
     def fit(
         self,
-        target_reward,
+        target_reward=None,
         max_steps=None,
         monitor_session=None,
         weights=None,
@@ -414,6 +414,9 @@ class BaseAgent(ABC):
         Returns:
             None
         """
+        assert (
+            target_reward or max_steps
+        ), '`target_reward` or `max_steps` should be specified when fit() is called'
         self.init_training(target_reward, max_steps, monitor_session, weights)
         while True:
             self.check_episodes()
@@ -576,7 +579,7 @@ class OffPolicy(BaseAgent, ABC):
 
     def fit(
         self,
-        target_reward,
+        target_reward=None,
         max_steps=None,
         monitor_session=None,
         weights=None,

@@ -6,16 +6,16 @@ import pandas as pd
 from gym.spaces.box import Box
 from gym.spaces.discrete import Discrete
 from tensorflow.keras.optimizers import Adam
-
-import xagents
-from xagents import (A2C, ACER, DQN, PPO, TD3, TRPO, a2c, acer, dqn, ppo, td3,
-                     trpo)
 from xagents.base import OffPolicy
 from xagents.utils.buffers import (
     IAmTheOtherKindOfReplayBufferBecauseFuckTensorflow, ReplayBuffer)
 from xagents.utils.cli import (agent_args, non_agent_args, off_policy_args,
                                play_args, train_args)
 from xagents.utils.common import ModelReader, create_gym_env
+
+import xagents
+from xagents import (A2C, ACER, DQN, PPO, TD3, TRPO, a2c, acer, dqn, ppo, td3,
+                     trpo)
 
 
 def display_section(title, cli_args):
@@ -92,9 +92,12 @@ def play(cli_args, agent):
 
 
 def execute():
-    valid_commands = {'train': (train_args, train), 'play': (play_args, play)}
+    valid_commands = {
+        'train': (train_args, train, 'fit'),
+        'play': (play_args, play, 'play'),
+    }
     network_types = {Discrete: 'cnn', Box: 'ann'}
-    agent_map = {
+    available_agents = {
         'a2c': [a2c, A2C],
         'acer': [acer, ACER],
         'dqn': [dqn, DQN],
@@ -113,7 +116,7 @@ def execute():
         return
     if total >= 3:
         agent_id = cli_args[2]
-        if agent_id not in agent_map:
+        if agent_id not in available_agents:
             print(f'Invalid agent `{agent_id}`')
             return
         if total == 3:
@@ -121,32 +124,37 @@ def execute():
             to_display = valid_commands[command][0].copy()
             to_display.update(agent_args)
             to_display.update(non_agent_args)
-            to_display.update(agent_map[agent_id][0])
+            to_display.update(available_agents[agent_id][0].cli_args)
             display_commands({title: to_display})
             return
         del sys.argv[1:3]
         general_parser = argparse.ArgumentParser()
         agent_parser = argparse.ArgumentParser()
+        command_parser = argparse.ArgumentParser()
         add_args(agent_args, agent_parser)
-        add_args(agent_map[agent_id][0].cli_args, agent_parser)
-        if issubclass(agent_map[agent_id][1], OffPolicy):
+        add_args(available_agents[agent_id][0].cli_args, agent_parser)
+        add_args(valid_commands[command][0], command_parser)
+        if issubclass(available_agents[agent_id][1], OffPolicy):
             add_args(off_policy_args, agent_parser)
         add_args(non_agent_args, general_parser)
         non_agent_known = general_parser.parse_known_args()[0]
         agent_known = vars(agent_parser.parse_known_args()[0])
+        command_known = vars(command_parser.parse_known_args()[0])
         envs = create_gym_env(
             non_agent_known.env, non_agent_known.n_envs, non_agent_known.preprocess
         )
         agent_known['envs'] = envs
         if 'model' in agent_known:
-            models_folder = Path(agent_map[agent_id][0].__file__).parent / 'models'
+            models_folder = (
+                Path(available_agents[agent_id][0].__file__).parent / 'models'
+            )
             network_type = network_types[type(envs[0].action_space)]
             default_model_cfg = [*models_folder.rglob(f'{network_type}*.cfg')]
             default_model_cfg = (
                 default_model_cfg[0].as_posix() if default_model_cfg else None
             )
             assert (
-                model_cfg := default_model_cfg or agent_known['model']
+                model_cfg := agent_known['model'] or default_model_cfg
             ), f'You should specify --model <model.cfg>, no default model found in {models_folder}'
             units = [
                 envs[0].action_space.n
@@ -163,14 +171,23 @@ def execute():
                 model_cfg,
                 units,
                 envs[0].observation_space.shape,
-                Adam(non_agent_known.lr),
+                Adam(
+                    non_agent_known.lr,
+                    non_agent_known.beta1,
+                    non_agent_known.beta2,
+                    non_agent_known.opt_epsilon,
+                ),
                 agent_known['seed'],
             ).build_model()
-        if issubclass(agent_map[agent_id][1], OffPolicy) or agent_id == 'acer':
+        if issubclass(available_agents[agent_id][1], OffPolicy) or agent_id == 'acer':
             buffer_max_size = non_agent_known.buffer_max_size // (
                 n_envs := non_agent_known.n_envs
             )
-            buffer_initial_size = non_agent_known.buffer_initial_size // n_envs
+            buffer_initial_size = (
+                non_agent_known.buffer_initial_size // n_envs
+                if non_agent_known.buffer_initial_size
+                else buffer_max_size
+            )
             buffer_batch_size = non_agent_known.buffer_batch_size // n_envs
             if agent_id == 'td3':
                 agent_known['buffers'] = [
@@ -191,9 +208,10 @@ def execute():
                         initial_size=buffer_initial_size,
                         batch_size=buffer_batch_size,
                     )
+                    for _ in range(n_envs)
                 ]
-        agent = agent_map[agent_id][1](**agent_known)
-        pass
+        agent = available_agents[agent_id][1](**agent_known)
+        getattr(agent, valid_commands[command][2])(**command_known)
 
 
 if __name__ == '__main__':

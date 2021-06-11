@@ -1,3 +1,5 @@
+import os
+
 import numpy as np
 import tensorflow as tf
 from gym.spaces.discrete import Discrete
@@ -170,7 +172,8 @@ class DQN(OffPolicy):
 
 
 if __name__ == '__main__':
-    from xagents.utils import ModelReader, ReplayBuffer, create_gym_env
+    from xagents.utils.buffers import ReplayBuffer
+    from xagents.utils.common import ModelReader, create_gym_env
 
     en = create_gym_env('PongNoFrameskip-v4', 3)
     seed = None
@@ -178,7 +181,7 @@ if __name__ == '__main__':
 
     optimizer = Adam(1e-4)
     mh = ModelReader(
-        'models/cnn-dqn.cfg', [6], en[0].observation_space.shape, optimizer, seed
+        'models/cnn.cfg', [6], en[0].observation_space.shape, optimizer, seed
     )
     m = mh.build_model()
     bs = [ReplayBuffer(10000 // len(en)) for _ in range(len(en))]

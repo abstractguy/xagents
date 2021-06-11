@@ -27,7 +27,7 @@ cli_args = {
     },
     'trust-region': {
         'help': 'True by default, if this flag is specified,\n'
-        'no trust region updates will not be used',
-        'action': 'store_false',
+        'trust region updates will be used',
+        'action': 'store_true',
     },
 }
