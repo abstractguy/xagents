@@ -364,7 +364,7 @@ class ACER(A2C):
 
 
 if __name__ == '__main__':
-    from xagents.utils import ModelReader, ReplayBuffer, create_gym_env
+    from xagents.utils.common import ModelReader, ReplayBuffer, create_gym_env
 
     seed = None
     es = create_gym_env('PongNoFrameskip-v4', 16, scale_frames=False)

@@ -1,4 +1,7 @@
-cli_args = {
+from xagents import a2c
+
+a2c_args = a2c.cli_args
+ppo_args = {
     'model': {'help': 'Path to model .cfg file'},
     'lam': {
         'help': 'GAE-Lambda for advantage estimation',
@@ -25,4 +28,7 @@ cli_args = {
         'type': float,
         'default': 0.1,
     },
+    'n-steps': {'help': 'Transition steps', 'type': int, 'default': 128},
 }
+cli_args = a2c_args.copy()
+cli_args.update(ppo_args)

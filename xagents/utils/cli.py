@@ -6,6 +6,10 @@ non_agent_args = {
         'and preprocessed accordingly',
         'action': 'store_true',
     },
+    'no-scale': {
+        'help': 'If specified, frames will not be scaled / normalized (divided by 255)',
+        'action': 'store_true',
+    },
     'lr': {
         'help': 'Learning rate passed to a tensorflow.keras.optimizers.Optimizer',
         'type': float,
@@ -58,7 +62,7 @@ agent_args = {
         'type': int,
     },
     'seed': {'help': 'Random seed', 'type': int},
-    'scale-factor': {'help': 'Input scale divisor', 'type': int},
+    'scale-factor': {'help': 'Input scale divisor', 'type': float},
     'log-frequency': {'help': 'Log progress every n games', 'type': int},
 }
 

@@ -1,6 +1,5 @@
 import configparser
 from collections import deque
-from pathlib import Path
 
 import cv2
 import gym

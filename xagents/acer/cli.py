@@ -1,4 +1,7 @@
-cli_args = {
+from xagents import a2c
+
+a2c_args = a2c.cli_args
+acer_args = {
     'model': {'help': 'Path to model .cfg file'},
     'ema-alpha': {
         'help': 'Moving average decay passed to tf.train.ExponentialMovingAverage()',
@@ -30,4 +33,12 @@ cli_args = {
         'trust region updates will be used',
         'action': 'store_true',
     },
+    'n-steps': {'help': 'Transition steps', 'type': int, 'default': 20},
+    'grad-norm': {
+        'help': 'Gradient clipping value passed to tf.clip_by_value()',
+        'type': float,
+        'default': 10,
+    },
 }
+cli_args = a2c_args.copy()
+cli_args.update(acer_args)

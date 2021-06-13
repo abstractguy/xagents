@@ -6,22 +6,16 @@ import pandas as pd
 from gym.spaces.box import Box
 from gym.spaces.discrete import Discrete
 from tensorflow.keras.optimizers import Adam
-
-import xagents
-from xagents import A2C, ACER, DQN, PPO, TD3, TRPO, a2c, acer, dqn, ppo, td3, trpo
 from xagents.base import OffPolicy
 from xagents.utils.buffers import (
-    IAmTheOtherKindOfReplayBufferBecauseFuckTensorflow,
-    ReplayBuffer,
-)
-from xagents.utils.cli import (
-    agent_args,
-    non_agent_args,
-    off_policy_args,
-    play_args,
-    train_args,
-)
+    IAmTheOtherKindOfReplayBufferBecauseFuckTensorflow, ReplayBuffer)
+from xagents.utils.cli import (agent_args, non_agent_args, off_policy_args,
+                               play_args, train_args)
 from xagents.utils.common import ModelReader, create_gym_env
+
+import xagents
+from xagents import (A2C, ACER, DQN, PPO, TD3, TRPO, a2c, acer, dqn, ppo, td3,
+                     trpo)
 
 
 def display_section(title, cli_args):
@@ -134,7 +128,7 @@ def create_model(
         units.append(1)
     elif 'critic' in model_cfg:
         units[0] = 1
-    agent_known_args[model_arg] = ModelReader(
+    model_reader = ModelReader(
         model_cfg,
         units,
         envs[0].observation_space.shape,
@@ -145,7 +139,12 @@ def create_model(
             non_agent_known_args.opt_epsilon,
         ),
         agent_known_args['seed'],
-    ).build_model()
+    )
+    if agent_id == 'td3' and 'critic' in model_cfg:
+        model_reader.input_shape = (
+            model_reader.input_shape[0] + envs[0].action_space.shape[0]
+        )
+    agent_known_args[model_arg] = model_reader.build_model()
 
 
 def parse_known_args(command, agent_id, available_agents, valid_commands):
@@ -205,6 +204,11 @@ def create_models(
             'critic',
             model_arg,
         )
+    if agent_id == 'trpo':
+        agent_known_args['output_models'] = [
+            agent_known_args['actor_model'],
+            agent_known_args['critic_model'],
+        ]
 
 
 def create_buffers(agent_known_args, non_agent_known_args, agent_id):
@@ -261,7 +265,10 @@ def execute():
         command, agent_id, available_agents, valid_commands
     )
     envs = create_gym_env(
-        non_agent_known.env, non_agent_known.n_envs, non_agent_known.preprocess
+        non_agent_known.env,
+        non_agent_known.n_envs,
+        non_agent_known.preprocess,
+        scale_frames=not non_agent_known.no_scale,
     )
     agent_known['envs'] = envs
     create_models(
