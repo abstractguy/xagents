@@ -236,7 +236,6 @@ if __name__ == '__main__':
     m = mh.build_model()
 
     ac = A2C(ens, m, seed=seed, n_steps=5)
-    print(ac.get_model_configurations())
     ac.fit(19)
     # ac.play(
     #     '/Users/emadboctor/Desktop/code/drl-models/a2c-pong-17-model/a2c-pong.tf',
