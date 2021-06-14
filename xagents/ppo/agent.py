@@ -221,7 +221,7 @@ class PPO(A2C):
 if __name__ == '__main__':
     from tensorflow.keras.optimizers import Adam
 
-    from xagents.utils import ModelReader, create_gym_env
+    from xagents.utils.common import ModelReader, create_gym_env
 
     seed = None
     envi = create_gym_env('BipedalWalker-v3', 16, False)

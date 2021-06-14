@@ -122,7 +122,6 @@ play_args = {
         'type': float,
         'default': 0,
     },
-    'env-idx': {'help': 'env index in agent.envs', 'type': int, 'default': 0},
     'action-idx': {
         'help': 'Index of action output by agent.model',
         'type': int,

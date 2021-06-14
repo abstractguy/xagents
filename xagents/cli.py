@@ -3,7 +3,6 @@ import sys
 from pathlib import Path
 
 import pandas as pd
-from gym.spaces.box import Box
 from gym.spaces.discrete import Discrete
 from tensorflow.keras.optimizers import Adam
 
@@ -36,9 +35,11 @@ class Executor:
             'td3': [td3, TD3],
             'trpo': [trpo, TRPO],
         }
-        self.available_networks = {Discrete: 'cnn', Box: 'ann'}
+        self.agent_id = None
+        self.command = None
 
-    def display_section(self, title, cli_args):
+    @staticmethod
+    def display_section(title, cli_args):
         section_frame = pd.DataFrame(cli_args).T.fillna('-')
         section_frame['flags'] = section_frame.index.values
         section_frame['flags'] = section_frame['flags'].apply(lambda flag: f'--{flag}')
@@ -68,7 +69,8 @@ class Executor:
             for title, cli_args in sections.items():
                 self.display_section(title, cli_args)
 
-    def add_args(self, cli_args, parser):
+    @staticmethod
+    def add_args(cli_args, parser):
         """
         Add given arguments to parser.
         Args:
@@ -84,6 +86,7 @@ class Executor:
             _type = options.get('type')
             _action = options.get('action')
             _required = options.get('required')
+            _nargs = options.get('nargs')
             if not _action:
                 parser.add_argument(
                     f'--{arg}',
@@ -91,13 +94,14 @@ class Executor:
                     default=_default,
                     type=_type,
                     required=_required,
+                    nargs=_nargs,
                 )
             else:
                 parser.add_argument(
                     f'--{arg}', help=_help, default=_default, action=_action
                 )
 
-    def maybe_proceed(self):
+    def maybe_create_agent(self):
         if (total := len(cli_args := sys.argv)) == 1:
             self.display_commands()
             return
@@ -118,11 +122,10 @@ class Executor:
             to_display.update(self.available_agents[agent_id][0].cli_args)
             self.display_commands({title: to_display})
             return
-        return command, agent_id
+        self.command, self.agent_id = command, agent_id
 
     def create_model(
         self,
-        agent_id,
         envs,
         agent_known_args,
         non_agent_known_args,
@@ -130,14 +133,17 @@ class Executor:
         model_arg='model',
     ):
         models_folder = (
-            Path(self.available_agents[agent_id][0].__file__).parent / 'models'
+            Path(self.available_agents[self.agent_id][0].__file__).parent / 'models'
         )
-        network_type = self.available_networks[type(envs[0].action_space)]
         units = [
             envs[0].action_space.n
             if isinstance(envs[0].action_space, Discrete)
             else envs[0].action_space.shape[0]
         ]
+        if len(envs[0].observation_space.shape) == 3:
+            network_type = 'cnn'
+        else:
+            network_type = 'ann'
         default_model_cfg = [*models_folder.rglob(f'{network_type}*{model_suffix}.cfg')]
         default_model_cfg = (
             default_model_cfg[0].as_posix() if default_model_cfg else None
@@ -145,7 +151,7 @@ class Executor:
         assert (
             model_cfg := agent_known_args[model_arg] or default_model_cfg
         ), f'You should specify --model <model.cfg>, no default model found in {models_folder}'
-        if agent_id == 'acer':
+        if self.agent_id == 'acer':
             units.append(units[-1])
         elif 'actor' in model_cfg and 'critic' in model_cfg:
             units.append(1)
@@ -163,21 +169,21 @@ class Executor:
             ),
             agent_known_args['seed'],
         )
-        if agent_id == 'td3' and 'critic' in model_cfg:
+        if self.agent_id == 'td3' and 'critic' in model_cfg:
             model_reader.input_shape = (
                 model_reader.input_shape[0] + envs[0].action_space.shape[0]
             )
         agent_known_args[model_arg] = model_reader.build_model()
 
-    def parse_known_args(self, command, agent_id):
+    def parse_known_args(self):
         del sys.argv[1:3]
         general_parser = argparse.ArgumentParser()
         agent_parser = argparse.ArgumentParser()
         command_parser = argparse.ArgumentParser()
         self.add_args(agent_args, agent_parser)
-        self.add_args(self.available_agents[agent_id][0].cli_args, agent_parser)
-        self.add_args(self.valid_commands[command][0], command_parser)
-        if issubclass(self.available_agents[agent_id][1], OffPolicy):
+        self.add_args(self.available_agents[self.agent_id][0].cli_args, agent_parser)
+        self.add_args(self.valid_commands[self.command][0], command_parser)
+        if issubclass(self.available_agents[self.agent_id][1], OffPolicy):
             self.add_args(off_policy_args, agent_parser)
         self.add_args(non_agent_args, general_parser)
         non_agent_known = general_parser.parse_known_args()[0]
@@ -189,12 +195,10 @@ class Executor:
         self,
         agent_known_args,
         non_agent_known_args,
-        agent_id,
         envs,
     ):
         if (model_arg := 'model') in agent_known_args:
             self.create_model(
-                agent_id,
                 envs,
                 agent_known_args,
                 non_agent_known_args,
@@ -202,7 +206,6 @@ class Executor:
             )
         if (model_arg := 'actor_model') in agent_known_args:
             self.create_model(
-                agent_id,
                 envs,
                 agent_known_args,
                 non_agent_known_args,
@@ -211,7 +214,6 @@ class Executor:
             )
         if (model_arg := 'critic_model') in agent_known_args:
             self.create_model(
-                agent_id,
                 envs,
                 agent_known_args,
                 non_agent_known_args,
@@ -219,7 +221,7 @@ class Executor:
                 model_arg,
             )
 
-    def create_buffers(self, agent_known_args, non_agent_known_args, agent_id):
+    def create_buffers(self, agent_known_args, non_agent_known_args):
         buffer_max_size = non_agent_known_args.buffer_max_size // (
             n_envs := non_agent_known_args.n_envs
         )
@@ -229,7 +231,7 @@ class Executor:
             else buffer_max_size
         )
         buffer_batch_size = non_agent_known_args.buffer_batch_size // n_envs
-        if agent_id == 'td3':
+        if self.agent_id == 'td3':
             agent_known_args['buffers'] = [
                 IAmTheOtherKindOfReplayBufferBecauseFuckTensorflow(
                     buffer_max_size,
@@ -251,41 +253,39 @@ class Executor:
                 for _ in range(n_envs)
             ]
 
-    def execute(self):
-        if not (to_proceed_with := self.maybe_proceed()):
-            return
-        command, agent_id = to_proceed_with
-        agent_known, non_agent_known, command_known = self.parse_known_args(
-            command, agent_id
-        )
-        envs = create_gym_env(
-            non_agent_known.env,
-            non_agent_known.n_envs,
-            non_agent_known.preprocess,
-            scale_frames=not non_agent_known.no_scale,
-        )
-        agent_known['envs'] = envs
-        self.create_models(
-            agent_known,
-            non_agent_known,
-            agent_id,
-            envs,
-        )
-        if (
-            issubclass(self.available_agents[agent_id][1], OffPolicy)
-            or agent_id == 'acer'
-        ):
-            self.create_buffers(agent_known, non_agent_known, agent_id)
-        agent = self.available_agents[agent_id][1](**agent_known)
-        if weights := non_agent_known.weights:
-            assert (n_weights := len(weights)) == (
-                n_models := len(agent.output_models)
-            ), f'Expected {n_models} weights to load, got {n_weights} weights to load.'
-            for weight, model in zip(weights, agent.output_models):
-                model.load_weights(weight).expect_partial()
-        getattr(agent, self.valid_commands[command][1])(**command_known)
+
+def execute():
+    executor = Executor()
+    executor.maybe_create_agent()
+    if not executor.agent_id:
+        return
+    agent_known, non_agent_known, command_known = executor.parse_known_args()
+    envs = create_gym_env(
+        non_agent_known.env,
+        non_agent_known.n_envs,
+        non_agent_known.preprocess,
+        scale_frames=not non_agent_known.no_scale,
+    )
+    agent_known['envs'] = envs
+    executor.create_models(
+        agent_known,
+        non_agent_known,
+        envs,
+    )
+    if (
+        issubclass(executor.available_agents[executor.agent_id][1], OffPolicy)
+        or executor.agent_id == 'acer'
+    ):
+        executor.create_buffers(agent_known, non_agent_known)
+    agent = executor.available_agents[executor.agent_id][1](**agent_known)
+    if weights := non_agent_known.weights:
+        assert (n_weights := len(weights)) == (
+            n_models := len(agent.output_models)
+        ), f'Expected {n_models} weights to load, got {n_weights} weights to load.'
+        for weight, model in zip(weights, agent.output_models):
+            model.load_weights(weight).expect_partial()
+    getattr(agent, executor.valid_commands[executor.command][1])(**command_known)
 
 
 if __name__ == '__main__':
-    executor = Executor()
-    executor.execute()
+    execute()

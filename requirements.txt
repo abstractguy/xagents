@@ -6,3 +6,5 @@ pandas==1.2.4
 gym[atari]==0.18.3
 tensorflow==2.5.0
 wandb==0.10.32
+tabulate==0.8.9
+pyglet==1.5.15
