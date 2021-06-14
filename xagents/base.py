@@ -26,7 +26,6 @@ class BaseAgent(ABC):
         display_precision=2,
         seed=None,
         scale_factor=False,
-        output_models=None,
         log_frequency=None,
     ):
         """
@@ -46,8 +45,6 @@ class BaseAgent(ABC):
             seed: Random seed passed to random.seed(), np.random.seed(), tf.random.seed(),
                 env.seed()
             scale_factor: Input normalization value to divide inputs by.
-            output_models: Model(s) that control the output of self.get_model_outputs().
-                If not specified, it defaults to self.model
             log_frequency: Interval of done games to display progress after each,
                 defaults to the number of environments given if not specified.
         """
@@ -62,9 +59,7 @@ class BaseAgent(ABC):
         self.display_precision = display_precision
         self.seed = seed
         self.scale_factor = scale_factor
-        self.output_models = output_models or self.model
-        if self.checkpoints:
-            self.check_checkpoints()
+        self.output_models = [self.model]
         self.log_frequency = log_frequency or self.n_envs
         self.target_reward = None
         self.max_steps = None
@@ -115,18 +110,12 @@ class BaseAgent(ABC):
             self.n_actions = action_space.shape[0]
 
     def check_checkpoints(self):
-        if isinstance(self.output_models, tf.keras.Model):
-            assert (n_checkpoints := len(self.checkpoints)) == 1, (
-                f'Expected 1 checkpoint for 1 '
-                f'given output model, got {n_checkpoints}'
-            )
-        else:
-            assert (n_models := len(self.output_models)) == (
-                n_checkpoints := len(self.checkpoints)
-            ), (
-                f'Expected {n_models} checkpoints for {n_models} '
-                f'given output models, got {n_checkpoints}'
-            )
+        assert (n_models := len(self.output_models)) == (
+            n_checkpoints := len(self.checkpoints)
+        ), (
+            f'Expected {n_models} checkpoints for {n_models} '
+            f'given output models, got {n_checkpoints}'
+        )
 
     def checkpoint(self):
         """
@@ -300,6 +289,8 @@ class BaseAgent(ABC):
         self.max_steps = max_steps
         if monitor_session:
             wandb.init(name=monitor_session)
+        if self.checkpoints:
+            self.check_checkpoints()
         self.training_start_time = perf_counter()
         self.last_reset_time = perf_counter()
 
@@ -332,6 +323,8 @@ class BaseAgent(ABC):
         inputs = self.get_model_inputs(inputs)
         if isinstance(models, tf.keras.models.Model):
             return models(inputs, training=training)
+        elif len(models) == 1:
+            return models[0](inputs, training=training)
         return [sub_model(inputs, training=training) for sub_model in models]
 
     def at_step_start(self):

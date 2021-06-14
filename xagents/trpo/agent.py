@@ -42,6 +42,7 @@ class TRPO(PPO):
             actor_model,
             **kwargs,
         )
+        self.output_models = [actor_model, critic_model]
         self.old_actor = tf.keras.models.clone_model(self.model)
         self.actor = self.model
         self.critic = critic_model
@@ -369,7 +370,6 @@ if __name__ == '__main__':
         a_m,
         c_m,
         seed=seed,
-        output_models=[a_m, c_m],
         entropy_coef=0.0,
         lam=1.0,
         n_steps=512,

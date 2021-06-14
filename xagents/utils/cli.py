@@ -46,6 +46,10 @@ non_agent_args = {
         'type': int,
         'default': 1,
     },
+    'weights': {
+        'help': 'Path(s) to model(s) weight(s) to be loaded by agent output_models',
+        'nargs': '+',
+    },
 }
 
 agent_args = {
@@ -64,6 +68,10 @@ agent_args = {
     'seed': {'help': 'Random seed', 'type': int},
     'scale-factor': {'help': 'Input scale divisor', 'type': float},
     'log-frequency': {'help': 'Log progress every n games', 'type': int},
+    'checkpoints': {
+        'help': 'Path(s) to new model(s) to which checkpoint(s) will be saved during training',
+        'nargs': '+',
+    },
 }
 
 off_policy_args = {

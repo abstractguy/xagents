@@ -47,6 +47,7 @@ class TD3(OffPolicy):
         self.episode_steps = tf.Variable(tf.zeros(self.n_envs), False)
         self.step_increment = tf.ones(self.n_envs)
         self.critic2 = tf.keras.models.clone_model(self.critic1)
+        self.output_models = [self.actor, self.critic1, self.critic2]
         self.critic2.compile(
             tf.keras.optimizers.get(self.critic1.optimizer.get_config()['name'])
         )

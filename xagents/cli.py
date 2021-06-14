@@ -204,11 +204,6 @@ def create_models(
             'critic',
             model_arg,
         )
-    if agent_id == 'trpo':
-        agent_known_args['output_models'] = [
-            agent_known_args['actor_model'],
-            agent_known_args['critic_model'],
-        ]
 
 
 def create_buffers(agent_known_args, non_agent_known_args, agent_id):
@@ -282,6 +277,12 @@ def execute():
     if issubclass(available_agents[agent_id][1], OffPolicy) or agent_id == 'acer':
         create_buffers(agent_known, non_agent_known, agent_id)
     agent = available_agents[agent_id][1](**agent_known)
+    if weights := non_agent_known.weights:
+        assert (n_weights := len(weights)) == (
+            n_models := len(agent.output_models)
+        ), f'Expected {n_models} weights to load, got {n_weights} weights to load.'
+        for weight, model in zip(weights, agent.output_models):
+            model.load_weights(weight).expect_partial()
     getattr(agent, valid_commands[command][1])(**command_known)
 
 
