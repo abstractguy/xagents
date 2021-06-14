@@ -6,16 +6,16 @@ import pandas as pd
 from gym.spaces.box import Box
 from gym.spaces.discrete import Discrete
 from tensorflow.keras.optimizers import Adam
+
+import xagents
+from xagents import (A2C, ACER, DQN, PPO, TD3, TRPO, a2c, acer, dqn, ppo, td3,
+                     trpo)
 from xagents.base import OffPolicy
 from xagents.utils.buffers import (
     IAmTheOtherKindOfReplayBufferBecauseFuckTensorflow, ReplayBuffer)
 from xagents.utils.cli import (agent_args, non_agent_args, off_policy_args,
                                play_args, train_args)
 from xagents.utils.common import ModelReader, create_gym_env
-
-import xagents
-from xagents import (A2C, ACER, DQN, PPO, TD3, TRPO, a2c, acer, dqn, ppo, td3,
-                     trpo)
 
 
 def display_section(title, cli_args):

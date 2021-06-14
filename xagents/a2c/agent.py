@@ -3,6 +3,7 @@ import tensorflow as tf
 from gym.spaces.discrete import Discrete
 from tensorflow_probability.python.distributions import (
     Categorical, MultivariateNormalDiag)
+
 from xagents.base import OnPolicy
 
 
@@ -213,6 +214,7 @@ class A2C(OnPolicy):
 
 if __name__ == '__main__':
     import tensorflow_addons as tfa
+
     from xagents.utils.common import ModelReader, create_gym_env
 
     seed = None

@@ -19,7 +19,7 @@ class BaseAgent(ABC):
         self,
         envs,
         model,
-        checkpoint=None,
+        checkpoints=None,
         reward_buffer_size=100,
         n_steps=1,
         gamma=0.99,
@@ -35,7 +35,8 @@ class BaseAgent(ABC):
             envs: A list of gym environments.
             model: tf.keras.models.Model that is expected to be compiled
                 with an optimizer before training starts.
-            checkpoint: Path to .tf filename under which the trained model will be saved.
+            checkpoints: A list of paths to .tf filenames under which the trained model(s)
+                will be saved.
             reward_buffer_size: Size of the reward buffer that will hold the last n total
                 rewards which will be used for calculating the mean reward.
             n_steps: n-step transition for example given s1, s2, s3, s4 and n_step = 4,
@@ -54,7 +55,7 @@ class BaseAgent(ABC):
         self.n_envs = len(envs)
         self.envs = envs
         self.model = model
-        self.checkpoint_path = checkpoint
+        self.checkpoints = checkpoints
         self.total_rewards = deque(maxlen=reward_buffer_size)
         self.n_steps = n_steps
         self.gamma = gamma
@@ -62,6 +63,8 @@ class BaseAgent(ABC):
         self.seed = seed
         self.scale_factor = scale_factor
         self.output_models = output_models or self.model
+        if self.checkpoints:
+            self.check_checkpoints()
         self.log_frequency = log_frequency or self.n_envs
         self.target_reward = None
         self.max_steps = None
@@ -111,6 +114,20 @@ class BaseAgent(ABC):
         if isinstance(action_space, Box):
             self.n_actions = action_space.shape[0]
 
+    def check_checkpoints(self):
+        if isinstance(self.output_models, tf.keras.Model):
+            assert (n_checkpoints := len(self.checkpoints)) == 1, (
+                f'Expected 1 checkpoint for 1 '
+                f'given output model, got {n_checkpoints}'
+            )
+        else:
+            assert (n_models := len(self.output_models)) == (
+                n_checkpoints := len(self.checkpoints)
+            ), (
+                f'Expected {n_models} checkpoints for {n_models} '
+                f'given output models, got {n_checkpoints}'
+            )
+
     def checkpoint(self):
         """
         Save model weights if current reward > best reward.
@@ -120,8 +137,9 @@ class BaseAgent(ABC):
         """
         if self.mean_reward > self.best_reward:
             print(f'Best reward updated: {self.best_reward} -> {self.mean_reward}')
-            if self.checkpoint_path:
-                self.model.save_weights(self.checkpoint_path)
+            if self.checkpoints:
+                for model, checkpoint in zip(self.output_models, self.checkpoints):
+                    model.save_weights(checkpoint)
         self.best_reward = max(self.mean_reward, self.best_reward)
 
     def display_metrics(self):
@@ -266,7 +284,7 @@ class BaseAgent(ABC):
                 self.states[i] = env.reset()
         return [np.array(item, np.float32) for item in zip(*observations)]
 
-    def init_training(self, target_reward, max_steps, monitor_session, weights):
+    def init_training(self, target_reward, max_steps, monitor_session):
         """
         Initialize training start time, wandb session & models (self.model / self.target_model)
         Args:
@@ -274,7 +292,6 @@ class BaseAgent(ABC):
                 the training will stop.
             max_steps: Maximum time steps, if exceeded, the training will stop.
             monitor_session: Wandb session name.
-            weights: Path to .tf weights file compatible with self.model
 
         Returns:
             None
@@ -283,10 +300,6 @@ class BaseAgent(ABC):
         self.max_steps = max_steps
         if monitor_session:
             wandb.init(name=monitor_session)
-        if weights:
-            self.model.load_weights(weights)
-            if hasattr(self, 'target_model'):
-                self.target_model.load_weights(weights)
         self.training_start_time = perf_counter()
         self.last_reset_time = perf_counter()
 
@@ -400,7 +413,6 @@ class BaseAgent(ABC):
         target_reward=None,
         max_steps=None,
         monitor_session=None,
-        weights=None,
     ):
         """
         Common training loop shared by subclasses, monitors training status
@@ -409,7 +421,6 @@ class BaseAgent(ABC):
             target_reward: Target reward, if achieved, the training will stop
             max_steps: Maximum number of steps, if reached the training will stop.
             monitor_session: Session name to use for monitoring the training with wandb.
-            weights: Path to .tf trained model weights to continue training.
 
         Returns:
             None
@@ -417,7 +428,7 @@ class BaseAgent(ABC):
         assert (
             target_reward or max_steps
         ), '`target_reward` or `max_steps` should be specified when fit() is called'
-        self.init_training(target_reward, max_steps, monitor_session, weights)
+        self.init_training(target_reward, max_steps, monitor_session)
         while True:
             self.check_episodes()
             if self.training_done():
@@ -428,7 +439,6 @@ class BaseAgent(ABC):
 
     def play(
         self,
-        weights=None,
         video_dir=None,
         render=False,
         frame_dir=None,
@@ -439,8 +449,6 @@ class BaseAgent(ABC):
         """
         Play and display a game.
         Args:
-            weights: Path to trained weights, if not specified, the most recent
-                model weights will be used.
             video_dir: Path to directory to save the resulting game video.
             render: If True, the game will be displayed.
             frame_dir: Path to directory to save game frames.
@@ -453,8 +461,6 @@ class BaseAgent(ABC):
         """
         self.reset_envs()
         env_in_use = self.envs[env_idx]
-        if weights:
-            self.model.load_weights(weights).expect_partial()
         if video_dir:
             env_in_use = gym.wrappers.Monitor(env_in_use, video_dir)
         steps = 0
@@ -582,7 +588,6 @@ class OffPolicy(BaseAgent, ABC):
         target_reward=None,
         max_steps=None,
         monitor_session=None,
-        weights=None,
     ):
         """
         Common training loop shared by subclasses, monitors training status
@@ -592,10 +597,9 @@ class OffPolicy(BaseAgent, ABC):
             target_reward: Target reward, if achieved, the training will stop
             max_steps: Maximum number of steps, if reached the training will stop.
             monitor_session: Session name to use for monitoring the training with wandb.
-            weights: Path to .tf trained model weights to continue training.
 
         Returns:
             None
         """
         self.fill_buffers()
-        super(OffPolicy, self).fit(target_reward, max_steps, monitor_session, weights)
+        super(OffPolicy, self).fit(target_reward, max_steps, monitor_session)

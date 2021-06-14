@@ -1,6 +1,7 @@
 import numpy as np
 import tensorflow as tf
 from gym.spaces.discrete import Discrete
+
 from xagents.base import OffPolicy
 
 
@@ -30,6 +31,7 @@ class DQN(OffPolicy):
             f'environments with a discrete action space only, got {envs[0].action_space}'
         )
         self.target_model = tf.keras.models.clone_model(self.model)
+        self.target_model.set_weights(self.model.get_weights())
         self.double = double
         self.batch_indices = tf.range(
             self.buffers[0].batch_size * self.n_envs, dtype=tf.int64
