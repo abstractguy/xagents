@@ -4,7 +4,7 @@ from collections import deque
 import cv2
 import gym
 import numpy as np
-from tensorflow.keras.initializers import Orthogonal
+from tensorflow.keras.initializers import GlorotUniform, Orthogonal
 from tensorflow.keras.layers import Conv2D, Dense, Flatten, Input
 from tensorflow.keras.models import Model
 
@@ -127,7 +127,7 @@ class ModelReader:
                 model will be compiled.
             seed: Random seed used by layer initializers.
         """
-        self.initializers = {'orthogonal': Orthogonal}
+        self.initializers = {'orthogonal': Orthogonal, 'glorot_uniform': GlorotUniform}
         with open(cfg_file) as cfg:
             self.parser = configparser.ConfigParser()
             self.parser.read_file(cfg)
@@ -148,6 +148,8 @@ class ModelReader:
         """
         initializer_name = self.parser[section].get('initializer')
         gain = self.parser[section].get('gain')
+        if self.seed is not None:
+            initializer_name = initializer_name or 'glorot_uniform'
         initializer_kwargs = {'seed': self.seed}
         if gain:
             initializer_kwargs.update({'gain': float(gain)})
