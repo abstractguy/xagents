@@ -14,7 +14,7 @@ setup(
     include_package_data=True,
     setup_requires=['numpy==1.19.5'],
     install_requires=install_requires,
-    python_requires='>=3.8',
+    python_requires='>=3.6',
     entry_points={
         'console_scripts': [
             'xagents=xagents.cli:execute',

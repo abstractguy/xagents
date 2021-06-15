@@ -110,9 +110,9 @@ class BaseAgent(ABC):
             self.n_actions = action_space.shape[0]
 
     def check_checkpoints(self):
-        assert (n_models := len(self.output_models)) == (
-            n_checkpoints := len(self.checkpoints)
-        ), (
+        n_models = len(self.output_models)
+        n_checkpoints = len(self.checkpoints)
+        assert n_models == n_checkpoints, (
             f'Expected {n_models} checkpoints for {n_models} '
             f'given output models, got {n_checkpoints}'
         )

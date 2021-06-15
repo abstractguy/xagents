@@ -102,18 +102,17 @@ class Executor:
                 )
 
     def maybe_create_agent(self):
-        if (total := len(cli_args := sys.argv)) == 1:
+        total = len(sys.argv)
+        if total == 1:
             self.display_commands()
             return
-        assert (
-            command := cli_args[1]
-        ) in self.valid_commands, f'Invalid command `{command}`'
+        command = sys.argv[1]
+        assert command in self.valid_commands, f'Invalid command `{command}`'
         if total == 2:
             self.display_commands({command: self.valid_commands[command][0]})
             return
-        assert (
-            agent_id := cli_args[2]
-        ) in self.available_agents, f'Invalid agent `{agent_id}`'
+        agent_id = sys.argv[2]
+        assert agent_id in self.available_agents, f'Invalid agent `{agent_id}`'
         if total == 3:
             title = f'{command} {agent_id}'
             to_display = self.valid_commands[command][0].copy()
@@ -148,8 +147,9 @@ class Executor:
         default_model_cfg = (
             default_model_cfg[0].as_posix() if default_model_cfg else None
         )
+        model_cfg = agent_known_args[model_arg] or default_model_cfg
         assert (
-            model_cfg := agent_known_args[model_arg] or default_model_cfg
+            model_cfg
         ), f'You should specify --model <model.cfg>, no default model found in {models_folder}'
         if self.agent_id == 'acer':
             units.append(units[-1])
@@ -197,40 +197,26 @@ class Executor:
         non_agent_known_args,
         envs,
     ):
-        if (model_arg := 'model') in agent_known_args:
-            self.create_model(
-                envs,
-                agent_known_args,
-                non_agent_known_args,
-                model_arg=model_arg,
-            )
-        if (model_arg := 'actor_model') in agent_known_args:
-            self.create_model(
-                envs,
-                agent_known_args,
-                non_agent_known_args,
-                'actor',
-                model_arg,
-            )
-        if (model_arg := 'critic_model') in agent_known_args:
-            self.create_model(
-                envs,
-                agent_known_args,
-                non_agent_known_args,
-                'critic',
-                model_arg,
-            )
+        model_args = ['model', 'actor_model', 'critic_model']
+        suffixes = ['', 'actor', 'critic']
+        for model_arg, suffix in zip(model_args, suffixes):
+            if model_arg in agent_known_args:
+                self.create_model(
+                    envs, agent_known_args, non_agent_known_args, suffix, model_arg
+                )
 
     def create_buffers(self, agent_known_args, non_agent_known_args):
         buffer_max_size = non_agent_known_args.buffer_max_size // (
-            n_envs := non_agent_known_args.n_envs
+            non_agent_known_args.n_envs
         )
         buffer_initial_size = (
-            non_agent_known_args.buffer_initial_size // n_envs
+            non_agent_known_args.buffer_initial_size // non_agent_known_args.n_envs
             if non_agent_known_args.buffer_initial_size
             else buffer_max_size
         )
-        buffer_batch_size = non_agent_known_args.buffer_batch_size // n_envs
+        buffer_batch_size = (
+            non_agent_known_args.buffer_batch_size // non_agent_known_args.n_envs
+        )
         if self.agent_id == 'td3':
             agent_known_args['buffers'] = [
                 IAmTheOtherKindOfReplayBufferBecauseFuckTensorflow(
@@ -239,7 +225,7 @@ class Executor:
                     initial_size=buffer_initial_size,
                     batch_size=buffer_batch_size,
                 )
-                for _ in range(n_envs)
+                for _ in range(non_agent_known_args.n_envs)
             ]
         else:
             agent_known_args['buffers'] = [
@@ -250,7 +236,7 @@ class Executor:
                     initial_size=buffer_initial_size,
                     batch_size=buffer_batch_size,
                 )
-                for _ in range(n_envs)
+                for _ in range(non_agent_known_args.n_envs)
             ]
 
 
@@ -278,11 +264,13 @@ def execute():
     ):
         executor.create_buffers(agent_known, non_agent_known)
     agent = executor.available_agents[executor.agent_id][1](**agent_known)
-    if weights := non_agent_known.weights:
-        assert (n_weights := len(weights)) == (
-            n_models := len(agent.output_models)
+    if non_agent_known.weights:
+        n_weights = len(non_agent_known.weights)
+        n_models = len(agent.output_models)
+        assert (
+            n_weights == n_models
         ), f'Expected {n_models} weights to load, got {n_weights} weights to load.'
-        for weight, model in zip(weights, agent.output_models):
+        for weight, model in zip(non_agent_known.weights, agent.output_models):
             model.load_weights(weight).expect_partial()
     getattr(agent, executor.valid_commands[executor.command][1])(**command_known)
 
