@@ -119,6 +119,8 @@ class Executor:
             to_display.update(agent_args)
             to_display.update(non_agent_args)
             to_display.update(self.available_agents[agent_id][0].cli_args)
+            if issubclass(self.available_agents[agent_id][1], OffPolicy):
+                to_display.update(off_policy_args)
             self.display_commands({title: to_display})
             return
         self.command, self.agent_id = command, agent_id

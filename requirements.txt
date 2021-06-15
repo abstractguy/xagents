@@ -8,3 +8,4 @@ tensorflow==2.5.0
 wandb==0.10.32
 tabulate==0.8.9
 pyglet==1.5.15
+box2d==2.3.2
