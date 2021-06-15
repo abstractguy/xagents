@@ -119,7 +119,10 @@ class Executor:
             to_display.update(agent_args)
             to_display.update(non_agent_args)
             to_display.update(self.available_agents[agent_id][0].cli_args)
-            if issubclass(self.available_agents[agent_id][1], OffPolicy):
+            if (
+                issubclass(self.available_agents[agent_id][1], OffPolicy)
+                or agent_id == 'acer'
+            ):
                 to_display.update(off_policy_args)
             self.display_commands({title: to_display})
             return
@@ -185,8 +188,11 @@ class Executor:
         self.add_args(agent_args, agent_parser)
         self.add_args(self.available_agents[self.agent_id][0].cli_args, agent_parser)
         self.add_args(self.valid_commands[self.command][0], command_parser)
-        if issubclass(self.available_agents[self.agent_id][1], OffPolicy):
-            self.add_args(off_policy_args, agent_parser)
+        if (
+            issubclass(self.available_agents[self.agent_id][1], OffPolicy)
+            or self.agent_id == 'acer'
+        ):
+            self.add_args(off_policy_args, general_parser)
         self.add_args(non_agent_args, general_parser)
         non_agent_known = general_parser.parse_known_args()[0]
         agent_known = vars(agent_parser.parse_known_args()[0])

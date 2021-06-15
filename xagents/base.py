@@ -436,7 +436,6 @@ class BaseAgent(ABC):
         render=False,
         frame_dir=None,
         frame_delay=0.0,
-        env_idx=0,
         action_idx=0,
     ):
         """
@@ -446,13 +445,13 @@ class BaseAgent(ABC):
             render: If True, the game will be displayed.
             frame_dir: Path to directory to save game frames.
             frame_delay: Delay between rendered frames.
-            env_idx: env index in self.envs
             action_idx: Index of action output by self.model
 
         Returns:
             None
         """
         self.reset_envs()
+        env_idx = 0
         env_in_use = self.envs[env_idx]
         if video_dir:
             env_in_use = gym.wrappers.Monitor(env_in_use, video_dir)
@@ -465,9 +464,12 @@ class BaseAgent(ABC):
             if frame_dir:
                 frame = env_in_use.render(mode='rgb_array')
                 cv2.imwrite(os.path.join(frame_dir, f'{steps:05d}.jpg'), frame)
-            action = self.get_model_outputs(self.get_states(), self.model, False)[
-                action_idx
-            ][env_idx]
+            if hasattr(self, 'actor'):
+                action = self.actor(self.get_states())[env_idx]
+            else:
+                action = self.get_model_outputs(
+                    self.get_states(), self.output_models, False
+                )[action_idx][env_idx]
             self.states[env_idx], reward, done, _ = env_in_use.step(action)
             if done:
                 break
@@ -502,10 +504,6 @@ class OffPolicy(BaseAgent, ABC):
         envs,
         model,
         buffers,
-        epsilon_start=1.0,
-        epsilon_end=0.02,
-        epsilon_decay_steps=150000,
-        target_sync_steps=1000,
         **kwargs,
     ):
         """
@@ -516,12 +514,6 @@ class OffPolicy(BaseAgent, ABC):
                 with an optimizer before training starts.
             buffers: A list of replay buffer objects whose length should match
                 `envs`s'.
-            epsilon_start: Starting epsilon value which is used to control random exploration.
-                It should be decremented and adjusted according to implementation needs.
-            epsilon_end: End epsilon value which is the minimum exploration rate.
-            epsilon_decay_steps: Number of steps for epsilon to reach `epsilon_end`
-                from `epsilon_start`,
-            target_sync_steps: Steps to sync target models after each.
             **kwargs: kwargs passed to BaseAgent.
         """
         super(OffPolicy, self).__init__(envs, model, **kwargs)
@@ -530,21 +522,6 @@ class OffPolicy(BaseAgent, ABC):
             f'and {len(buffers)}'
         )
         self.buffers = buffers
-        self.epsilon_start = self.epsilon = epsilon_start
-        self.epsilon_end = epsilon_end
-        self.epsilon_decay_steps = epsilon_decay_steps
-        self.target_sync_steps = target_sync_steps
-
-    def update_epsilon(self):
-        """
-        Decrement epsilon which aims to gradually reduce randomization.
-
-        Returns:
-            None
-        """
-        self.epsilon = max(
-            self.epsilon_end, self.epsilon_start - self.steps / self.epsilon_decay_steps
-        )
 
     def fill_buffers(self):
         """

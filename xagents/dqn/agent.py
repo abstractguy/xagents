@@ -12,6 +12,10 @@ class DQN(OffPolicy):
         model,
         buffers,
         double=False,
+        epsilon_start=1.0,
+        epsilon_end=0.02,
+        epsilon_decay_steps=150000,
+        target_sync_steps=1000,
         **kwargs,
     ):
         """
@@ -23,6 +27,12 @@ class DQN(OffPolicy):
             buffers: A list of replay buffer objects whose length should match
                 `envs`s'.
             double: If True, DDQN is used.
+            epsilon_start: Starting epsilon value which is used to control random exploration.
+                It should be decremented and adjusted according to implementation needs.
+            epsilon_end: End epsilon value which is the minimum exploration rate.
+            epsilon_decay_steps: Number of steps for epsilon to reach `epsilon_end`
+                from `epsilon_start`,
+            target_sync_steps: Steps to sync target models after each.
             **kwargs: kwargs passed to super classes.
         """
         super(DQN, self).__init__(envs, model, buffers, **kwargs)
@@ -33,6 +43,10 @@ class DQN(OffPolicy):
         self.target_model = tf.keras.models.clone_model(self.model)
         self.target_model.set_weights(self.model.get_weights())
         self.double = double
+        self.epsilon_start = self.epsilon = epsilon_start
+        self.epsilon_end = epsilon_end
+        self.epsilon_decay_steps = epsilon_decay_steps
+        self.target_sync_steps = target_sync_steps
         self.batch_indices = tf.range(
             self.buffers[0].batch_size * self.n_envs, dtype=tf.int64
         )[:, tf.newaxis]
@@ -53,6 +67,17 @@ class DQN(OffPolicy):
         """
         q_values = super(DQN, self).get_model_outputs(inputs, models, training)
         return tf.argmax(q_values, 1), q_values
+
+    def update_epsilon(self):
+        """
+        Decrement epsilon which aims to gradually reduce randomization.
+
+        Returns:
+            None
+        """
+        self.epsilon = max(
+            self.epsilon_end, self.epsilon_start - self.steps / self.epsilon_decay_steps
+        )
 
     def sync_target_model(self):
         """
