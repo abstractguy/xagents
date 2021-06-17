@@ -18,7 +18,14 @@ from xagents.utils.common import ModelReader, create_gym_env
 
 
 class Executor:
+    """
+    Command line parser.
+    """
+
     def __init__(self):
+        """
+        Initialize supported commands and agents.
+        """
         self.valid_commands = {
             'train': (train_args, 'fit', 'Train given an agent and environment'),
             'play': (
@@ -40,6 +47,16 @@ class Executor:
 
     @staticmethod
     def display_section(title, cli_args):
+        """
+        Display given title (command) and respective available options.
+        Args:
+            title: Command(s) that will be displayed on top of cli options.
+            cli_args: A dictionary having flags and their respective
+                `help`, `required` and `default`
+
+        Returns:
+            None
+        """
         section_frame = pd.DataFrame(cli_args).T.fillna('-')
         section_frame['flags'] = section_frame.index.values
         section_frame['flags'] = section_frame['flags'].apply(lambda flag: f'--{flag}')
@@ -56,6 +73,16 @@ class Executor:
         )
 
     def display_commands(self, sections=None):
+        """
+        Display available commands and their description
+            + command specific sections if given any.
+        Args:
+            sections: A dictionary having flags and their respective
+                `help`, `required` and `default`
+
+        Returns:
+            None
+        """
         print(f'xagents {xagents.__version__}')
         print(f'\nUsage:')
         print(f'\txagents <command> [options] [args]')
@@ -102,6 +129,13 @@ class Executor:
                 )
 
     def maybe_create_agent(self):
+        """
+        Display help respective to parsed commands or set self.agent_id and self.command
+        for further execution if enough arguments are given.
+
+        Returns:
+            None
+        """
         total = len(sys.argv)
         if total == 1:
             self.display_commands()
@@ -136,6 +170,21 @@ class Executor:
         model_suffix='',
         model_arg='model',
     ):
+        """
+        Create model using given .cfg path or use the respective agent's default.
+        Args:
+            envs: A list of gym environments.
+            agent_known_args: kwargs passed to agent.
+            non_agent_known_args: kwargs are general / not passed to agent.
+            model_suffix: What follows cnn- or ann- and preceds extension in the default
+                model configuration.
+            model_arg: name of the kwarg found in `agent_known_args` which references
+                the model configuration. If None is given, the default agent model
+                configuration will be used.
+
+        Returns:
+            None
+        """
         models_folder = (
             Path(self.available_agents[self.agent_id][0].__file__).parent / 'models'
         )
@@ -181,6 +230,12 @@ class Executor:
         agent_known_args[model_arg] = model_reader.build_model()
 
     def parse_known_args(self):
+        """
+        Parse general, agent and command specific args.
+
+        Returns:
+            agent kwargs, non-agent kwargs and command kwargs.
+        """
         del sys.argv[1:3]
         general_parser = argparse.ArgumentParser()
         agent_parser = argparse.ArgumentParser()
@@ -205,6 +260,16 @@ class Executor:
         non_agent_known_args,
         envs,
     ):
+        """
+        Create agent model(s).
+        Args:
+            agent_known_args: kwargs passed to agent.
+            non_agent_known_args: kwargs are general / not passed to agent.
+            envs: A list of gym environments.
+
+        Returns:
+            None
+        """
         model_args = ['model', 'actor_model', 'critic_model']
         suffixes = ['', 'actor', 'critic']
         for model_arg, suffix in zip(model_args, suffixes):
@@ -214,6 +279,15 @@ class Executor:
                 )
 
     def create_buffers(self, agent_known_args, non_agent_known_args):
+        """
+        Create off-policy agent replay buffers.
+        Args:
+            agent_known_args: kwargs passed to agent.
+            non_agent_known_args: kwargs are general / not passed to agent.
+
+        Returns:
+            None
+        """
         buffer_max_size = non_agent_known_args.buffer_max_size // (
             non_agent_known_args.n_envs
         )
@@ -249,6 +323,13 @@ class Executor:
 
 
 def execute():
+    """
+    Parse command line arguments, display help or execute command
+    if enough arguments are given.
+
+    Returns:
+        None
+    """
     executor = Executor()
     executor.maybe_create_agent()
     if not executor.agent_id:

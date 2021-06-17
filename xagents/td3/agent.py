@@ -180,36 +180,3 @@ class TD3(OffPolicy):
         self.episode_steps.assign(
             (self.episode_steps + self.step_increment) * (1 - dones)
         )
-
-
-if __name__ == '__main__':
-    from xagents.utils import (
-        IAmTheOtherKindOfReplayBufferBecauseFuckTensorflow, ModelReader,
-        create_gym_env)
-
-    en = create_gym_env('BipedalWalker-v3', 16, False)
-    amr = ModelReader(
-        'models/ann-td3-actor.cfg',
-        [en[0].action_space.shape[0]],
-        en[0].observation_space.shape,
-        'adam',
-    )
-    cmr = ModelReader(
-        'models/ann-td3-critic.cfg',
-        [1],
-        en[0].observation_space.shape[0] + en[0].action_space.shape[0],
-        'adam',
-    )
-    am = amr.build_model()
-    cm = cmr.build_model()
-    bs = [
-        IAmTheOtherKindOfReplayBufferBecauseFuckTensorflow(
-            1000000 // len(en),
-            5,
-            initial_size=100 // len(en),
-            batch_size=100 // len(en),
-        )
-        for _ in range(len(en))
-    ]
-    agent = TD3(en, am, cm, bs)
-    agent.fit(250)

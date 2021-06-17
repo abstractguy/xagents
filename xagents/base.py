@@ -25,7 +25,7 @@ class BaseAgent(ABC):
         gamma=0.99,
         display_precision=2,
         seed=None,
-        scale_factor=False,
+        scale_factor=None,
         log_frequency=None,
     ):
         """
@@ -44,7 +44,7 @@ class BaseAgent(ABC):
             display_precision: Decimal precision for display purposes.
             seed: Random seed passed to random.seed(), np.random.seed(), tf.random.seed(),
                 env.seed()
-            scale_factor: Input normalization value to divide inputs by.
+            scale_factor: Input divisor.
             log_frequency: Interval of done games to display progress after each,
                 defaults to the number of environments given if not specified.
         """
@@ -77,6 +77,7 @@ class BaseAgent(ABC):
         self.games = 0
         self.episode_rewards = np.zeros(self.n_envs)
         self.done_envs = []
+        self.supported_action_spaces = Box, Discrete
         if seed:
             tf.random.set_seed(seed)
             np.random.seed(seed)
@@ -104,12 +105,21 @@ class BaseAgent(ABC):
         environments or to the shape of the action space for continuous.
         """
         action_space = self.envs[0].action_space
+        assert (
+            type(action_space) in self.supported_action_spaces
+        ), f'Expected one of {self.supported_action_spaces}, got {action_space}'
         if isinstance(action_space, Discrete):
             self.n_actions = action_space.n
         if isinstance(action_space, Box):
             self.n_actions = action_space.shape[0]
 
     def check_checkpoints(self):
+        """
+        Ensure the number of given checkpoints matches the number of output models.
+
+        Returns:
+            None
+        """
         n_models = len(self.output_models)
         n_checkpoints = len(self.checkpoints)
         assert n_models == n_checkpoints, (

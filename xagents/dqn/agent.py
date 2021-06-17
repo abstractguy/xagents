@@ -194,25 +194,3 @@ class DQN(OffPolicy):
             None
         """
         self.sync_target_model()
-
-
-if __name__ == '__main__':
-    from xagents.utils.buffers import ReplayBuffer
-    from xagents.utils.common import ModelReader, create_gym_env
-
-    en = create_gym_env('PongNoFrameskip-v4', 3)
-    seed = None
-    from tensorflow.keras.optimizers import Adam
-
-    optimizer = Adam(1e-4)
-    mh = ModelReader(
-        'models/cnn.cfg', [6], en[0].observation_space.shape, optimizer, seed
-    )
-    m = mh.build_model()
-    bs = [ReplayBuffer(10000 // len(en)) for _ in range(len(en))]
-    agn = DQN(en, m, bs, seed=seed)
-    agn.fit(19)
-    # agn.play(
-    #     '/Users/emadboctor/Desktop/code/models-drl/dqn-pong-19-model/pong_test.tf',
-    #     render=True,
-    # )

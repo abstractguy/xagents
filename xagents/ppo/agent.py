@@ -216,23 +216,3 @@ class PPO(A2C):
         """
         batch = tf.numpy_function(self.get_batch, [], 5 * [tf.float32])
         self.run_ppo_epochs(*batch)
-
-
-if __name__ == '__main__':
-    from tensorflow.keras.optimizers import Adam
-
-    from xagents.utils.common import ModelReader, create_gym_env
-
-    seed = None
-    envi = create_gym_env('BipedalWalker-v3', 16, False)
-    optimizer = Adam(7e-4)
-    mh = ModelReader(
-        'models/ann-actor-critic.cfg',
-        [envi[0].action_space.shape[0], 1],
-        envi[0].observation_space.shape,
-        optimizer,
-        seed,
-    )
-    m = mh.build_model()
-    agn = PPO(envi, m, n_steps=128)
-    agn.fit(19)

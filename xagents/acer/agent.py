@@ -361,31 +361,3 @@ class ACER(A2C):
                     self.tf_batch_dtypes,
                 )
                 self.update_gradients(*batch)
-
-
-if __name__ == '__main__':
-    from xagents.utils.common import ModelReader, ReplayBuffer, create_gym_env
-
-    seed = None
-    es = create_gym_env('PongNoFrameskip-v4', 16, scale_frames=False)
-    optimizer = tf.keras.optimizers.Adam(7e-4)
-    mh = ModelReader(
-        'models/cnn-acer.cfg',
-        [es[0].action_space.n, es[0].action_space.n],
-        es[0].observation_space.shape,
-        optimizer,
-        seed,
-    )
-    m = mh.build_model()
-    bs = [
-        ReplayBuffer(5000 // len(es), initial_size=500 // len(es), batch_size=1)
-        for _ in range(len(es))
-    ]
-    # bs = [
-    #     IAmTheOtherKindOfReplayBufferBecauseFuckTensorflow(
-    #         5000 // len(es), 5, batch_size=1, initial_size=500 // len(es)
-    #     )
-    #     for _ in range(len(es))
-    # ]
-    agn = ACER(es, m, bs, seed=seed, scale_factor=255.0, n_steps=20, grad_norm=10)
-    agn.fit(19)

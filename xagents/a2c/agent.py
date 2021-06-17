@@ -210,34 +210,3 @@ class A2C(OnPolicy):
         if self.grad_norm is not None:
             grads, _ = tf.clip_by_global_norm(grads, self.grad_norm)
         self.model.optimizer.apply_gradients(zip(grads, self.model.trainable_variables))
-
-
-if __name__ == '__main__':
-    import tensorflow_addons as tfa
-
-    from xagents.utils.common import ModelReader, create_gym_env
-
-    seed = None
-    ens = create_gym_env('BipedalWalker-v3', 16, False)
-
-    o = tfa.optimizers.RectifiedAdam(
-        learning_rate=7e-4, epsilon=1e-5, beta_1=0.0, beta_2=0.99
-    )
-    mh = ModelReader(
-        'models/ann-actor-critic.cfg',
-        [ens[0].action_space.shape[0], 1],
-        ens[0].observation_space.shape,
-        o,
-        seed,
-    )
-    # mh = ModelHandler(
-    #     'models/ann-actor-critic.cfg', [ens[0].action_space.shape[0], 1],  ens[0].observation_space.shape, o, seed
-    # )
-    m = mh.build_model()
-
-    ac = A2C(ens, m, seed=seed, n_steps=5)
-    ac.fit(19)
-    # ac.play(
-    #     '/Users/emadboctor/Desktop/code/drl-models/a2c-pong-17-model/a2c-pong.tf',
-    #     render=True,
-    # )
