@@ -7,13 +7,10 @@ from gym.spaces.discrete import Discrete
 from tensorflow.keras.optimizers import Adam
 
 import xagents
-from xagents import (A2C, ACER, DQN, PPO, TD3, TRPO, a2c, acer, dqn, ppo, td3,
-                     trpo)
 from xagents.base import OffPolicy
 from xagents.utils.buffers import (
     IAmTheOtherKindOfReplayBufferBecauseFuckTensorflow, ReplayBuffer)
-from xagents.utils.cli import (agent_args, non_agent_args, off_policy_args,
-                               play_args, train_args)
+from xagents.utils.cli import agent_args, non_agent_args, off_policy_args
 from xagents.utils.common import ModelReader, create_gym_env
 
 
@@ -26,22 +23,8 @@ class Executor:
         """
         Initialize supported commands and agents.
         """
-        self.valid_commands = {
-            'train': (train_args, 'fit', 'Train given an agent and environment'),
-            'play': (
-                play_args,
-                'play',
-                'Play a game given a trained agent and environment',
-            ),
-        }
-        self.available_agents = {
-            'a2c': [a2c, A2C],
-            'acer': [acer, ACER],
-            'dqn': [dqn, DQN],
-            'ppo': [ppo, PPO],
-            'td3': [td3, TD3],
-            'trpo': [trpo, TRPO],
-        }
+        self.valid_commands = xagents.commands
+        self.available_agents = xagents.agents
         self.agent_id = None
         self.command = None
 
@@ -85,7 +68,7 @@ class Executor:
         """
         print(f'xagents {xagents.__version__}')
         print(f'\nUsage:')
-        print(f'\txagents <command> [options] [args]')
+        print(f'\txagents <command> <agent> [options] [args]')
         print(f'\nAvailable commands:')
         for command, items in self.valid_commands.items():
             print(f'\t{command:<10} {items[2]}')
@@ -128,7 +111,7 @@ class Executor:
                     f'--{arg}', help=_help, default=_default, action=_action
                 )
 
-    def maybe_create_agent(self):
+    def maybe_create_agent(self, cli_args):
         """
         Display help respective to parsed commands or set self.agent_id and self.command
         for further execution if enough arguments are given.
@@ -136,23 +119,24 @@ class Executor:
         Returns:
             None
         """
-        total = len(sys.argv)
-        if total == 1:
+        to_display = {}
+        total = len(cli_args)
+        if total == 0:
             self.display_commands()
             return
-        command = sys.argv[1]
+        command = cli_args[0]
+        to_display.update(non_agent_args)
+        to_display.update(agent_args)
         assert command in self.valid_commands, f'Invalid command `{command}`'
-        if total == 2:
-            self.display_commands({command: self.valid_commands[command][0]})
+        to_display.update(self.valid_commands[command][0])
+        if total == 1:
+            self.display_commands({command: to_display})
             return
-        agent_id = sys.argv[2]
+        agent_id = cli_args[1]
         assert agent_id in self.available_agents, f'Invalid agent `{agent_id}`'
-        if total == 3:
+        to_display.update(self.available_agents[agent_id][0].cli_args)
+        if total == 2:
             title = f'{command} {agent_id}'
-            to_display = self.valid_commands[command][0].copy()
-            to_display.update(agent_args)
-            to_display.update(non_agent_args)
-            to_display.update(self.available_agents[agent_id][0].cli_args)
             if (
                 issubclass(self.available_agents[agent_id][1], OffPolicy)
                 or agent_id == 'acer'
@@ -229,14 +213,13 @@ class Executor:
             )
         agent_known_args[model_arg] = model_reader.build_model()
 
-    def parse_known_args(self):
+    def parse_known_args(self, cli_args):
         """
         Parse general, agent and command specific args.
 
         Returns:
             agent kwargs, non-agent kwargs and command kwargs.
         """
-        del sys.argv[1:3]
         general_parser = argparse.ArgumentParser()
         agent_parser = argparse.ArgumentParser()
         command_parser = argparse.ArgumentParser()
@@ -249,9 +232,15 @@ class Executor:
         ):
             self.add_args(off_policy_args, general_parser)
         self.add_args(non_agent_args, general_parser)
-        non_agent_known = general_parser.parse_known_args()[0]
-        agent_known = vars(agent_parser.parse_known_args()[0])
-        command_known = vars(command_parser.parse_known_args()[0])
+        non_agent_known = general_parser.parse_known_args(cli_args)[0]
+        agent_known = vars(agent_parser.parse_known_args(cli_args)[0])
+        command_known = vars(command_parser.parse_known_args(cli_args)[0])
+        if (
+            self.command == 'train'
+            and command_known['target_reward'] is None
+            and command_known['max_steps'] is None
+        ):
+            command_parser.error('train requires --target-reward or --max-steps')
         return agent_known, non_agent_known, command_known
 
     def create_models(
@@ -322,7 +311,7 @@ class Executor:
             ]
 
 
-def execute():
+def execute(cli_args=None):
     """
     Parse command line arguments, display help or execute command
     if enough arguments are given.
@@ -330,11 +319,12 @@ def execute():
     Returns:
         None
     """
+    cli_args = cli_args or sys.argv[1:]
     executor = Executor()
-    executor.maybe_create_agent()
+    executor.maybe_create_agent(cli_args)
     if not executor.agent_id:
         return
-    agent_known, non_agent_known, command_known = executor.parse_known_args()
+    agent_known, non_agent_known, command_known = executor.parse_known_args(cli_args)
     envs = create_gym_env(
         non_agent_known.env,
         non_agent_known.n_envs,
