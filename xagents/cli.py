@@ -9,7 +9,9 @@ from tensorflow.keras.optimizers import Adam
 import xagents
 from xagents.base import OffPolicy
 from xagents.utils.buffers import (
-    IAmTheOtherKindOfReplayBufferBecauseFuckTensorflow, ReplayBuffer)
+    IAmTheOtherKindOfReplayBufferBecauseFuckTensorflow,
+    ReplayBuffer,
+)
 from xagents.utils.cli import agent_args, non_agent_args, off_policy_args
 from xagents.utils.common import ModelReader, create_gym_env
 
@@ -233,12 +235,12 @@ class Executor:
             self.add_args(off_policy_args, general_parser)
         self.add_args(non_agent_args, general_parser)
         non_agent_known = general_parser.parse_known_args(cli_args)[0]
-        agent_known = vars(agent_parser.parse_known_args(cli_args)[0])
-        command_known = vars(command_parser.parse_known_args(cli_args)[0])
+        agent_known = agent_parser.parse_known_args(cli_args)[0]
+        command_known = command_parser.parse_known_args(cli_args)[0]
         if (
             self.command == 'train'
-            and command_known['target_reward'] is None
-            and command_known['max_steps'] is None
+            and command_known.target_reward is None
+            and command_known.max_steps is None
         ):
             command_parser.error('train requires --target-reward or --max-steps')
         return agent_known, non_agent_known, command_known
@@ -331,6 +333,7 @@ def execute(cli_args=None):
         non_agent_known.preprocess,
         scale_frames=not non_agent_known.no_scale,
     )
+    agent_known, command_known = vars(agent_known), vars(command_known)
     agent_known['envs'] = envs
     executor.create_models(
         agent_known,
