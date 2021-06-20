@@ -1,7 +1,8 @@
 import pytest
 
 from xagents.cli import Executor
-from xagents.tests.utils import get_display_cases, get_non_display_cases, get_valid_parser_args
+from xagents.tests.utils import (get_display_cases, get_non_display_cases,
+                                 get_parser_args)
 
 
 @pytest.fixture
@@ -19,6 +20,6 @@ def non_display_args(request):
     yield request.param
 
 
-@pytest.fixture(params=get_valid_parser_args())
-def valid_parser_args(request):
+@pytest.fixture(params=get_parser_args())
+def parser_args(request):
     yield request.param

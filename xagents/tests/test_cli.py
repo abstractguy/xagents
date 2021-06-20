@@ -15,14 +15,12 @@ def test_non_help(executor, capsys, non_display_args):
     assert not capsys.readouterr().out
 
 
-def test_parsers(executor, valid_parser_args):
-    executor.command, executor.agent_id = valid_parser_args[:2]
-    agent_args, non_agent_args, command_args = executor.parse_known_args(
-        valid_parser_args
-    )
+def test_parsers(executor, parser_args):
+    executor.command, executor.agent_id = parser_args[:2]
+    agent_args, non_agent_args, command_args = executor.parse_known_args(parser_args)
     all_args = set()
     all_args.update(vars(agent_args).keys())
     all_args.update(vars(non_agent_args).keys())
     all_args.update(vars(command_args).keys())
-    agent_expected_args = set(get_expected_flags(valid_parser_args, as_kwargs=True))
+    agent_expected_args = set(get_expected_flags(parser_args, as_kwargs=True))
     assert all_args == agent_expected_args

@@ -38,6 +38,10 @@ class ACER(A2C):
         self.avg_model = tf.keras.models.clone_model(self.model)
         self.ema = tf.train.ExponentialMovingAverage(ema_alpha)
         self.buffers = buffers
+        assert (
+            buffers[0].batch_size == 1
+        ), f'Buffer batch size should be 1 for ACER, got {buffers[0].batch_size}'
+        self.buffer_current_size = tf.Variable(0)
         self.batch_indices = tf.range(self.n_steps * self.n_envs, dtype=tf.int64)[
             :, tf.newaxis
         ]
@@ -46,12 +50,8 @@ class ACER(A2C):
         self.importance_c = importance_c
         self.delta = delta
         self.trust_region = trust_region
-        self.tf_batch_dtypes = [
-            tf.uint8 if len(self.input_shape) > 1 else tf.float32
-        ] + 4 * [tf.float32]
-        self.np_batch_dtypes = [
-            np.uint8 if len(self.input_shape) > 1 else np.float32
-        ] + 4 * [np.float32]
+        self.tf_batch_dtypes = 5 * [tf.float32]
+        self.np_batch_dtypes = 5 * [np.float32]
         self.batch_shapes = [
             (self.n_envs * (self.n_steps + 1), *self.input_shape),
             (self.n_envs * self.n_steps),
@@ -337,6 +337,10 @@ class ACER(A2C):
         self.ema.apply(self.model.trainable_variables)
         tf.numpy_function(self.update_avg_weights, [], [])
 
+    def set_batch_shapes(self, batch):
+        for item, shape in zip(batch, self.batch_shapes):
+            item.set_shape(shape)
+
     @tf.function
     def train_step(self):
         """
@@ -347,17 +351,18 @@ class ACER(A2C):
             None
         """
         batch = tf.numpy_function(self.get_batch, [], self.tf_batch_dtypes)
-        for item, shape in zip(batch, self.batch_shapes):
-            item.set_shape(shape)
+        self.buffer_current_size.assign_add(1)
+        self.set_batch_shapes(batch)
         self.update_gradients(*batch)
         if (
             self.replay_ratio > 0
-            and self.buffers[0].current_size >= self.buffers[0].initial_size
+            and self.buffer_current_size >= self.buffers[0].initial_size
         ):
             for _ in range(np.random.poisson(self.replay_ratio)):
                 batch = tf.numpy_function(
                     self.concat_buffer_samples,
-                    self.np_batch_dtypes,
+                    [],
                     self.tf_batch_dtypes,
                 )
+                self.set_batch_shapes(batch)
                 self.update_gradients(*batch)

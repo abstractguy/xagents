@@ -40,7 +40,7 @@ def get_non_display_cases():
     return argvs
 
 
-def get_valid_parser_args():
+def get_parser_args():
     argvs = []
     for command in xagents.commands:
         for agent in xagents.agents:

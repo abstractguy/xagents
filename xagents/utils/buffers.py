@@ -18,6 +18,11 @@ class BaseBuffer:
                 To be used by caller.
             batch_size: Size of the batch that should be used in get_sample() implementation.
         """
+        assert (
+            initial_size is None or initial_size > 0
+        ), f'Buffer initial size should be > 0, got {initial_size}'
+        assert size > 0, f'Buffer size should be > 0,  got {size}'
+        assert batch_size > 0, f'Buffer batch size should be > 0, got {batch_size}'
         if initial_size:
             assert size >= initial_size, 'Buffer initial size exceeds max size'
         self.size = size
