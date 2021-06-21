@@ -53,6 +53,7 @@ class BaseAgent(ABC):
         self.envs = envs
         self.model = model
         self.checkpoints = checkpoints
+        self.reward_buffer_size = reward_buffer_size
         self.total_rewards = deque(maxlen=reward_buffer_size)
         self.n_steps = n_steps
         self.gamma = gamma
@@ -214,7 +215,7 @@ class BaseAgent(ABC):
         Returns:
             bool
         """
-        if self.mean_reward >= self.target_reward:
+        if self.target_reward and self.mean_reward >= self.target_reward:
             print(f'Reward achieved in {self.steps} steps')
             return True
         if self.max_steps and self.steps >= self.max_steps:

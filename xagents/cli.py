@@ -9,7 +9,9 @@ from tensorflow.keras.optimizers import Adam
 import xagents
 from xagents.base import OffPolicy
 from xagents.utils.buffers import (
-    IAmTheOtherKindOfReplayBufferBecauseFuckTensorflow, ReplayBuffer)
+    IAmTheOtherKindOfReplayBufferBecauseFuckTensorflow,
+    ReplayBuffer,
+)
 from xagents.utils.cli import agent_args, non_agent_args, off_policy_args
 from xagents.utils.common import ModelReader, create_gym_env
 
@@ -27,6 +29,7 @@ class Executor:
         self.available_agents = xagents.agents
         self.agent_id = None
         self.command = None
+        self.agent = None
 
     @staticmethod
     def display_section(title, cli_args):
@@ -310,49 +313,51 @@ class Executor:
                 for _ in range(non_agent_known_args.n_envs)
             ]
 
+    def execute(self, cli_args=None):
+        """
+        Parse command line arguments, display help or execute command
+        if enough arguments are given.
+
+        Returns:
+            None
+        """
+        self.maybe_create_agent(cli_args)
+        if not self.agent_id:
+            return
+        agent_known, non_agent_known, command_known = self.parse_known_args(cli_args)
+        envs = create_gym_env(
+            non_agent_known.env,
+            non_agent_known.n_envs,
+            non_agent_known.preprocess,
+            scale_frames=not non_agent_known.no_scale,
+        )
+        agent_known, command_known = vars(agent_known), vars(command_known)
+        agent_known['envs'] = envs
+        self.create_models(
+            agent_known,
+            non_agent_known,
+            envs,
+        )
+        if (
+            issubclass(self.available_agents[self.agent_id][1], OffPolicy)
+            or self.agent_id == 'acer'
+        ):
+            self.create_buffers(agent_known, non_agent_known)
+        self.agent = self.available_agents[self.agent_id][1](**agent_known)
+        if non_agent_known.weights:
+            n_weights = len(non_agent_known.weights)
+            n_models = len(self.agent.output_models)
+            assert (
+                n_weights == n_models
+            ), f'Expected {n_models} weights to load, got {n_weights} weights to load.'
+            for weight, model in zip(non_agent_known.weights, self.agent.output_models):
+                model.load_weights(weight).expect_partial()
+        getattr(self.agent, self.valid_commands[self.command][1])(**command_known)
+
 
 def execute(cli_args=None):
-    """
-    Parse command line arguments, display help or execute command
-    if enough arguments are given.
-
-    Returns:
-        None
-    """
     cli_args = cli_args or sys.argv[1:]
-    executor = Executor()
-    executor.maybe_create_agent(cli_args)
-    if not executor.agent_id:
-        return
-    agent_known, non_agent_known, command_known = executor.parse_known_args(cli_args)
-    envs = create_gym_env(
-        non_agent_known.env,
-        non_agent_known.n_envs,
-        non_agent_known.preprocess,
-        scale_frames=not non_agent_known.no_scale,
-    )
-    agent_known, command_known = vars(agent_known), vars(command_known)
-    agent_known['envs'] = envs
-    executor.create_models(
-        agent_known,
-        non_agent_known,
-        envs,
-    )
-    if (
-        issubclass(executor.available_agents[executor.agent_id][1], OffPolicy)
-        or executor.agent_id == 'acer'
-    ):
-        executor.create_buffers(agent_known, non_agent_known)
-    agent = executor.available_agents[executor.agent_id][1](**agent_known)
-    if non_agent_known.weights:
-        n_weights = len(non_agent_known.weights)
-        n_models = len(agent.output_models)
-        assert (
-            n_weights == n_models
-        ), f'Expected {n_models} weights to load, got {n_weights} weights to load.'
-        for weight, model in zip(non_agent_known.weights, agent.output_models):
-            model.load_weights(weight).expect_partial()
-    getattr(agent, executor.valid_commands[executor.command][1])(**command_known)
+    Executor().execute(cli_args)
 
 
 if __name__ == '__main__':

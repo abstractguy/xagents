@@ -2,7 +2,7 @@ import pytest
 
 from xagents.cli import Executor
 from xagents.tests.utils import (get_display_cases, get_non_display_cases,
-                                 get_parser_args)
+                                 get_parser_args, get_train_step_args)
 
 
 @pytest.fixture
@@ -22,4 +22,9 @@ def non_display_args(request):
 
 @pytest.fixture(params=get_parser_args())
 def parser_args(request):
+    yield request.param
+
+
+@pytest.fixture(params=get_train_step_args())
+def train_step_args(request):
     yield request.param

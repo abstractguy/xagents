@@ -49,3 +49,38 @@ def get_parser_args():
                 argv.extend(['--target-reward', '-1'])
             argvs.append(argv)
     return argvs
+
+
+def get_train_step_args():
+    return [
+        {
+            'args': 'train a2c --env PongNoFrameskip-v4 --entropy-coef 5 '
+            '--value-loss-coef 33 --grad-norm 7 --checkpoints xyz.tf '
+            '--reward-buffer-size 150 --n-steps 100 --gamma 0.88 '
+            '--display-precision 3 --seed 55 --scale-factor 50 '
+            '--log-frequency 28 --n-envs 25 --lr 0.555 --opt-epsilon 0.3 '
+            '--beta1 15 --beta2 12 --max-steps 1',
+            'agent': {
+                'entropy_coef': 5,
+                'value_loss_coef': 33,
+                'grad_norm': 7,
+                'checkpoints': ['xyz.tf'],
+                'reward_buffer_size': 150,
+                'n_steps': 100,
+                'gamma': 0.88,
+                'display_precision': 3,
+                'seed': 55,
+                'scale_factor': 50,
+                'log_frequency': 28,
+                'n_envs': 25,
+            },
+            'non_agent': {
+                'env': 'PongNoFrameskip-v4',
+                'agent': xagents.A2C,
+                'lr': 0.555,
+                'opt_epsilon': 0.3,
+                'beta1': 15,
+                'beta2': 12,
+            },
+        },
+    ]
