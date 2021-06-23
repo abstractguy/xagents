@@ -43,6 +43,6 @@ def model(request):
     request.cls.model = Model()
 
 
-@pytest.fixture(scope='class')
-def buffers(request):
-    request.cls.buffers = [ReplayBuffer(1) for _ in range(4)]
+@pytest.fixture
+def buffers():
+    return [ReplayBuffer(10, batch_size=2) for _ in range(4)]
