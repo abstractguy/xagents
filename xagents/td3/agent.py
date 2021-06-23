@@ -31,6 +31,8 @@ class TD3(DDPG):
             **kwargs: kwargs passed to super classes.
         """
         super(TD3, self).__init__(envs, actor_model, critic_model, buffers, **kwargs)
+        self.critic1 = self.critic
+        self.target_critic1 = self.target_critic
         self.policy_delay = policy_delay
         self.policy_noise_coef = policy_noise_coef
         self.noise_clip = noise_clip
@@ -47,6 +49,9 @@ class TD3(DDPG):
         self.model_groups.append(
             (self.critic2, self.target_critic2),
         )
+
+    def get_step_actions(self):
+        return self.actor(tf.numpy_function(self.get_states, [], tf.float32))
 
     def update_critic_weights(self, states, actions, new_states, dones, rewards):
         """
@@ -91,6 +96,3 @@ class TD3(DDPG):
         self.critic2.optimizer.minimize(
             critic2_loss, self.critic2.trainable_variables, tape=tape
         )
-
-    def get_step_actions(self):
-        return self.actor(tf.numpy_function(self.get_states, [], tf.float32))

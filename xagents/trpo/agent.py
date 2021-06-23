@@ -42,7 +42,7 @@ class TRPO(PPO):
             actor_model,
             **kwargs,
         )
-        self.output_models = [actor_model, critic_model]
+        self.output_models.append(critic_model)
         self.old_actor = tf.keras.models.clone_model(self.model)
         self.actor = self.model
         self.critic = critic_model

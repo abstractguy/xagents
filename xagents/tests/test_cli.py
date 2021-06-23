@@ -26,26 +26,16 @@ def test_parsers(executor, parser_args):
     assert all_args == agent_expected_args
 
 
-def test_train(executor, train_step_args, capsys):
-    executor.execute(train_step_args['args'].split())
+def test_train(executor, capsys, train_args):
+    executor.execute(train_args['args'].split())
     assert 'Maximum steps exceeded' in capsys.readouterr().out
-    for attr, value in train_step_args['agent'].items():
+    for attr, value in train_args['agent'].items():
         assert getattr(executor.agent, attr) == value
-    assert isinstance(executor.agent, train_step_args['non_agent']['agent'])
+    assert isinstance(executor.agent, train_args['non_agent']['agent'])
+    assert executor.agent.envs[0].unwrapped.spec.id == train_args['non_agent']['env']
+    assert executor.agent.model.optimizer.learning_rate == train_args['non_agent']['lr']
     assert (
-        executor.agent.envs[0].unwrapped.spec.id == train_step_args['non_agent']['env']
+        executor.agent.model.optimizer.epsilon == train_args['non_agent']['opt_epsilon']
     )
-    assert (
-        executor.agent.model.optimizer.learning_rate
-        == train_step_args['non_agent']['lr']
-    )
-    assert (
-        executor.agent.model.optimizer.epsilon
-        == train_step_args['non_agent']['opt_epsilon']
-    )
-    assert (
-        executor.agent.model.optimizer.beta_1 == train_step_args['non_agent']['beta1']
-    )
-    assert (
-        executor.agent.model.optimizer.beta_2 == train_step_args['non_agent']['beta2']
-    )
+    assert executor.agent.model.optimizer.beta_1 == train_args['non_agent']['beta1']
+    assert executor.agent.model.optimizer.beta_2 == train_args['non_agent']['beta2']

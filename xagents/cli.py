@@ -9,9 +9,7 @@ from tensorflow.keras.optimizers import Adam
 import xagents
 from xagents.base import OffPolicy
 from xagents.utils.buffers import (
-    IAmTheOtherKindOfReplayBufferBecauseFuckTensorflow,
-    ReplayBuffer,
-)
+    IAmTheOtherKindOfReplayBufferBecauseFuckTensorflow, ReplayBuffer)
 from xagents.utils.cli import agent_args, non_agent_args, off_policy_args
 from xagents.utils.common import ModelReader, create_gym_env
 

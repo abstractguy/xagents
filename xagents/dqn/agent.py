@@ -140,7 +140,7 @@ class DQN(OffPolicy):
         )
         return target_values
 
-    def train_on_batch(self, x, y, sample_weight=None):
+    def update_gradients(self, x, y, sample_weight=None):
         """
         Train on a given batch.
         Args:
@@ -183,7 +183,7 @@ class DQN(OffPolicy):
             5 * [tf.float32],
         )
         targets = self.get_targets(*training_batch)
-        self.train_on_batch(training_batch[0], targets)
+        self.update_gradients(training_batch[0], targets)
 
     def at_step_end(self):
         """

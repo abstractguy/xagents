@@ -80,15 +80,18 @@ class BaseAgent(ABC):
         self.done_envs = []
         self.supported_action_spaces = Box, Discrete
         if seed:
-            tf.random.set_seed(seed)
-            np.random.seed(seed)
-            for env in self.envs:
-                env.seed(seed)
-                env.action_space.seed(seed)
-            os.environ['PYTHONHASHSEED'] = f'{seed}'
-            random.seed(seed)
+            self.set_seeds(seed)
         self.reset_envs()
         self.set_action_count()
+
+    def set_seeds(self, seed):
+        tf.random.set_seed(seed)
+        np.random.seed(seed)
+        for env in self.envs:
+            env.seed(seed)
+            env.action_space.seed(seed)
+        os.environ['PYTHONHASHSEED'] = f'{seed}'
+        random.seed(seed)
 
     def reset_envs(self):
         """
