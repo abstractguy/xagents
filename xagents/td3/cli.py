@@ -1,16 +1,11 @@
-cli_args = {
-    'actor-model': {'help': 'Path to actor model .cfg file'},
-    'critic-model': {'help': 'Path to critic model .cfg file'},
+from xagents import ddpg
+
+ddpg_args = ddpg.cli_args
+td3_args = {
     'policy-delay': {
         'help': 'Delay after which, actor weights and target models will be updated',
         'type': int,
         'default': 2,
-    },
-    'gradient-steps': {'help': 'Number of iterations per train step', 'type': int},
-    'tau': {
-        'help': 'Value used for syncing target model weights',
-        'type': float,
-        'default': 0.005,
     },
     'policy-noise-coef': {
         'help': 'Coefficient multiplied by noise added to target actions',
@@ -23,3 +18,5 @@ cli_args = {
         'default': 0.5,
     },
 }
+cli_args = ddpg_args.copy()
+cli_args.update(td3_args)

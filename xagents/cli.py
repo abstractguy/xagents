@@ -210,7 +210,7 @@ class Executor:
             ),
             agent_known_args['seed'],
         )
-        if self.agent_id == 'td3' and 'critic' in model_cfg:
+        if self.agent_id in ['td3', 'ddpg'] and 'critic' in model_cfg:
             model_reader.input_shape = (
                 model_reader.input_shape[0] + envs[0].action_space.shape[0]
             )
@@ -291,7 +291,7 @@ class Executor:
         buffer_batch_size = (
             non_agent_known_args.buffer_batch_size // non_agent_known_args.n_envs
         )
-        if self.agent_id == 'td3':
+        if self.agent_id in ['td3', 'ddpg']:
             agent_known_args['buffers'] = [
                 IAmTheOtherKindOfReplayBufferBecauseFuckTensorflow(
                     buffer_max_size,

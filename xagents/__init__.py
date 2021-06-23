@@ -1,6 +1,7 @@
-from xagents import a2c, acer, dqn, ppo, td3, trpo
+from xagents import a2c, acer, ddpg, dqn, ppo, td3, trpo
 from xagents.a2c.agent import A2C
 from xagents.acer.agent import ACER
+from xagents.ddpg.agent import DDPG
 from xagents.dqn.agent import DQN
 from xagents.ppo.agent import PPO
 from xagents.td3.agent import TD3
@@ -19,6 +20,7 @@ agents = {
     'ppo': [ppo, PPO],
     'td3': [td3, TD3],
     'trpo': [trpo, TRPO],
+    'ddpg': [ddpg, DDPG],
 }
 commands = {
     'train': (train_args, 'fit', 'Train given an agent and environment'),

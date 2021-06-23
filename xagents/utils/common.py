@@ -128,6 +128,7 @@ class ModelReader:
             seed: Random seed used by layer initializers.
         """
         self.initializers = {'orthogonal': Orthogonal, 'glorot_uniform': GlorotUniform}
+        self.cfg_file = cfg_file
         with open(cfg_file) as cfg:
             self.parser = configparser.ConfigParser()
             self.parser.read_file(cfg)
@@ -210,6 +211,8 @@ class ModelReader:
         outputs = []
         common_layer = None
         input_layer = current_layer = Input(self.input_shape)
+        sections = self.parser.sections()
+        assert sections, f'Empty model configuration {self.cfg_file}'
         for section in self.parser.sections():
             if section.startswith('convolutional'):
                 current_layer = self.create_convolution(section)(current_layer)
