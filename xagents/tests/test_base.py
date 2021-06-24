@@ -7,20 +7,45 @@ import pytest
 import tensorflow as tf
 from gym.spaces import Discrete
 
-from xagents.base import BaseAgent, OffPolicy
+import xagents
+from xagents import A2C, ACER, DDPG, DQN, PPO, TD3, TRPO
+from xagents.base import OffPolicy
+from xagents.utils.buffers import ReplayBuffer
 
 
-@pytest.mark.usefixtures('envs', 'model')
+@pytest.mark.usefixtures('envs', 'model', 'buffers')
 class TestBase:
-    def test_no_envs(self):
-        with pytest.raises(AssertionError) as pe:
-            args = [[], self.model]
-            BaseAgent(*args)
-            assert 'No environments given' in pe.value
+    model_counts = {DDPG: 2, TD3: 3, TRPO: 2, A2C: 1, ACER: 1, DQN: 1, PPO: 1}
 
-    def test_seeds(self):
+    def get_agent_kwargs(self, agent, envs=None, model=None, buffers=None):
+        agent_kwargs = {'envs': envs if envs is not None else self.envs}
+        buffers = buffers or self.buffers
+        if self.model_counts[agent] > 1:
+            agent_kwargs['actor_model'] = model or self.model
+            agent_kwargs['critic_model'] = model or self.model
+        else:
+            agent_kwargs['model'] = model or self.model
+        if agent == xagents.ACER:
+            for buffer in buffers:
+                buffer.batch_size = 1
+            agent_kwargs['buffers'] = buffers
+        if issubclass(agent, OffPolicy):
+            agent_kwargs['buffers'] = buffers
+        return agent_kwargs
+
+    def test_no_envs(self, agent):
+        with pytest.raises(AssertionError) as pe:
+            agent_kwargs = self.get_agent_kwargs(agent, [])
+            agent(**agent_kwargs)
+        assert pe.value.args[0] == 'No environments given'
+
+    def empty_buffers(self):
+        for buffer in self.buffers:
+            buffer.main_buffer.clear()
+
+    def test_seeds(self, agent):
         test_seed = 1
-        agent = BaseAgent(self.envs, self.model)
+        agent = agent(**self.get_agent_kwargs(agent))
         results1, results2 = set(), set()
         test_range = 1000000
         for results in [results1, results2]:
@@ -45,37 +70,53 @@ class TestBase:
             'Gopher-v4',
         ],
     )
-    def test_n_actions(self, env_id):
+    def test_n_actions(self, env_id, agent):
         env = gym.make(env_id)
-        agent = BaseAgent([env], self.model)
+        agent = agent(
+            **self.get_agent_kwargs(agent, [env for _ in range(len(self.envs))])
+        )
         if isinstance(env.action_space, Discrete):
             assert agent.n_actions == env.action_space.n
         else:
             assert agent.n_actions == env.action_space.shape
 
-    def test_unsupported_env(self):
+    def test_unsupported_env(self, agent):
         with pytest.raises(AssertionError) as pe:
-            BaseAgent([gym.make('RepeatCopy-v0')], self.model)
-            assert 'Expected one of' in pe.value
+            agent(
+                **self.get_agent_kwargs(
+                    agent, [gym.make('RepeatCopy-v0') for _ in range(len(self.envs))]
+                )
+            )
+        assert 'Expected one of' in pe.value.args[0]
 
-    def test_checkpoint(self, tmp_path, capsys):
-        agent = BaseAgent(
-            self.envs, self.model, checkpoints=[tmp_path / 'test_weights.tf']
-        )
+    def test_checkpoint(self, agent, tmp_path, capsys):
+        checkpoints = {
+            (tmp_path / f'test_weights{i}.tf').as_posix()
+            for i in range(self.model_counts[agent])
+        }
+        expected_filenames = set()
+        for checkpoint in checkpoints:
+            expected_filenames.add(f'{checkpoint}.index')
+            expected_filenames.add(f'{checkpoint}.data-00000-of-00001')
+        expected_filenames.add((tmp_path / 'checkpoint').as_posix())
+        agent = agent(**self.get_agent_kwargs(agent), checkpoints=checkpoints)
         agent.checkpoint()
         assert not capsys.readouterr().out
         agent.mean_reward = 100
         agent.checkpoint()
         assert 'Best reward updated' in capsys.readouterr().out
         assert agent.best_reward == 100
-        assert {*tmp_path.iterdir()} == {
-            tmp_path / item
-            for item in (
-                'checkpoint',
-                'test_weights.tf.index',
-                'test_weights.tf.data-00000-of-00001',
-            )
-        }
+        resulting_files = {item.as_posix() for item in tmp_path.iterdir()}
+        assert expected_filenames == resulting_files
+
+    def test_wrong_checkpoints(self, agent):
+        agent = agent(
+            **self.get_agent_kwargs(agent),
+            checkpoints=(self.model_counts[agent] + 1) * ['wrong_ckpt.tf'],
+        )
+        with pytest.raises(AssertionError) as pe:
+            agent.fit(18)
+        assert 'given output models, got' in pe.value.args[0]
 
     @staticmethod
     def check_progress_displayed(displayed):
@@ -89,16 +130,16 @@ class TestBase:
         ):
             assert item in displayed
 
-    def test_display_metrics(self, capsys):
-        agent = BaseAgent(self.envs, self.model)
+    def test_display_metrics(self, capsys, agent):
+        agent = agent(**self.get_agent_kwargs(agent))
         agent.training_start_time = perf_counter()
         agent.frame_speed = agent.mean_reward = agent.best_reward = 0
         agent.display_metrics()
         displayed = capsys.readouterr().out
         self.check_progress_displayed(displayed)
 
-    def test_update_metrics(self):
-        agent = BaseAgent(self.envs, self.model)
+    def test_update_metrics(self, agent):
+        agent = agent(**self.get_agent_kwargs(agent))
         agent.last_reset_time = perf_counter() - 2
         agent.steps = 1000
         agent.total_rewards.extend([100, 130, 150])
@@ -106,8 +147,9 @@ class TestBase:
         assert round(agent.frame_speed) == 500
         assert agent.mean_reward == 126.67
 
-    def test_check_episodes(self, capsys):
-        agent = BaseAgent(self.envs, self.model)
+    def test_check_episodes(self, capsys, agent):
+        agent = agent(**self.get_agent_kwargs(agent))
+        agent.total_rewards.append(0)
         agent.training_start_time = perf_counter()
         agent.last_reset_time = perf_counter()
         agent.check_episodes()
@@ -128,9 +170,9 @@ class TestBase:
         ],
     )
     def test_training_done(
-        self, capsys, expected, mean_reward, steps, target_reward, max_steps
+        self, capsys, expected, mean_reward, steps, target_reward, max_steps, agent
     ):
-        agent = BaseAgent(self.envs, self.model)
+        agent = agent(**self.get_agent_kwargs(agent))
         agent.mean_reward = mean_reward
         agent.steps = steps
         agent.target_reward = target_reward
@@ -144,48 +186,37 @@ class TestBase:
             cap = capsys.readouterr().out
             assert any([message in cap for message in messages])
 
-    def test_concat_buffer_samples(self, buffers):
-        envs = [gym.make('PongNoFrameskip-v4') for _ in range(4)]
-        agent = OffPolicy(envs, self.model, buffers)
+    def test_concat_buffer_samples(self, off_policy_agent):
+        buffers = [ReplayBuffer(10, batch_size=1) for _ in range(4)]
+        agent = off_policy_agent(
+            **self.get_agent_kwargs(off_policy_agent, buffers=buffers)
+        )
         with pytest.raises(ValueError) as pe:
             agent.concat_buffer_samples()
-            assert 'Sample larger than population' in pe.value
-        agent.set_seeds(1)
+        assert 'Sample larger than population' in pe.value.args[0]
+        seen = []
         for i, buffer in enumerate(agent.buffers):
-            start = i * 10
-            end = start + 10
-            buffer.main_buffer.extend(
-                [[n, n * 10, n * 100, n * 1000] for n in range(start, end)]
-            )
-        expected = [
-            np.array([2.0, 1.0, 14.0, 11.0, 27.0, 29.0, 37.0, 36.0], dtype=np.float32),
-            np.array(
-                [20.0, 10.0, 140.0, 110.0, 270.0, 290.0, 370.0, 360.0], dtype=np.float32
-            ),
-            np.array(
-                [200.0, 100.0, 1400.0, 1100.0, 2700.0, 2900.0, 3700.0, 3600.0],
-                dtype=np.float32,
-            ),
-            np.array(
-                [2000.0, 1000.0, 14000.0, 11000.0, 27000.0, 29000.0, 37000.0, 36000.0],
-                dtype=np.float32,
-            ),
-        ]
-        for expected_item, result in zip(expected, agent.concat_buffer_samples()):
-            assert (expected_item == result).all()
+            observation = [[i], [i * 10], [i * 100], [i * 1000]]
+            seen.append(observation)
+            buffer.append(*observation)
+        expected = np.squeeze(np.array(seen, np.float32)).T
+        result = agent.concat_buffer_samples()
+        assert (expected == result).all()
 
     @pytest.mark.parametrize(
         'get_observation, store_in_buffers',
         [[False, False], [True, False], [False, True], [True, True]],
     )
-    def test_step_envs(self, get_observation, store_in_buffers, buffers):
-        agent = OffPolicy(self.envs, self.model, buffers)
+    def test_step_envs(self, get_observation, store_in_buffers, agent):
+        self.empty_buffers()
+        agent = agent(**self.get_agent_kwargs(agent))
         actions = np.random.randint(0, agent.n_actions, len(self.envs))
         observations = agent.step_envs(actions, get_observation, store_in_buffers)
-        if store_in_buffers:
-            assert all([len(buffer.main_buffer) > 0 for buffer in agent.buffers])
-        else:
-            assert all([len(buffer.main_buffer) == 0 for buffer in agent.buffers])
+        if hasattr(agent, 'buffers'):
+            if store_in_buffers:
+                assert all([len(buffer.main_buffer) > 0 for buffer in agent.buffers])
+            else:
+                assert all([len(buffer.main_buffer) == 0 for buffer in agent.buffers])
         if get_observation:
             assert observations
             assert len(set([item.shape for item in observations[0]])) == 1

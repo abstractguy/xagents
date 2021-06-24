@@ -32,6 +32,9 @@ class A2C(OnPolicy):
         self.entropy_coef = entropy_coef
         self.value_loss_coef = value_loss_coef
         self.grad_norm = grad_norm
+        assert (
+            len(model.layers) > 2
+        ), f'Expected a model that has at least 3 layers, got {len(model.layers)}'
         activations = [layer.activation for layer in model.layers[-2:]]
         self.output_is_softmax = tf.keras.activations.softmax in activations
         self.distribution_type = (

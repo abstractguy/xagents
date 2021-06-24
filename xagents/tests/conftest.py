@@ -1,7 +1,10 @@
 import gym
 import pytest
-from tensorflow.keras import Model
+from tensorflow.keras.layers import Dense, Input
+from tensorflow.keras.models import Model
 
+import xagents
+from xagents import ACER, DDPG, DQN, TD3
 from xagents.cli import Executor
 from xagents.tests.utils import (get_display_cases, get_non_display_cases,
                                  get_parser_args, get_train_step_args)
@@ -40,9 +43,24 @@ def envs(request):
 
 @pytest.fixture(scope='class')
 def model(request):
-    request.cls.model = Model()
+    x0 = Input((210, 160, 3))
+    x = Dense(1, 'relu')(x0)
+    x = Dense(1, 'relu')(x)
+    x = Dense(1, 'relu')(x)
+    model = request.cls.model = Model(x0, x)
+    model.compile('adam')
 
 
-@pytest.fixture
-def buffers():
-    return [ReplayBuffer(10, batch_size=2) for _ in range(4)]
+@pytest.fixture(scope='class')
+def buffers(request):
+    request.cls.buffers = [ReplayBuffer(10, batch_size=155) for _ in range(4)]
+
+
+@pytest.fixture(params=[item[1] for item in xagents.agents.values()])
+def agent(request):
+    yield request.param
+
+
+@pytest.fixture(params=[ACER, TD3, DQN, DDPG])
+def off_policy_agent(request):
+    yield request.param

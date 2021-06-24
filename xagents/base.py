@@ -48,7 +48,7 @@ class BaseAgent(ABC):
             log_frequency: Interval of done games to display progress after each,
                 defaults to the number of environments given if not specified.
         """
-        assert envs, 'No Environments given'
+        assert envs, 'No environments given'
         self.n_envs = len(envs)
         self.envs = envs
         self.model = model
