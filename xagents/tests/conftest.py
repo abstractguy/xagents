@@ -5,6 +5,7 @@ from tensorflow.keras.models import Model
 
 import xagents
 from xagents import ACER, DDPG, DQN, TD3
+from xagents.base import BaseAgent, OffPolicy, OnPolicy
 from xagents.cli import Executor
 from xagents.tests.utils import (get_display_cases, get_non_display_cases,
                                  get_parser_args, get_train_step_args)
@@ -63,4 +64,9 @@ def agent(request):
 
 @pytest.fixture(params=[ACER, TD3, DQN, DDPG])
 def off_policy_agent(request):
+    yield request.param
+
+
+@pytest.fixture(params=[BaseAgent, OnPolicy, OffPolicy])
+def base_agent(request):
     yield request.param

@@ -49,6 +49,9 @@ class BaseAgent(ABC):
                 defaults to the number of environments given if not specified.
         """
         assert envs, 'No environments given'
+        assert (
+            scale_factor is None or scale_factor > 0
+        ), f'Invalid scale factor {scale_factor}'
         self.n_envs = len(envs)
         self.envs = envs
         self.model = model
@@ -320,6 +323,19 @@ class BaseAgent(ABC):
             f'train_step() should be implemented by {self.__class__.__name__} subclasses'
         )
 
+    def get_model_inputs(self, inputs):
+        """
+        Get inputs and apply normalization if `scale_factor` was specified earlier.
+        Args:
+            inputs: Inputs as tensors / numpy arrays that are expected
+                by the given model(s).
+        Returns:
+
+        """
+        if not self.scale_factor:
+            return inputs
+        return tf.cast(inputs, tf.float32) / self.scale_factor
+
     def get_model_outputs(self, inputs, models, training=True):
         """
         Get inputs and apply normalization if `scale_factor` was specified earlier,
@@ -378,19 +394,6 @@ class BaseAgent(ABC):
         return np.array(self.dones, np.float32)
 
     @staticmethod
-    def get_action_indices(batch_indices, actions):
-        """
-        Get indices that will be passed to tf.gather_nd()
-        Args:
-            batch_indices: tf.range() result of the same shape as the batch size.
-            actions: Action tensor of same shape as the batch size.
-
-        Returns:
-            Indices as a tensor.
-        """
-        return tf.concat((batch_indices, tf.cast(actions[:, tf.newaxis], tf.int64)), -1)
-
-    @staticmethod
     def concat_step_batches(*args):
         """
         Concatenate n-step batches.
@@ -401,19 +404,6 @@ class BaseAgent(ABC):
             A list of concatenated numpy arrays.
         """
         return [a.swapaxes(0, 1).reshape(-1, *a.shape[2:]) for a in args]
-
-    def get_model_inputs(self, inputs):
-        """
-        Get inputs and apply normalization if `scale_factor` was specified earlier.
-        Args:
-            inputs: Inputs as tensors / numpy arrays that are expected
-                by the given model(s).
-        Returns:
-
-        """
-        if not self.scale_factor:
-            return inputs
-        return tf.cast(inputs, tf.float32) / self.scale_factor
 
     def fit(
         self,

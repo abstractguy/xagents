@@ -51,6 +51,19 @@ class DQN(OffPolicy):
             self.buffers[0].batch_size * self.n_envs, dtype=tf.int64
         )[:, tf.newaxis]
 
+    @staticmethod
+    def get_action_indices(batch_indices, actions):
+        """
+        Get indices that will be passed to tf.gather_nd()
+        Args:
+            batch_indices: tf.range() result of the same shape as the batch size.
+            actions: Action tensor of same shape as the batch size.
+
+        Returns:
+            Indices as a tensor.
+        """
+        return tf.concat((batch_indices, tf.cast(actions[:, tf.newaxis], tf.int64)), -1)
+
     @tf.function
     def get_model_outputs(self, inputs, models, training=True):
         """

@@ -5,17 +5,29 @@ import gym
 import numpy as np
 import pytest
 import tensorflow as tf
+import wandb
 from gym.spaces import Discrete
 
 import xagents
 from xagents import A2C, ACER, DDPG, DQN, PPO, TD3, TRPO
-from xagents.base import OffPolicy
+from xagents.base import BaseAgent, OffPolicy, OnPolicy
 from xagents.utils.buffers import ReplayBuffer
 
 
 @pytest.mark.usefixtures('envs', 'model', 'buffers')
 class TestBase:
-    model_counts = {DDPG: 2, TD3: 3, TRPO: 2, A2C: 1, ACER: 1, DQN: 1, PPO: 1}
+    model_counts = {
+        DDPG: 2,
+        TD3: 3,
+        TRPO: 2,
+        A2C: 1,
+        ACER: 1,
+        DQN: 1,
+        PPO: 1,
+        BaseAgent: 1,
+        OnPolicy: 1,
+        OffPolicy: 1,
+    }
 
     def get_agent_kwargs(self, agent, envs=None, model=None, buffers=None):
         agent_kwargs = {'envs': envs if envs is not None else self.envs}
@@ -29,7 +41,7 @@ class TestBase:
             for buffer in buffers:
                 buffer.batch_size = 1
             agent_kwargs['buffers'] = buffers
-        if issubclass(agent, OffPolicy):
+        if issubclass(agent, OffPolicy) or agent == OffPolicy:
             agent_kwargs['buffers'] = buffers
         return agent_kwargs
 
@@ -223,8 +235,51 @@ class TestBase:
         else:
             assert not observations
 
-    @pytest.mark.parametrize('target_reward, max_steps, monitor_session, checkpoints')
+    @pytest.mark.parametrize(
+        'target_reward, max_steps, monitor_session',
+        [[18, None, None], [22, 55, None], [None, 100, 'test_session']],
+    )
     def test_init_training(
-        self, capsys, target_reward, max_steps, monitor_session, checkpoints
+        self, agent, capsys, target_reward, max_steps, monitor_session, tmpdir
     ):
-        pass
+        checkpoints = [f'test-{i}.tf' for i in range(self.model_counts[agent])]
+        agent = agent(**self.get_agent_kwargs(agent))
+        agent.checkpoints = checkpoints
+        with tmpdir.as_cwd():
+            agent.init_training(target_reward, max_steps, monitor_session)
+        assert agent.target_reward == target_reward
+        assert agent.max_steps == max_steps
+        assert agent.last_reset_time
+        assert agent.training_start_time
+        if monitor_session:
+            assert wandb.run.name == monitor_session
+            capsys.readouterr()
+
+    def test_train_step(self, base_agent):
+        agent = base_agent(**self.get_agent_kwargs(base_agent))
+        with pytest.raises(NotImplementedError) as pe:
+            agent.train_step()
+        assert 'train_step() should be implemented by' in pe.value.args[0]
+
+    def test_get_model_inputs(self, agent):
+        inputs = np.random.random((10, 10))
+        scale_factor = 122
+        agent_kwargs = self.get_agent_kwargs(agent)
+        with pytest.raises(AssertionError) as pe:
+            agent(**agent_kwargs, scale_factor=0)
+        assert 'Invalid scale factor' in pe.value.args[0]
+        agent = agent(**agent_kwargs, scale_factor=scale_factor)
+        if scale_factor:
+            expected = inputs / scale_factor
+            actual = agent.get_model_inputs(inputs)
+            assert np.isclose(expected, actual).all()
+
+    def test_get_model_outputs(self, base_agent):
+        inputs = np.random.random((10, *self.envs[0].observation_space.shape))
+        agent = base_agent(**self.get_agent_kwargs(base_agent))
+        single_model_result = agent.get_model_outputs(inputs, self.model)
+        multi_model_result = agent.get_model_outputs(inputs, [self.model, self.model])
+        assert single_model_result.shape == multi_model_result[0].shape
+        assert np.isclose(
+            single_model_result.numpy(), multi_model_result[0].numpy()
+        ).all()
