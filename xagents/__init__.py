@@ -7,6 +7,7 @@ from xagents.ppo.agent import PPO
 from xagents.td3.agent import TD3
 from xagents.trpo.agent import TRPO
 from xagents.utils.cli import play_args, train_args
+from xagents.utils.common import register_models
 
 __author__ = 'Emad Boctor'
 __email__ = 'emad_1989@hotmail.com'
@@ -14,14 +15,15 @@ __license__ = 'MIT'
 __version__ = 1.0
 
 agents = {
-    'a2c': [a2c, A2C],
-    'acer': [acer, ACER],
-    'dqn': [dqn, DQN],
-    'ppo': [ppo, PPO],
-    'td3': [td3, TD3],
-    'trpo': [trpo, TRPO],
-    'ddpg': [ddpg, DDPG],
+    'a2c': {'module': a2c, 'agent': A2C},
+    'acer': {'module': acer, 'agent': ACER},
+    'dqn': {'module': dqn, 'agent': DQN},
+    'ppo': {'module': ppo, 'agent': PPO},
+    'td3': {'module': td3, 'agent': TD3},
+    'trpo': {'module': trpo, 'agent': TRPO},
+    'ddpg': {'module': ddpg, 'agent': DDPG},
 }
+register_models(agents)
 commands = {
     'train': (train_args, 'fit', 'Train given an agent and environment'),
     'play': (

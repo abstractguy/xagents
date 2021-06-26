@@ -13,8 +13,8 @@ def get_expected_flags(argv, as_kwargs=False):
     expected_kwargs.update(xagents.commands[command][0])
     if len(argv) > 1:
         agent_data = xagents.agents[argv[1]]
-        expected_kwargs.update(agent_data[0].cli_args)
-        if issubclass(agent_data[1], OffPolicy) or argv[1] == 'acer':
+        expected_kwargs.update(agent_data['module'].cli_args)
+        if issubclass(agent_data['agent'], OffPolicy) or argv[1] == 'acer':
             expected_kwargs.update(off_policy_args)
     if not as_kwargs:
         return expected_kwargs.keys()

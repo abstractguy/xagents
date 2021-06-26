@@ -1,6 +1,5 @@
 import argparse
 import sys
-from pathlib import Path
 
 import pandas as pd
 from gym.spaces.discrete import Discrete
@@ -23,8 +22,6 @@ class Executor:
         """
         Initialize supported commands and agents.
         """
-        self.valid_commands = xagents.commands
-        self.available_agents = xagents.agents
         self.agent_id = None
         self.command = None
         self.agent = None
@@ -71,7 +68,7 @@ class Executor:
         print(f'\nUsage:')
         print(f'\txagents <command> <agent> [options] [args]')
         print(f'\nAvailable commands:')
-        for command, items in self.valid_commands.items():
+        for command, items in xagents.commands.items():
             print(f'\t{command:<10} {items[2]}')
         print()
         print('Use xagents <command> to see more info about a command')
@@ -128,18 +125,18 @@ class Executor:
         command = cli_args[0]
         to_display.update(non_agent_args)
         to_display.update(agent_args)
-        assert command in self.valid_commands, f'Invalid command `{command}`'
-        to_display.update(self.valid_commands[command][0])
+        assert command in xagents.commands, f'Invalid command `{command}`'
+        to_display.update(xagents.commands[command][0])
         if total == 1:
             self.display_commands({command: to_display})
             return
         agent_id = cli_args[1]
-        assert agent_id in self.available_agents, f'Invalid agent `{agent_id}`'
-        to_display.update(self.available_agents[agent_id][0].cli_args)
+        assert agent_id in xagents.agents, f'Invalid agent `{agent_id}`'
+        to_display.update(xagents.agents[agent_id]['module'].cli_args)
         if total == 2:
             title = f'{command} {agent_id}'
             if (
-                issubclass(self.available_agents[agent_id][1], OffPolicy)
+                issubclass(xagents.agents[agent_id]['agent'], OffPolicy)
                 or agent_id == 'acer'
             ):
                 to_display.update(off_policy_args)
@@ -152,7 +149,6 @@ class Executor:
         envs,
         agent_known_args,
         non_agent_known_args,
-        model_suffix='',
         model_arg='model',
     ):
         """
@@ -161,8 +157,6 @@ class Executor:
             envs: A list of gym environments.
             agent_known_args: kwargs passed to agent.
             non_agent_known_args: kwargs are general / not passed to agent.
-            model_suffix: What follows cnn- or ann- and preceds extension in the default
-                model configuration.
             model_arg: name of the kwarg found in `agent_known_args` which references
                 the model configuration. If None is given, the default agent model
                 configuration will be used.
@@ -170,9 +164,6 @@ class Executor:
         Returns:
             None
         """
-        models_folder = (
-            Path(self.available_agents[self.agent_id][0].__file__).parent / 'models'
-        )
         units = [
             envs[0].action_space.n
             if isinstance(envs[0].action_space, Discrete)
@@ -182,14 +173,10 @@ class Executor:
             network_type = 'cnn'
         else:
             network_type = 'ann'
-        default_model_cfg = [*models_folder.rglob(f'{network_type}*{model_suffix}.cfg')]
-        default_model_cfg = (
-            default_model_cfg[0].as_posix() if default_model_cfg else None
+        model_cfg = (
+            agent_known_args[model_arg]
+            or xagents.agents[self.agent_id][model_arg][network_type][0]
         )
-        model_cfg = agent_known_args[model_arg] or default_model_cfg
-        assert (
-            model_cfg
-        ), f'You should specify --model <model.cfg>, no default model found in {models_folder}'
         if self.agent_id == 'acer':
             units.append(units[-1])
         elif 'actor' in model_cfg and 'critic' in model_cfg:
@@ -225,10 +212,10 @@ class Executor:
         agent_parser = argparse.ArgumentParser()
         command_parser = argparse.ArgumentParser()
         self.add_args(agent_args, agent_parser)
-        self.add_args(self.available_agents[self.agent_id][0].cli_args, agent_parser)
-        self.add_args(self.valid_commands[self.command][0], command_parser)
+        self.add_args(xagents.agents[self.agent_id]['module'].cli_args, agent_parser)
+        self.add_args(xagents.commands[self.command][0], command_parser)
         if (
-            issubclass(self.available_agents[self.agent_id][1], OffPolicy)
+            issubclass(xagents.agents[self.agent_id]['agent'], OffPolicy)
             or self.agent_id == 'acer'
         ):
             self.add_args(off_policy_args, general_parser)
@@ -261,11 +248,10 @@ class Executor:
             None
         """
         model_args = ['model', 'actor_model', 'critic_model']
-        suffixes = ['', 'actor', 'critic']
-        for model_arg, suffix in zip(model_args, suffixes):
+        for model_arg in model_args:
             if model_arg in agent_known_args:
                 self.create_model(
-                    envs, agent_known_args, non_agent_known_args, suffix, model_arg
+                    envs, agent_known_args, non_agent_known_args, model_arg
                 )
 
     def create_buffers(self, agent_known_args, non_agent_known_args):
@@ -337,11 +323,11 @@ class Executor:
             envs,
         )
         if (
-            issubclass(self.available_agents[self.agent_id][1], OffPolicy)
+            issubclass(xagents.agents[self.agent_id]['agent'], OffPolicy)
             or self.agent_id == 'acer'
         ):
             self.create_buffers(agent_known, non_agent_known)
-        self.agent = self.available_agents[self.agent_id][1](**agent_known)
+        self.agent = xagents.agents[self.agent_id]['agent'](**agent_known)
         if non_agent_known.weights:
             n_weights = len(non_agent_known.weights)
             n_models = len(self.agent.output_models)
@@ -350,7 +336,7 @@ class Executor:
             ), f'Expected {n_models} weights to load, got {n_weights} weights to load.'
             for weight, model in zip(non_agent_known.weights, self.agent.output_models):
                 model.load_weights(weight).expect_partial()
-        getattr(self.agent, self.valid_commands[self.command][1])(**command_known)
+        getattr(self.agent, xagents.commands[self.command][1])(**command_known)
 
 
 def execute(cli_args=None):

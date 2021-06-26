@@ -57,7 +57,7 @@ def buffers(request):
     request.cls.buffers = [ReplayBuffer(10, batch_size=155) for _ in range(4)]
 
 
-@pytest.fixture(params=[item[1] for item in xagents.agents.values()])
+@pytest.fixture(params=[item['agent'] for item in xagents.agents.values()])
 def agent(request):
     yield request.param
 

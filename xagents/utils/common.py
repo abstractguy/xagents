@@ -1,5 +1,6 @@
 import configparser
 from collections import deque
+from pathlib import Path
 
 import cv2
 import gym
@@ -231,3 +232,34 @@ class ModelReader:
         if self.optimizer:
             model.compile(self.optimizer)
         return model
+
+
+def allocate_by_network(available_cfg, cfg_group):
+    if 'cnn' in available_cfg:
+        cfg_group['cnn'].append(available_cfg)
+    if 'ann' in available_cfg:
+        cfg_group['ann'].append(available_cfg)
+
+
+def register_models(agents):
+    for agent_data in agents.values():
+        models_folder = Path(agent_data['module'].__file__).parent / 'models'
+        available_cfgs = [model_cfg.as_posix() for model_cfg in models_folder.iterdir()]
+        actor_cfgs = {'cnn': [], 'ann': []}
+        critic_cfgs = {'cnn': [], 'ann': []}
+        model_cfgs = {'cnn': [], 'ann': []}
+        for available_cfg in available_cfgs:
+            if 'actor' not in available_cfg and 'critic' not in available_cfg:
+                allocate_by_network(available_cfg, model_cfgs)
+            elif 'actor' in available_cfg and 'critic' in available_cfg:
+                allocate_by_network(available_cfg, model_cfgs)
+            elif 'actor' in available_cfg:
+                allocate_by_network(available_cfg, actor_cfgs)
+            elif 'critic' in available_cfg:
+                allocate_by_network(available_cfg, critic_cfgs)
+        for key, val in zip(
+            ['actor_model', 'critic_model', 'model'],
+            [actor_cfgs, critic_cfgs, model_cfgs],
+        ):
+            if any(val.values()):
+                agent_data[key] = val
