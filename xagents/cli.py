@@ -1,5 +1,6 @@
 import argparse
 import sys
+from pathlib import Path
 
 import pandas as pd
 from gym.spaces.discrete import Discrete
@@ -144,63 +145,6 @@ class Executor:
             return
         self.command, self.agent_id = command, agent_id
 
-    def create_model(
-        self,
-        envs,
-        agent_known_args,
-        non_agent_known_args,
-        model_arg='model',
-    ):
-        """
-        Create model using given .cfg path or use the respective agent's default.
-        Args:
-            envs: A list of gym environments.
-            agent_known_args: kwargs passed to agent.
-            non_agent_known_args: kwargs are general / not passed to agent.
-            model_arg: name of the kwarg found in `agent_known_args` which references
-                the model configuration. If None is given, the default agent model
-                configuration will be used.
-
-        Returns:
-            None
-        """
-        units = [
-            envs[0].action_space.n
-            if isinstance(envs[0].action_space, Discrete)
-            else envs[0].action_space.shape[0]
-        ]
-        if len(envs[0].observation_space.shape) == 3:
-            network_type = 'cnn'
-        else:
-            network_type = 'ann'
-        model_cfg = (
-            agent_known_args[model_arg]
-            or xagents.agents[self.agent_id][model_arg][network_type][0]
-        )
-        if self.agent_id == 'acer':
-            units.append(units[-1])
-        elif 'actor' in model_cfg and 'critic' in model_cfg:
-            units.append(1)
-        elif 'critic' in model_cfg:
-            units[0] = 1
-        model_reader = ModelReader(
-            model_cfg,
-            units,
-            envs[0].observation_space.shape,
-            Adam(
-                non_agent_known_args.lr,
-                non_agent_known_args.beta1,
-                non_agent_known_args.beta2,
-                non_agent_known_args.opt_epsilon,
-            ),
-            agent_known_args['seed'],
-        )
-        if self.agent_id in ['td3', 'ddpg'] and 'critic' in model_cfg:
-            model_reader.input_shape = (
-                model_reader.input_shape[0] + envs[0].action_space.shape[0]
-            )
-        agent_known_args[model_arg] = model_reader.build_model()
-
     def parse_known_args(self, cli_args):
         """
         Parse general, agent and command specific args.
@@ -230,6 +174,75 @@ class Executor:
         ):
             command_parser.error('train requires --target-reward or --max-steps')
         return agent_known, non_agent_known, command_known
+
+    def create_model(
+        self,
+        envs,
+        agent_known_args,
+        non_agent_known_args,
+        model_arg='model',
+    ):
+        """
+        Create model using given .cfg path or use the respective agent's default.
+        Args:
+            envs: A list of gym environments.
+            agent_known_args: kwargs passed to agent.
+            non_agent_known_args: kwargs are general / not passed to agent.
+            model_arg: name of the kwarg found in `agent_known_args` which references
+                the model configuration. If None is given, the default agent model
+                configuration will be used.
+
+        Returns:
+            tf.keras.Model
+        """
+        units = [
+            envs[0].action_space.n
+            if isinstance(envs[0].action_space, Discrete)
+            else envs[0].action_space.shape[0]
+        ]
+        if len(envs[0].observation_space.shape) == 3:
+            network_type = 'cnn'
+        else:
+            network_type = 'ann'
+        try:
+            model_cfg = (
+                agent_known_args[model_arg]
+                or xagents.agents[self.agent_id][model_arg][network_type][0]
+            )
+        except IndexError:
+            model_cfg = None
+        models_folder = (
+            Path(xagents.agents[self.agent_id]['module'].__file__).parent / 'models'
+        )
+        assert model_cfg, (
+            f'You should specify --model <model.cfg>, no default '
+            f'{network_type.upper()} model found in\n{models_folder}'
+        )
+        if self.agent_id == 'acer':
+            units.append(units[-1])
+        elif 'actor' in model_cfg and 'critic' in model_cfg:
+            units.append(1)
+        elif 'critic' in model_cfg:
+            units[0] = 1
+        model_reader = ModelReader(
+            model_cfg,
+            units,
+            envs[0].observation_space.shape,
+            Adam(
+                non_agent_known_args.lr,
+                non_agent_known_args.beta1,
+                non_agent_known_args.beta2,
+                non_agent_known_args.opt_epsilon,
+            ),
+            agent_known_args['seed'],
+        )
+        if self.agent_id in ['td3', 'ddpg'] and 'critic' in model_cfg:
+            model_reader.input_shape = (
+                model_reader.input_shape[0] + envs[0].action_space.shape[0]
+            )
+        model = model_reader.build_model()
+        agent_known_args[model_arg] = model
+        return model
 
     def create_models(
         self,
@@ -276,7 +289,7 @@ class Executor:
             non_agent_known_args.buffer_batch_size // non_agent_known_args.n_envs
         )
         if self.agent_id in ['td3', 'ddpg']:
-            agent_known_args['buffers'] = [
+            buffers = agent_known_args['buffers'] = [
                 IAmTheOtherKindOfReplayBufferBecauseFuckTensorflow(
                     buffer_max_size,
                     5,
@@ -286,7 +299,7 @@ class Executor:
                 for _ in range(non_agent_known_args.n_envs)
             ]
         else:
-            agent_known_args['buffers'] = [
+            buffers = agent_known_args['buffers'] = [
                 ReplayBuffer(
                     buffer_max_size,
                     non_agent_known_args.buffer_n_steps,
@@ -296,6 +309,7 @@ class Executor:
                 )
                 for _ in range(non_agent_known_args.n_envs)
             ]
+        return buffers
 
     def execute(self, cli_args=None):
         """
