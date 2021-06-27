@@ -261,11 +261,15 @@ class Executor:
             None
         """
         model_args = ['model', 'actor_model', 'critic_model']
+        models = []
         for model_arg in model_args:
             if model_arg in agent_known_args:
-                self.create_model(
-                    envs, agent_known_args, non_agent_known_args, model_arg
+                models.append(
+                    self.create_model(
+                        envs, agent_known_args, non_agent_known_args, model_arg
+                    )
                 )
+        return models
 
     def create_buffers(self, agent_known_args, non_agent_known_args):
         """
@@ -288,6 +292,8 @@ class Executor:
         buffer_batch_size = (
             non_agent_known_args.buffer_batch_size // non_agent_known_args.n_envs
         )
+        if self.agent_id == 'acer':
+            buffer_batch_size = 1
         if self.agent_id in ['td3', 'ddpg']:
             buffers = agent_known_args['buffers'] = [
                 IAmTheOtherKindOfReplayBufferBecauseFuckTensorflow(

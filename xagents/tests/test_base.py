@@ -14,7 +14,7 @@ from xagents.base import BaseAgent, OffPolicy, OnPolicy
 from xagents.utils.buffers import ReplayBuffer
 
 
-@pytest.mark.usefixtures('envs', 'model', 'buffers')
+@pytest.mark.usefixtures('envs', 'envs2', 'model', 'buffers', 'executor')
 class TestBase:
     model_counts = {
         DDPG: 2,
@@ -29,12 +29,14 @@ class TestBase:
         OffPolicy: 1,
     }
 
-    def get_agent_kwargs(self, agent, envs=None, model=None, buffers=None):
+    def get_agent_kwargs(
+        self, agent, envs=None, model=None, buffers=None, critic_model=None
+    ):
         agent_kwargs = {'envs': envs if envs is not None else self.envs}
         buffers = buffers or self.buffers
         if self.model_counts[agent] > 1:
             agent_kwargs['actor_model'] = model or self.model
-            agent_kwargs['critic_model'] = model or self.model
+            agent_kwargs['critic_model'] = critic_model or self.model
         else:
             agent_kwargs['model'] = model or self.model
         if agent == xagents.ACER:
@@ -283,3 +285,55 @@ class TestBase:
         assert np.isclose(
             single_model_result.numpy(), multi_model_result[0].numpy()
         ).all()
+
+    def test_play(
+        self,
+        agent,
+        capsys,
+        tmp_path,
+        max_steps=10,
+    ):
+        agent_kwargs = {}
+        agent_id = agent.__module__.split('.')[1]
+        envs = agent_kwargs['envs'] = (
+            self.envs if agent_id not in ['td3', 'ddpg'] else self.envs2
+        )
+        self.executor.agent_id = agent_id
+        self.executor.command = 'play'
+        agent_args, non_agent_args, command_args = self.executor.parse_known_args(
+            [
+                'play',
+                agent_id,
+                '--env',
+                envs[0].spec.id,
+                '--buffer-batch-size',
+                '1000',
+                '--n-envs',
+                f'{len(self.envs)}',
+            ]
+        )
+        agent_args, command_args = vars(agent_args), vars(command_args)
+        agent_args['envs'] = envs
+        models = self.executor.create_models(
+            agent_args,
+            non_agent_args,
+            envs,
+        )
+        if issubclass(agent, OffPolicy) or agent == ACER:
+            agent_kwargs['buffers'] = self.executor.create_buffers(
+                agent_args, non_agent_args
+            )
+        if len(models) == 1:
+            agent_kwargs['model'] = models[0]
+        else:
+            agent_kwargs['actor_model'] = models[0]
+            agent_kwargs['critic_model'] = models[1]
+        agent = agent(**agent_kwargs)
+        video_dir = tmp_path / agent_id / 'video'
+        frame_dir = tmp_path / agent_id / 'frames'
+        agent.play(video_dir, False, frame_dir, 0, max_steps)
+        expected_frames = [frame_dir / f'{i:05d}.jpg' for i in range(max_steps)]
+        for expected_frame in expected_frames:
+            assert expected_frame.exists()
+        assert len([*video_dir.rglob('openai*.mp4')])
+        assert 'Maximum steps' in capsys.readouterr().out

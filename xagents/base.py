@@ -440,6 +440,7 @@ class BaseAgent(ABC):
         render=False,
         frame_dir=None,
         frame_delay=0.0,
+        max_steps=None,
         action_idx=0,
     ):
         """
@@ -449,6 +450,7 @@ class BaseAgent(ABC):
             render: If True, the game will be displayed.
             frame_dir: Path to directory to save game frames.
             frame_delay: Delay between rendered frames.
+            max_steps: Maximum environment steps.
             action_idx: Index of action output by self.model
 
         Returns:
@@ -459,17 +461,22 @@ class BaseAgent(ABC):
         env_in_use = self.envs[env_idx]
         if video_dir:
             env_in_use = gym.wrappers.Monitor(env_in_use, video_dir)
+            env_in_use.reset()
         steps = 0
+        agent_id = self.__module__.split('.')[1]
         for dir_name in (video_dir, frame_dir):
             os.makedirs(dir_name or '.', exist_ok=True)
         while True:
+            if max_steps and steps >= max_steps:
+                print(f'Maximum steps {max_steps} exceeded')
+                break
             if render:
                 env_in_use.render()
             if frame_dir:
                 frame = env_in_use.render(mode='rgb_array')
                 cv2.imwrite(os.path.join(frame_dir, f'{steps:05d}.jpg'), frame)
-            if hasattr(self, 'actor'):
-                action = self.actor(self.get_states())[env_idx]
+            if hasattr(self, 'actor') and agent_id in ['td3', 'ddpg']:
+                action = self.actor(self.get_model_inputs(self.get_states()))[env_idx]
             else:
                 action = self.get_model_outputs(
                     self.get_states(), self.output_models, False

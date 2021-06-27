@@ -153,52 +153,64 @@ class TestExecutor:
                 actual_units.extend(output_units)
         assert expected_units == actual_units
 
-
-@pytest.mark.parametrize(
-    'train_args',
-    [
-        {
-            'args': 'train a2c --env PongNoFrameskip-v4 --entropy-coef 5 '
-            '--value-loss-coef 33 --grad-norm 7 --checkpoints xyz.tf '
-            '--reward-buffer-size 150 --n-steps 100 --gamma 0.88 '
-            '--display-precision 3 --seed 55 --scale-factor 50 '
-            '--log-frequency 28 --n-envs 25 --lr 0.555 --opt-epsilon 0.3 '
-            '--beta1 15 --beta2 12 --max-steps 1',
-            'agent': {
-                'entropy_coef': 5,
-                'value_loss_coef': 33,
-                'grad_norm': 7,
-                'checkpoints': ['xyz.tf'],
-                'reward_buffer_size': 150,
-                'n_steps': 100,
-                'gamma': 0.88,
-                'display_precision': 3,
-                'seed': 55,
-                'scale_factor': 50,
-                'log_frequency': 28,
-                'n_envs': 25,
-            },
-            'non_agent': {
-                'env': 'PongNoFrameskip-v4',
-                'agent': xagents.A2C,
-                'lr': 0.555,
-                'opt_epsilon': 0.3,
-                'beta1': 15,
-                'beta2': 12,
-            },
-        }
-    ],
-)
-def test_train(executor, capsys, train_args):
-    executor.execute(train_args['args'].split())
-    assert 'Maximum steps exceeded' in capsys.readouterr().out
-    for attr, value in train_args['agent'].items():
-        assert getattr(executor.agent, attr) == value
-    assert isinstance(executor.agent, train_args['non_agent']['agent'])
-    assert executor.agent.envs[0].unwrapped.spec.id == train_args['non_agent']['env']
-    assert executor.agent.model.optimizer.learning_rate == train_args['non_agent']['lr']
-    assert (
-        executor.agent.model.optimizer.epsilon == train_args['non_agent']['opt_epsilon']
+    @pytest.mark.parametrize(
+        'train_args',
+        [
+            {
+                'args': 'train a2c --env PongNoFrameskip-v4 --entropy-coef 5 '
+                '--value-loss-coef 33 --grad-norm 7 --checkpoints xyz.tf '
+                '--reward-buffer-size 150 --n-steps 100 --gamma 0.88 '
+                '--display-precision 3 --seed 55 --scale-factor 50 '
+                '--log-frequency 28 --n-envs 25 --lr 0.555 --opt-epsilon 0.3 '
+                '--beta1 15 --beta2 12 --max-steps 1',
+                'agent': {
+                    'entropy_coef': 5,
+                    'value_loss_coef': 33,
+                    'grad_norm': 7,
+                    'checkpoints': ['xyz.tf'],
+                    'reward_buffer_size': 150,
+                    'n_steps': 100,
+                    'gamma': 0.88,
+                    'display_precision': 3,
+                    'seed': 55,
+                    'scale_factor': 50,
+                    'log_frequency': 28,
+                    'n_envs': 25,
+                },
+                'non_agent': {
+                    'env': 'PongNoFrameskip-v4',
+                    'agent': xagents.A2C,
+                    'lr': 0.555,
+                    'opt_epsilon': 0.3,
+                    'beta1': 15,
+                    'beta2': 12,
+                },
+            }
+        ],
     )
-    assert executor.agent.model.optimizer.beta_1 == train_args['non_agent']['beta1']
-    assert executor.agent.model.optimizer.beta_2 == train_args['non_agent']['beta2']
+    def test_train(self, capsys, train_args):
+        self.executor.execute(train_args['args'].split())
+        assert 'Maximum steps exceeded' in capsys.readouterr().out
+        for attr, value in train_args['agent'].items():
+            assert getattr(self.executor.agent, attr) == value
+        assert isinstance(self.executor.agent, train_args['non_agent']['agent'])
+        assert (
+            self.executor.agent.envs[0].unwrapped.spec.id
+            == train_args['non_agent']['env']
+        )
+        assert (
+            self.executor.agent.model.optimizer.learning_rate
+            == train_args['non_agent']['lr']
+        )
+        assert (
+            self.executor.agent.model.optimizer.epsilon
+            == train_args['non_agent']['opt_epsilon']
+        )
+        assert (
+            self.executor.agent.model.optimizer.beta_1
+            == train_args['non_agent']['beta1']
+        )
+        assert (
+            self.executor.agent.model.optimizer.beta_2
+            == train_args['non_agent']['beta2']
+        )
