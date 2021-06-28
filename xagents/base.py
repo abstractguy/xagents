@@ -13,6 +13,8 @@ import wandb
 from gym.spaces.box import Box
 from gym.spaces.discrete import Discrete
 
+from xagents.utils.common import virtualize_display
+
 
 class BaseAgent(ABC):
     def __init__(
@@ -434,6 +436,7 @@ class BaseAgent(ABC):
             self.train_step()
             self.at_step_end()
 
+    @virtualize_display
     def play(
         self,
         video_dir=None,

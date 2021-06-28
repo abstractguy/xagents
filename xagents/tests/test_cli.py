@@ -109,7 +109,7 @@ class TestExecutor:
         if command == 'train':
             argv.extend(['--target-reward', '18'])
         agent_args, non_agent_args, command_args = self.executor.parse_known_args(argv)
-        actual = vars(agent_args) | vars(non_agent_args) | vars(command_args)
+        actual = {**vars(agent_args), **vars(non_agent_args), **vars(command_args)}
         assert set(get_expected_flags(argv, True)) == set(actual.keys())
 
     def test_create_model(self, agent_id):

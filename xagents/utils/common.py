@@ -5,6 +5,7 @@ from pathlib import Path
 import cv2
 import gym
 import numpy as np
+from pyvirtualdisplay import Display
 from tensorflow.keras.initializers import GlorotUniform, Orthogonal
 from tensorflow.keras.layers import Conv2D, Dense, Flatten, Input
 from tensorflow.keras.models import Model
@@ -263,3 +264,11 @@ def register_models(agents):
         ):
             if any(val.values()):
                 agent_data[key] = val
+
+
+def virtualize_display(func):
+    def virtualized(*args, **kwargs):
+        with Display():
+            return func(*args, **kwargs)
+
+    return virtualized

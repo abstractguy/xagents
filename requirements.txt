@@ -9,3 +9,4 @@ wandb==0.10.32
 tabulate==0.8.9
 pyglet==1.5.15
 pytest==6.2.4
+pyvirtualdisplay==2.2
