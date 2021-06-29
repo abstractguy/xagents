@@ -1,11 +1,12 @@
 import configparser
+import os
+import re
 from collections import deque
 from pathlib import Path
 
 import cv2
 import gym
 import numpy as np
-from pyvirtualdisplay import Display
 from tensorflow.keras.initializers import GlorotUniform, Orthogonal
 from tensorflow.keras.layers import Conv2D, Dense, Flatten, Input
 from tensorflow.keras.models import Model
@@ -236,6 +237,15 @@ class ModelReader:
 
 
 def allocate_by_network(available_cfg, cfg_group):
+    """
+    Allocate given cfg file path into given group's `cnn` or `ann`
+    Args:
+        available_cfg: Path to .cfg file in `models` configuration folder.
+        cfg_group: A dictionary with `cnn` and `ann` as keys.
+
+    Returns:
+        None
+    """
     if 'cnn' in available_cfg:
         cfg_group['cnn'].append(available_cfg)
     if 'ann' in available_cfg:
@@ -243,6 +253,15 @@ def allocate_by_network(available_cfg, cfg_group):
 
 
 def register_models(agents):
+    """
+    Register default model configuration files found in all agent `models`
+    configuration folders to be added to xagents.agents.
+    Args:
+        agents: xagents.agents
+
+    Returns:
+        None
+    """
     for agent_data in agents.values():
         models_folder = Path(agent_data['module'].__file__).parent / 'models'
         available_cfgs = [model_cfg.as_posix() for model_cfg in models_folder.iterdir()]
@@ -266,9 +285,17 @@ def register_models(agents):
                 agent_data[key] = val
 
 
-def virtualize_display(func):
-    def virtualized(*args, **kwargs):
-        with Display():
-            return func(*args, **kwargs)
-
-    return virtualized
+def get_wandb_key():
+    """
+    Check ~/.netrc and WANDB_API_KEY environment variable for wandb api key.
+    Returns:
+        Key found or None
+    """
+    login_file = Path.home() / '.netrc'
+    if login_file.exists():
+        with open(login_file) as cfg:
+            contents = cfg.read()
+            key = re.findall(r"([a-fA-F\d]{32,})", contents)
+            if key:
+                return key[0]
+    return os.environ.get('WANDB_API_KEY')

@@ -7,19 +7,36 @@ import tensorflow as tf
 from gym.spaces import Discrete
 
 import xagents
-from xagents.tests.utils import check_displayed, get_expected_flags
+from xagents.tests.utils import assert_flags_displayed, get_expected_flags
 
 
 @pytest.mark.usefixtures('executor', 'envs', 'envs2')
 class TestExecutor:
+    """
+    Tests for command line options.
+    """
+
     def test_display_section(self, section, capsys):
+        """
+        Check if appropriate flags are displayed in help menu.
+        Args:
+            section: Tuple of argument group name and respective dict of args.
+            capsys: _pytest.capture.CaptureFixture
+        """
         self.executor.display_section(*section)
         cap = capsys.readouterr().out
-        check_displayed(cap, *section)
+        assert_flags_displayed(cap, *section)
 
-    def test_display_commands(self, section, capsys):
-        self.executor.display_commands({section[0]: section[1]})
-        cap = capsys.readouterr().out
+    @staticmethod
+    def assert_base_displayed(cap):
+        """
+        Assert base help menu is displayed.
+        Args:
+            cap: Text displayed to the console.
+
+        Returns:
+            None
+        """
         for keyword in [
             'xagents',
             'Usage',
@@ -27,19 +44,43 @@ class TestExecutor:
             'Available commands:',
         ]:
             assert keyword in cap
+
+    def test_display_commands(self, section, capsys):
+        """
+        Test basic and extended help display.
+        Args:
+            section: Tuple of argument group name and respective dict of args.
+            capsys: _pytest.capture.CaptureFixture
+        """
+        self.executor.display_commands({section[0]: section[1]})
+        cap = capsys.readouterr().out
+        self.assert_base_displayed(cap)
         if section:
-            check_displayed(cap, *section)
+            assert_flags_displayed(cap, *section)
 
     @staticmethod
     def add_arg_value(_action, _type, _nargs, test_args, values, flag):
+        """
+        Generate random values for the given arg according to its attributes.
+        Args:
+            _action: If True, True will be stored.
+            _type: Argument type.
+            _nargs: Argument number of expected values.
+            test_args: argv that is being created.
+            values: A dictionary of flags - expected values
+            flag: Flag to which a value is generated.
+
+        Returns:
+            None
+        """
         if not _action:
             if _type in [int, float]:
                 value = random.randint(0, 100)
             else:
-                value = "".join(random.sample(string.ascii_lowercase, 10))
+                value = ''.join(random.sample(string.ascii_lowercase, 10))
             if _nargs:
                 value = [
-                    "".join(random.sample(string.ascii_lowercase, 10))
+                    ''.join(random.sample(string.ascii_lowercase, 10))
                     for _ in range(10)
                 ]
             if not isinstance(value, list):
@@ -53,6 +94,12 @@ class TestExecutor:
             values[flag] = True
 
     def test_add_args(self, section):
+        """
+        Add given section to executor args, generate values, parse args
+        and test if the values match.
+        Args:
+            section: Tuple of argument group name and respective dict of args.
+        """
         parser = argparse.ArgumentParser()
         self.executor.add_args(section[1], parser)
         test_args = []
@@ -70,23 +117,34 @@ class TestExecutor:
             assert getattr(parsed_args, attr.replace('-', '_')) == value
 
     def test_maybe_create_agent_base_display(self, capsys):
+        """
+        Ensure only base help menu is displayed.
+        Args:
+            capsys: _pytest.capture.CaptureFixture
+        """
         self.executor.maybe_create_agent([])
         cap = capsys.readouterr().out
         assert 'flag' not in cap
-        for keyword in [
-            'xagents',
-            'Usage',
-            'xagents <command> <agent> [options] [args]',
-            'Available commands:',
-        ]:
-            assert keyword in cap
+        self.assert_base_displayed(cap)
 
     def test_maybe_create_agent_invalid_command(self, capsys):
+        """
+        Ensure exception is raised for a valid command.
+        Args:
+            capsys: _pytest.capture.CaptureFixture
+        """
         with pytest.raises(AssertionError) as pe:
             self.executor.maybe_create_agent(['invalid'])
         assert 'Invalid command' in pe.value.args[0]
 
     def test_maybe_create_agent_command_agent(self, command, agent_id, capsys):
+        """
+        Ensure command only / command + agent flags help is displayed accordingly.
+        Args:
+            command: One of the commands available in xagents.commands
+            agent_id: One of the agent ids available in xagents.agents
+            capsys: _pytest.capture.CaptureFixture
+        """
         test_args = [[command], [command, agent_id]]
         for argv in test_args:
             expected_flags = get_expected_flags(argv)
@@ -96,6 +154,14 @@ class TestExecutor:
                 assert f'--{flag}' in cap
 
     def test_maybe_create_agent_no_display(self, command, agent_id, capsys):
+        """
+        Ensure nothing is displayed if the help menu is not invoked using
+        relevant args.
+        Args:
+            command: One of the commands available in xagents.commands
+            agent_id: One of the agent ids available in xagents.agents
+            capsys: _pytest.capture.CaptureFixture
+        """
         argv = [command, agent_id, '--env', 'test-env']
         self.executor.maybe_create_agent(argv)
         assert not capsys.readouterr().out
@@ -103,6 +169,13 @@ class TestExecutor:
         assert self.executor.command == command
 
     def test_parse_known_args(self, command, agent_id):
+        """
+        Ensure agent kwargs + non-agent kwargs + command kwargs match
+        the expected ones given command and agent + minimum other flags.
+        Args:
+            command: One of the commands available in xagents.commands
+            agent_id: One of the agent ids available in xagents.agents
+        """
         self.executor.command = command
         self.executor.agent_id = agent_id
         argv = [command, agent_id, '--env', 'test-env']
@@ -112,7 +185,12 @@ class TestExecutor:
         actual = {**vars(agent_args), **vars(non_agent_args), **vars(command_args)}
         assert set(get_expected_flags(argv, True)) == set(actual.keys())
 
-    def test_create_model(self, agent_id):
+    def test_create_models(self, agent_id):
+        """
+        Test creation of models and ensure resulting output units match the expected.
+        Args:
+            agent_id: One of the agent ids available in xagents.agents
+        """
         self.executor.command = 'train'
         self.executor.agent_id = agent_id
         argv = [
@@ -189,6 +267,13 @@ class TestExecutor:
         ],
     )
     def test_train(self, capsys, train_args):
+        """
+        Do 1 train step and test explicit parameters.
+        Args:
+            capsys: _pytest.capture.CaptureFixture
+            train_args: A dictionary of agent, non-agent and command args
+                to be run by executor.
+        """
         self.executor.execute(train_args['args'].split())
         assert 'Maximum steps exceeded' in capsys.readouterr().out
         for attr, value in train_args['agent'].items():

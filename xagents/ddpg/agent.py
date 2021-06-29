@@ -16,6 +16,21 @@ class DDPG(OffPolicy):
         step_noise_coef=0.1,
         **kwargs,
     ):
+        """
+        Initialize DDPG agent.
+        Args:
+            envs: A list of gym environments.
+            actor_model: Actor separate model as a tf.keras.Model.
+            critic_model: Critic separate model as a tf.keras.Model.
+            buffers: A list of replay buffer objects whose length should match
+                `envs`s'.
+            gradient_steps: Number of iterations per train_step() call, if not
+                specified, it defaults to the number of steps per most-recent
+                finished episode per environment.
+            tau: Tau constant used for syncing target model weights.
+            policy_noise_coef: Coefficient multiplied by noise added to target actions.
+            **kwargs: kwargs passed to super classes.
+        """
         super(DDPG, self).__init__(envs, actor_model, buffers, **kwargs)
         self.actor = actor_model
         self.critic = critic_model
@@ -37,6 +52,12 @@ class DDPG(OffPolicy):
         self.batch_dtypes = 5 * [tf.float32]
 
     def get_step_actions(self):
+        """
+        Get self.n_envs noisy actions to be stepped by self.envs
+
+        Returns:
+            actions
+        """
         actions = self.actor(tf.numpy_function(self.get_states, [], tf.float32))
         actions += tf.random.normal(
             shape=(self.n_envs, self.n_actions), stddev=self.step_noise_coef
@@ -75,6 +96,18 @@ class DDPG(OffPolicy):
         )
 
     def update_critic_weights(self, states, actions, new_states, dones, rewards):
+        """
+        Update critic weights.
+        Args:
+            states: A tensor of shape (self.n_envs * total buffer batch size, *self.input_shape)
+            actions: A tensor of shape (self.n_envs * total buffer batch size, self.n_actions)
+            new_states: A tensor of shape (self.n_envs * total buffer batch size, *self.input_shape)
+            dones: A tensor of shape (self.n_envs * total buffer batch size)
+            rewards: A tensor of shape (self.n_envs * total buffer batch size)
+
+        Returns:
+            None
+        """
         with tf.GradientTape() as tape:
             target_actions = self.target_actor(new_states)
             target_critic_input = tf.concat([new_states, target_actions], 1)

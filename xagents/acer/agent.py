@@ -338,6 +338,16 @@ class ACER(A2C):
         tf.numpy_function(self.update_avg_weights, [], [])
 
     def set_batch_shapes(self, batch):
+        """
+        Set unknown shape batch items to their appropriate shapes,
+        which for some reason, tf doesn't keep track of.
+        Args:
+            batch: A list of unknown shape tensors which shapes are expected
+                to match self.batch_shapes.
+
+        Returns:
+            None
+        """
         for item, shape in zip(batch, self.batch_shapes):
             item.set_shape(shape)
 

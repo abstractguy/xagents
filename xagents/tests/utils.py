@@ -4,6 +4,19 @@ from xagents.utils.cli import agent_args, non_agent_args, off_policy_args
 
 
 def get_expected_flags(argv, as_kwargs=False):
+    """
+    Convert argv to expected flags/keyword that should be present
+    as argparse.Namespace attributes and as kwargs that will be
+    passed directly to agent.
+    Args:
+        argv: Arguments passed.
+        as_kwargs: If True example-flag1 will be returned as example_flag1
+
+    Returns:
+        List of ['example-flag1', 'example-flag2', ...]
+        or
+        list of ['example_flag1', 'example_flag2']
+    """
     if not argv:
         return []
     command = argv[0]
@@ -21,7 +34,18 @@ def get_expected_flags(argv, as_kwargs=False):
     return [flag.replace('-', '_') for flag in expected_kwargs.keys()]
 
 
-def check_displayed(cap, title, cli_args):
+def assert_flags_displayed(cap, title, cli_args):
+    """
+    Assert title and respective flags are present in help menu.
+    Args:
+        cap: str, text displayed to the console
+        title: str, that should be present in cap representing
+            the title of the group of argument group.
+        cli_args: A dictionary of flags and their attributes.
+
+    Returns:
+        None
+    """
     assert title in cap
     for flag in cli_args:
         assert f'--{flag}' in cap

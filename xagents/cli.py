@@ -110,20 +110,22 @@ class Executor:
                     f'--{arg}', help=_help, default=_default, action=_action
                 )
 
-    def maybe_create_agent(self, cli_args):
+    def maybe_create_agent(self, argv):
         """
         Display help respective to parsed commands or set self.agent_id and self.command
         for further execution if enough arguments are given.
+        Args:
+            argv: Arguments passed through sys.argv or otherwise.
 
         Returns:
             None
         """
         to_display = {}
-        total = len(cli_args)
+        total = len(argv)
         if total == 0:
             self.display_commands()
             return
-        command = cli_args[0]
+        command = argv[0]
         to_display.update(non_agent_args)
         to_display.update(agent_args)
         assert command in xagents.commands, f'Invalid command `{command}`'
@@ -131,9 +133,9 @@ class Executor:
         if total == 1:
             self.display_commands({command: to_display})
             return
-        agent_id = cli_args[1]
+        agent_id = argv[1]
         assert agent_id in xagents.agents, f'Invalid agent `{agent_id}`'
-        to_display.update(xagents.agents[agent_id]['module'].cli_args)
+        to_display.update(xagents.agents[agent_id]['module'].argv)
         if total == 2:
             title = f'{command} {agent_id}'
             if (
@@ -145,9 +147,11 @@ class Executor:
             return
         self.command, self.agent_id = command, agent_id
 
-    def parse_known_args(self, cli_args):
+    def parse_known_args(self, argv):
         """
         Parse general, agent and command specific args.
+        Args:
+            argv: Arguments passed through sys.argv or otherwise.
 
         Returns:
             agent kwargs, non-agent kwargs and command kwargs.
@@ -156,7 +160,7 @@ class Executor:
         agent_parser = argparse.ArgumentParser()
         command_parser = argparse.ArgumentParser()
         self.add_args(agent_args, agent_parser)
-        self.add_args(xagents.agents[self.agent_id]['module'].cli_args, agent_parser)
+        self.add_args(xagents.agents[self.agent_id]['module'].argv, agent_parser)
         self.add_args(xagents.commands[self.command][0], command_parser)
         if (
             issubclass(xagents.agents[self.agent_id]['agent'], OffPolicy)
@@ -164,9 +168,9 @@ class Executor:
         ):
             self.add_args(off_policy_args, general_parser)
         self.add_args(non_agent_args, general_parser)
-        non_agent_known = general_parser.parse_known_args(cli_args)[0]
-        agent_known = agent_parser.parse_known_args(cli_args)[0]
-        command_known = command_parser.parse_known_args(cli_args)[0]
+        non_agent_known = general_parser.parse_known_args(argv)[0]
+        agent_known = agent_parser.parse_known_args(argv)[0]
+        command_known = command_parser.parse_known_args(argv)[0]
         if (
             self.command == 'train'
             and command_known.target_reward is None
@@ -317,18 +321,20 @@ class Executor:
             ]
         return buffers
 
-    def execute(self, cli_args=None):
+    def execute(self, argv):
         """
         Parse command line arguments, display help or execute command
         if enough arguments are given.
+        Args:
+            argv: Arguments passed through sys.argv or otherwise.
 
         Returns:
             None
         """
-        self.maybe_create_agent(cli_args)
+        self.maybe_create_agent(argv)
         if not self.agent_id:
             return
-        agent_known, non_agent_known, command_known = self.parse_known_args(cli_args)
+        agent_known, non_agent_known, command_known = self.parse_known_args(argv)
         envs = create_gym_env(
             non_agent_known.env,
             non_agent_known.n_envs,
@@ -359,9 +365,18 @@ class Executor:
         getattr(self.agent, xagents.commands[self.command][1])(**command_known)
 
 
-def execute(cli_args=None):
-    cli_args = cli_args or sys.argv[1:]
-    Executor().execute(cli_args)
+def execute(argv=None):
+    """
+    Parse and execute commands.
+    Args:
+        argv: List of arguments to be passed to Executor.execute()
+            if not specified, defaults. to sys.argv[1:]
+
+    Returns:
+        None
+    """
+    argv = argv or sys.argv[1:]
+    Executor().execute(argv)
 
 
 if __name__ == '__main__':

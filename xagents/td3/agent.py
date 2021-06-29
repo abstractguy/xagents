@@ -17,7 +17,7 @@ class TD3(DDPG):
         **kwargs,
     ):
         """
-
+        Initialize TD3 agent
         Args:
             envs: A list of gym environments.
             actor_model: Actor separate model as a tf.keras.Model.
@@ -51,6 +51,12 @@ class TD3(DDPG):
         )
 
     def get_step_actions(self):
+        """
+        Get self.n_envs actions to be stepped by self.envs
+
+        Returns:
+            actions
+        """
         return self.actor(tf.numpy_function(self.get_states, [], tf.float32))
 
     def update_critic_weights(self, states, actions, new_states, dones, rewards):
@@ -59,9 +65,9 @@ class TD3(DDPG):
         Args:
             states: A tensor of shape (self.n_envs * total buffer batch size, *self.input_shape)
             actions: A tensor of shape (self.n_envs * total buffer batch size, self.n_actions)
-            rewards: A tensor of shape (self.n_envs * total buffer batch size)
-            dones: A tensor of shape (self.n_envs * total buffer batch size)
             new_states: A tensor of shape (self.n_envs * total buffer batch size, *self.input_shape)
+            dones: A tensor of shape (self.n_envs * total buffer batch size)
+            rewards: A tensor of shape (self.n_envs * total buffer batch size)
 
         Returns:
             None

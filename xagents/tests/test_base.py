@@ -12,10 +12,15 @@ import xagents
 from xagents import A2C, ACER, DDPG, DQN, PPO, TD3, TRPO
 from xagents.base import BaseAgent, OffPolicy, OnPolicy
 from xagents.utils.buffers import ReplayBuffer
+from xagents.utils.common import get_wandb_key
 
 
 @pytest.mark.usefixtures('envs', 'envs2', 'model', 'buffers', 'executor')
 class TestBase:
+    """
+    Tests for base agents and their methods.
+    """
+
     model_counts = {
         DDPG: 2,
         TD3: 3,
@@ -32,6 +37,22 @@ class TestBase:
     def get_agent_kwargs(
         self, agent, envs=None, model=None, buffers=None, critic_model=None
     ):
+        """
+        Construct agent required kwargs with according to the given agent.
+        Args:
+            agent: OnPolicy/OffPolicy subclass.
+            envs: A list of gym environments, if not specified, the default
+                class envs will be returned.
+            model: tf.keras.Model, if not specified, the default class model
+                will be returned.
+            buffers: A list of replay buffers, if not specified, the default
+                class buffers will be returned.
+            critic_model: tf.keras.Model, if not specified, the default class
+                model will be returned.
+
+        Returns:
+            agent_kwargs.
+        """
         agent_kwargs = {'envs': envs if envs is not None else self.envs}
         buffers = buffers or self.buffers
         if self.model_counts[agent] > 1:
@@ -48,16 +69,22 @@ class TestBase:
         return agent_kwargs
 
     def test_no_envs(self, agent):
+        """
+        Test no given environments.
+        Args:
+            agent: OnPolicy/OffPolicy subclass.
+        """
         with pytest.raises(AssertionError) as pe:
             agent_kwargs = self.get_agent_kwargs(agent, [])
             agent(**agent_kwargs)
         assert pe.value.args[0] == 'No environments given'
 
-    def empty_buffers(self):
-        for buffer in self.buffers:
-            buffer.main_buffer.clear()
-
     def test_seeds(self, agent):
+        """
+        Test random seeds (random/numpy/tensorflow/gym)
+        Args:
+            agent: OnPolicy/OffPolicy subclass.
+        """
         test_seed = 1
         agent = agent(**self.get_agent_kwargs(agent))
         results1, results2 = set(), set()
@@ -85,6 +112,12 @@ class TestBase:
         ],
     )
     def test_n_actions(self, env_id, agent):
+        """
+        Test if agent initializes the correct n_actions attribute.
+        Args:
+            env_id: One of agent ids available in xagents.agents
+            agent: OnPolicy/OffPolicy subclass.
+        """
         env = gym.make(env_id)
         agent = agent(
             **self.get_agent_kwargs(agent, [env for _ in range(len(self.envs))])
@@ -95,6 +128,11 @@ class TestBase:
             assert agent.n_actions == env.action_space.shape
 
     def test_unsupported_env(self, agent):
+        """
+        Test currently unsupported environments including multi-discrete.
+        Args:
+            agent: OnPolicy/OffPolicy subclass.
+        """
         with pytest.raises(AssertionError) as pe:
             agent(
                 **self.get_agent_kwargs(
@@ -104,6 +142,17 @@ class TestBase:
         assert 'Expected one of' in pe.value.args[0]
 
     def test_checkpoint(self, agent, tmp_path, capsys):
+        """
+        Test display after keywords that are expected after a checkpoint.
+        Also test for the presence of the expected checkpoint .tf files
+        that are usually saved during training and ensure the number of models
+        per agent in self.model_counts matches the one required by the agent,
+        otherwise, an error will be raised by the agent.
+        Args:
+            agent: OnPolicy/OffPolicy subclass.
+            tmp_path: pathlib.PosixPath
+            capsys: _pytest.capture.CaptureFixture
+        """
         checkpoints = {
             (tmp_path / f'test_weights{i}.tf').as_posix()
             for i in range(self.model_counts[agent])
@@ -124,6 +173,11 @@ class TestBase:
         assert expected_filenames == resulting_files
 
     def test_wrong_checkpoints(self, agent):
+        """
+        Ensure an error is raised for the wrong number of checkpoints.
+        Args:
+            agent: OnPolicy/OffPolicy subclass.
+        """
         agent = agent(
             **self.get_agent_kwargs(agent),
             checkpoints=(self.model_counts[agent] + 1) * ['wrong_ckpt.tf'],
@@ -134,6 +188,12 @@ class TestBase:
 
     @staticmethod
     def check_progress_displayed(displayed):
+        """
+        Check text displayed in the console and ensure it has
+        the expected keywords.
+        Args:
+            displayed: str
+        """
         for item in (
             'time',
             'steps',
@@ -145,6 +205,12 @@ class TestBase:
             assert item in displayed
 
     def test_display_metrics(self, capsys, agent):
+        """
+        Check metric names are printed to the console.
+        Args:
+            capsys: _pytest.capture.CaptureFixture
+            agent: OnPolicy/OffPolicy subclass.
+        """
         agent = agent(**self.get_agent_kwargs(agent))
         agent.training_start_time = perf_counter()
         agent.frame_speed = agent.mean_reward = agent.best_reward = 0
@@ -153,6 +219,12 @@ class TestBase:
         self.check_progress_displayed(displayed)
 
     def test_update_metrics(self, agent):
+        """
+        Ensure accuracy of the metrics displayed as the training
+            progresses.
+        Args:
+            agent: OnPolicy/OffPolicy subclass.
+        """
         agent = agent(**self.get_agent_kwargs(agent))
         agent.last_reset_time = perf_counter() - 2
         agent.steps = 1000
@@ -162,6 +234,13 @@ class TestBase:
         assert agent.mean_reward == 126.67
 
     def test_check_episodes(self, capsys, agent):
+        """
+        Ensure progress is displayed when expected and flags
+            are updated afterwards.
+        Args:
+            capsys: _pytest.capture.CaptureFixture
+            agent: OnPolicy/OffPolicy subclass.
+        """
         agent = agent(**self.get_agent_kwargs(agent))
         agent.total_rewards.append(0)
         agent.training_start_time = perf_counter()
@@ -186,6 +265,19 @@ class TestBase:
     def test_training_done(
         self, capsys, expected, mean_reward, steps, target_reward, max_steps, agent
     ):
+        """
+        Test training status (done / not done) and ensure respective expected
+            actions take place.
+        Args:
+            capsys: _pytest.capture.CaptureFixture
+            expected: Expected training status where True indicates training
+                should be done.
+            mean_reward: Agent `mean_reward` attribute to set.
+            steps: Agent `steps` attribute to set
+            target_reward: Agent `target_reward` attribute to set.
+            max_steps: Agent `max_steps` attribute to set
+            agent: OnPolicy/OffPolicy subclass.
+        """
         agent = agent(**self.get_agent_kwargs(agent))
         agent.mean_reward = mean_reward
         agent.steps = steps
@@ -201,6 +293,11 @@ class TestBase:
             assert any([message in cap for message in messages])
 
     def test_concat_buffer_samples(self, off_policy_agent):
+        """
+        Test multiple buffer samples are concatenated properly.
+        Args:
+            off_policy_agent: OffPolicy subclass.
+        """
         buffers = [ReplayBuffer(10, batch_size=1) for _ in range(4)]
         agent = off_policy_agent(
             **self.get_agent_kwargs(off_policy_agent, buffers=buffers)
@@ -222,7 +319,15 @@ class TestBase:
         [[False, False], [True, False], [False, True], [True, True]],
     )
     def test_step_envs(self, get_observation, store_in_buffers, agent):
-        self.empty_buffers()
+        """
+        Test observations are returned / stored in buffers when this is expected.
+        Args:
+            get_observation: arg passed to step_envs()
+            store_in_buffers: arg passed to step_envs()
+            agent: OnPolicy/OffPolicy subclass.
+        """
+        for buffer in self.buffers:
+            buffer.main_buffer.clear()
         agent = agent(**self.get_agent_kwargs(agent))
         actions = np.random.randint(0, agent.n_actions, len(self.envs))
         observations = agent.step_envs(actions, get_observation, store_in_buffers)
@@ -237,6 +342,7 @@ class TestBase:
         else:
             assert not observations
 
+    @pytest.mark.skipif(not get_wandb_key(), reason='Wandb api key not available')
     @pytest.mark.parametrize(
         'target_reward, max_steps, monitor_session',
         [[18, None, None], [22, 55, None], [None, 100, 'test_session']],
@@ -244,6 +350,17 @@ class TestBase:
     def test_init_training(
         self, agent, capsys, target_reward, max_steps, monitor_session, tmpdir
     ):
+        """
+        Test training initialization and ensure training flags are set and
+        a monitoring session is registered if one is specified.
+        Args:
+            agent: OnPolicy/OffPolicy subclass.
+            capsys: _pytest.capture.CaptureFixture
+            target_reward: arg passed to init_training()
+            max_steps: arg passed to init_training()
+            monitor_session: arg passed to init_training()
+            tmpdir: py._path.local.LocalPath
+        """
         checkpoints = [f'test-{i}.tf' for i in range(self.model_counts[agent])]
         agent = agent(**self.get_agent_kwargs(agent))
         agent.checkpoints = checkpoints
@@ -258,12 +375,23 @@ class TestBase:
             capsys.readouterr()
 
     def test_train_step(self, base_agent):
+        """
+        Ensure an exception is raised when train_step() abstract method is called.
+        Args:
+            base_agent: A base agent class.
+        """
         agent = base_agent(**self.get_agent_kwargs(base_agent))
         with pytest.raises(NotImplementedError) as pe:
             agent.train_step()
         assert 'train_step() should be implemented by' in pe.value.args[0]
 
     def test_get_model_inputs(self, agent):
+        """
+        Validate `scale_factor` arg passed to agent and ensure
+        states are scaled properly.
+        Args:
+            agent: OnPolicy/OffPolicy subclass.
+        """
         inputs = np.random.random((10, 10))
         scale_factor = 122
         agent_kwargs = self.get_agent_kwargs(agent)
@@ -277,6 +405,11 @@ class TestBase:
             assert np.isclose(expected, actual).all()
 
     def test_get_model_outputs(self, base_agent):
+        """
+        Test single and multiple model outputs.
+        Args:
+            base_agent: A base agent class.
+        """
         inputs = np.random.random((10, *self.envs[0].observation_space.shape))
         agent = base_agent(**self.get_agent_kwargs(base_agent))
         single_model_result = agent.get_model_outputs(inputs, self.model)
@@ -293,6 +426,14 @@ class TestBase:
         tmp_path,
         max_steps=10,
     ):
+        """
+        Test 1 game play and ensure resulting video / frames are saved.
+        Args:
+            agent: OnPolicy/OffPolicy subclass.
+            capsys: _pytest.capture.CaptureFixture
+            max_steps: arg passed to init_training()
+            tmp_path: pathlib.PosixPath
+        """
         agent_kwargs = {}
         agent_id = agent.__module__.split('.')[1]
         envs = agent_kwargs['envs'] = (

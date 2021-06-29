@@ -13,8 +13,6 @@ import wandb
 from gym.spaces.box import Box
 from gym.spaces.discrete import Discrete
 
-from xagents.utils.common import virtualize_display
-
 
 class BaseAgent(ABC):
     def __init__(
@@ -90,6 +88,14 @@ class BaseAgent(ABC):
         self.set_action_count()
 
     def set_seeds(self, seed):
+        """
+        Set random seeds for numpy, tensorflow, random, gym
+        Args:
+            seed: int, random seed.
+
+        Returns:
+            None
+        """
         tf.random.set_seed(seed)
         np.random.seed(seed)
         for env in self.envs:
@@ -436,7 +442,6 @@ class BaseAgent(ABC):
             self.train_step()
             self.at_step_end()
 
-    @virtualize_display
     def play(
         self,
         video_dir=None,

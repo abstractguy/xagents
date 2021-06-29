@@ -13,6 +13,14 @@ from xagents.utils.cli import agent_args, non_agent_args, play_args, train_args
 
 @pytest.fixture(scope='function')
 def executor(request):
+    """
+    Fixture for testing command line options.
+    Args:
+        request: _pytest.fixtures.SubRequest
+
+    Returns:
+        xagents.cli.Executor
+    """
     request.cls.executor = Executor()
 
 
@@ -26,21 +34,58 @@ def executor(request):
     ]
 )
 def section(request):
+    """
+    Fixture for testing help menu and parsing sanity.
+    Args:
+        request: _pytest.fixtures.SubRequest
+
+    Yields:
+        Tuple of argument group name and respective dict of args.
+    """
     yield request.param
 
 
 @pytest.fixture(scope='class')
 def envs(request):
+    """
+    Fixture of PongNoFrameskip-v4 environments used to test agents that support
+    environments with Discrete action space.
+    Args:
+        request: _pytest.fixtures.SubRequest
+
+    Returns:
+        A list of 4 pong environments.
+    """
     request.cls.envs = [gym.make('PongNoFrameskip-v4') for _ in range(4)]
 
 
 @pytest.fixture(scope='class')
 def envs2(request):
+    """
+    Fixture of BipedalWalker-v3 environments used to test agents that support
+    environments with continuous action space.
+    Args:
+        request: _pytest.fixtures.SubRequest
+
+    Returns:
+        A list of 4 bipedal walker environments.
+    """
     request.cls.envs2 = [gym.make('BipedalWalker-v3') for _ in range(4)]
 
 
 @pytest.fixture(scope='class')
 def model(request):
+    """
+    Fixture used by all agents in tests that require a model but do not
+    require the agent default model. It should be included in
+    pytest.mark.usefixtures() decorator to allow its availability as
+    a class attribute.
+    Args:
+        request: _pytest.fixtures.SubRequest
+
+    Returns:
+        None
+    """
     x0 = Input((210, 160, 3))
     x = Dense(1, 'relu')(x0)
     x = Dense(1, 'relu')(x)
@@ -51,29 +96,81 @@ def model(request):
 
 @pytest.fixture(scope='class')
 def buffers(request):
+    """
+    Fixture used by off-policy agent tests that require a replay buffer
+    that is not size specific. It should be included in
+    pytest.mark.usefixtures() decorator to allow its availability as
+    a class attribute.
+    Args:
+        request: _pytest.fixtures.SubRequest
+
+    Returns:
+        None
+    """
     request.cls.buffers = [ReplayBuffer(10, batch_size=155) for _ in range(4)]
 
 
 @pytest.fixture(params=[item['agent'] for item in xagents.agents.values()])
 def agent(request):
+    """
+    Fixture with agents available in xagents.agents
+    Args:
+        request: _pytest.fixtures.SubRequest
+
+    Yields:
+        OnPolicy/OffPolicy subclass.
+    """
     yield request.param
 
 
 @pytest.fixture(params=[agent_id for agent_id in xagents.agents])
 def agent_id(request):
+    """
+    Fixture with agent ids available in xagents.agents
+    Args:
+        request: _pytest.fixtures.SubRequest
+
+    Yields:
+        Agent id as str
+    """
     yield request.param
 
 
 @pytest.fixture(params=[command for command in xagents.commands])
 def command(request):
+    """
+    Fixture with commands available in xagents.commands
+    Args:
+        request: _pytest.fixtures.SubRequest
+
+    Yields:
+        Command as str
+    """
     yield request.param
 
 
 @pytest.fixture(params=[ACER, TD3, DQN, DDPG])
 def off_policy_agent(request):
+    """
+    Fixture with off-policy agents.
+    Args:
+        request: _pytest.fixtures.SubRequest
+
+    Yields:
+        OffPolicy subclass.
+    """
     yield request.param
 
 
 @pytest.fixture(params=[BaseAgent, OnPolicy, OffPolicy])
 def base_agent(request):
+    """
+    Fixture with agent base classes, used to test base and
+    abstract methods.
+    Args:
+        request: _pytest.fixtures.SubRequest
+
+    Yields:
+        OnPolicy/OffPolicy subclass.
+    """
     yield request.param
