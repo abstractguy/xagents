@@ -283,7 +283,6 @@ class BaseAgent(ABC):
             new_state, reward, done, _ = env.step(action)
             self.states[i] = new_state
             self.dones[i] = done
-            self.steps += 1
             self.episode_rewards[i] += reward
             observation = state, action, reward, done, new_state
             if store_in_buffers and hasattr(self, 'buffers'):
@@ -441,6 +440,7 @@ class BaseAgent(ABC):
             self.at_step_start()
             self.train_step()
             self.at_step_end()
+            self.steps += self.n_envs
 
     def play(
         self,

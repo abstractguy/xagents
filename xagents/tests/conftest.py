@@ -1,4 +1,5 @@
 import gym
+import numpy as np
 import pytest
 from tensorflow.keras.layers import Dense, Input
 from tensorflow.keras.models import Model
@@ -7,7 +8,7 @@ import xagents
 from xagents import ACER, DDPG, DQN, TD3
 from xagents.base import BaseAgent, OffPolicy, OnPolicy
 from xagents.cli import Executor
-from xagents.utils.buffers import ReplayBuffer
+from xagents.utils.buffers import ReplayBuffer1, ReplayBuffer2
 from xagents.utils.cli import agent_args, non_agent_args, play_args, train_args
 
 
@@ -107,7 +108,33 @@ def buffers(request):
     Returns:
         None
     """
-    request.cls.buffers = [ReplayBuffer(10, batch_size=155) for _ in range(4)]
+    request.cls.buffers = [ReplayBuffer1(200, batch_size=155) for _ in range(4)]
+
+
+@pytest.fixture(scope='function')
+def buffer1(request):
+    """
+    Fixture used to test ReplayBuffer1.
+    Args:
+        request: _pytest.fixtures.SubRequest
+
+    Returns:
+        None
+    """
+    request.cls.buffer = ReplayBuffer1(100, batch_size=4)
+
+
+@pytest.fixture(scope='function')
+def buffer2(request):
+    """
+    Fixture used to test ReplayBuffer2.
+    Args:
+        request: _pytest.fixtures.SubRequest
+
+    Returns:
+        None
+    """
+    request.cls.buffer = ReplayBuffer2(100, 5, batch_size=4)
 
 
 @pytest.fixture(params=[item['agent'] for item in xagents.agents.values()])
@@ -174,3 +201,20 @@ def base_agent(request):
         OnPolicy/OffPolicy subclass.
     """
     yield request.param
+
+
+@pytest.fixture(params=[ReplayBuffer1, ReplayBuffer2])
+def buffer_type(request):
+    yield request.param
+
+
+@pytest.fixture(scope='class')
+def observations(request):
+    states = np.random.randint(0, 255, (10, 84, 84, 1))
+    actions = np.random.randint(0, 6, 10)
+    rewards = np.random.randint(0, 10, 10)
+    dones = np.random.randint(0, 1000000, 10)
+    new_states = np.random.randint(0, 255, (10, 84, 84, 1))
+    request.cls.observations = [
+        [*items] for items in zip(states, actions, rewards, dones, new_states)
+    ]

@@ -1,3 +1,5 @@
 import subprocess
+import sys
 
-subprocess.run(['xhost', '+'])
+if sys.platform == 'darwin':
+    subprocess.run(['xhost', '+'])

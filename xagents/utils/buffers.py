@@ -23,6 +23,9 @@ class BaseBuffer:
         ), f'Buffer initial size should be > 0, got {initial_size}'
         assert size > 0, f'Buffer size should be > 0,  got {size}'
         assert batch_size > 0, f'Buffer batch size should be > 0, got {batch_size}'
+        assert (
+            batch_size <= size
+        ), f'Buffer batch size `{batch_size}` should be <= size `{size}`'
         if initial_size:
             assert size >= initial_size, 'Buffer initial size exceeds max size'
         self.size = size
@@ -53,7 +56,7 @@ class BaseBuffer:
         )
 
 
-class ReplayBuffer(BaseBuffer):
+class ReplayBuffer1(BaseBuffer):
     """
     deque-based replay buffer that holds state transitions
     """
@@ -67,7 +70,7 @@ class ReplayBuffer(BaseBuffer):
             gamma: Discount factor.
             **kwargs: kwargs passed to BaseBuffer.
         """
-        super(ReplayBuffer, self).__init__(size, **kwargs)
+        super(ReplayBuffer1, self).__init__(size, **kwargs)
         self.n_steps = n_steps
         self.gamma = gamma
         self.main_buffer = deque(maxlen=size)
@@ -100,7 +103,7 @@ class ReplayBuffer(BaseBuffer):
         Returns:
             None
         """
-        self.current_size += 1
+        self.current_size = len(self.main_buffer)
         if self.n_steps == 1:
             self.main_buffer.append(args)
             return
@@ -125,7 +128,7 @@ class ReplayBuffer(BaseBuffer):
         return memories[0]
 
 
-class IAmTheOtherKindOfReplayBufferBecauseFuckTensorflow(BaseBuffer):
+class ReplayBuffer2(BaseBuffer):
     """
     numpy-based replay buffer added for compatibility with tensorflow shortcomings.
     """
@@ -139,9 +142,7 @@ class IAmTheOtherKindOfReplayBufferBecauseFuckTensorflow(BaseBuffer):
             slots: Number of args that will be passed to self.append()
             **kwargs: kwargs passed to BaseBuffer.
         """
-        super(IAmTheOtherKindOfReplayBufferBecauseFuckTensorflow, self).__init__(
-            size, **kwargs
-        )
+        super(ReplayBuffer2, self).__init__(size, **kwargs)
         self.slots = [np.array([])] * slots
         self.current_size = 0
 
@@ -154,13 +155,14 @@ class IAmTheOtherKindOfReplayBufferBecauseFuckTensorflow(BaseBuffer):
         Returns:
             None
         """
-        self.current_size += 1
         for i, arg in enumerate(args):
             if not isinstance(arg, np.ndarray):
                 arg = np.array([arg])
             if not self.slots[i].shape[0]:
                 self.slots[i] = np.zeros((self.size, *arg.shape), np.float32)
             self.slots[i][self.current_size % self.size] = arg.copy()
+        if self.current_size < self.size:
+            self.current_size += 1
 
     def get_sample(self):
         """

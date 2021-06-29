@@ -8,8 +8,7 @@ from tensorflow.keras.optimizers import Adam
 
 import xagents
 from xagents.base import OffPolicy
-from xagents.utils.buffers import (
-    IAmTheOtherKindOfReplayBufferBecauseFuckTensorflow, ReplayBuffer)
+from xagents.utils.buffers import ReplayBuffer1, ReplayBuffer2
 from xagents.utils.cli import agent_args, non_agent_args, off_policy_args
 from xagents.utils.common import ModelReader, create_gym_env
 
@@ -135,7 +134,7 @@ class Executor:
             return
         agent_id = argv[1]
         assert agent_id in xagents.agents, f'Invalid agent `{agent_id}`'
-        to_display.update(xagents.agents[agent_id]['module'].argv)
+        to_display.update(xagents.agents[agent_id]['module'].cli_args)
         if total == 2:
             title = f'{command} {agent_id}'
             if (
@@ -160,7 +159,7 @@ class Executor:
         agent_parser = argparse.ArgumentParser()
         command_parser = argparse.ArgumentParser()
         self.add_args(agent_args, agent_parser)
-        self.add_args(xagents.agents[self.agent_id]['module'].argv, agent_parser)
+        self.add_args(xagents.agents[self.agent_id]['module'].cli_args, agent_parser)
         self.add_args(xagents.commands[self.command][0], command_parser)
         if (
             issubclass(xagents.agents[self.agent_id]['agent'], OffPolicy)
@@ -300,7 +299,7 @@ class Executor:
             buffer_batch_size = 1
         if self.agent_id in ['td3', 'ddpg']:
             buffers = agent_known_args['buffers'] = [
-                IAmTheOtherKindOfReplayBufferBecauseFuckTensorflow(
+                ReplayBuffer2(
                     buffer_max_size,
                     5,
                     initial_size=buffer_initial_size,
@@ -310,7 +309,7 @@ class Executor:
             ]
         else:
             buffers = agent_known_args['buffers'] = [
-                ReplayBuffer(
+                ReplayBuffer1(
                     buffer_max_size,
                     non_agent_known_args.buffer_n_steps,
                     agent_known_args['gamma'],

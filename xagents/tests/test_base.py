@@ -11,8 +11,22 @@ from gym.spaces import Discrete
 import xagents
 from xagents import A2C, ACER, DDPG, DQN, PPO, TD3, TRPO
 from xagents.base import BaseAgent, OffPolicy, OnPolicy
-from xagents.utils.buffers import ReplayBuffer
+from xagents.utils.buffers import ReplayBuffer1
 from xagents.utils.common import get_wandb_key
+
+
+class DummyAgent(BaseAgent):
+    def __init__(self, envs, model, **kwargs):
+        super(DummyAgent, self).__init__(envs, model, **kwargs)
+
+    def at_step_start(self):
+        print(f'step starting')
+
+    def train_step(self):
+        print(f'train_step')
+
+    def at_step_end(self):
+        print(f'step ending')
 
 
 @pytest.mark.usefixtures('envs', 'envs2', 'model', 'buffers', 'executor')
@@ -187,10 +201,9 @@ class TestBase:
         assert 'given output models, got' in pe.value.args[0]
 
     @staticmethod
-    def check_progress_displayed(displayed):
+    def assert_progress_displayed(displayed):
         """
-        Check text displayed in the console and ensure it has
-        the expected keywords.
+        Assert text displayed to the console has the expected keywords.
         Args:
             displayed: str
         """
@@ -216,7 +229,7 @@ class TestBase:
         agent.frame_speed = agent.mean_reward = agent.best_reward = 0
         agent.display_metrics()
         displayed = capsys.readouterr().out
-        self.check_progress_displayed(displayed)
+        self.assert_progress_displayed(displayed)
 
     def test_update_metrics(self, agent):
         """
@@ -249,7 +262,7 @@ class TestBase:
         assert not capsys.readouterr().out
         agent.done_envs.extend(len(self.envs) * [1])
         agent.check_episodes()
-        self.check_progress_displayed(capsys.readouterr().out)
+        self.assert_progress_displayed(capsys.readouterr().out)
         assert not agent.done_envs
 
     @pytest.mark.parametrize(
@@ -298,7 +311,7 @@ class TestBase:
         Args:
             off_policy_agent: OffPolicy subclass.
         """
-        buffers = [ReplayBuffer(10, batch_size=1) for _ in range(4)]
+        buffers = [ReplayBuffer1(10, batch_size=1) for _ in range(4)]
         agent = off_policy_agent(
             **self.get_agent_kwargs(off_policy_agent, buffers=buffers)
         )
@@ -478,3 +491,15 @@ class TestBase:
             assert expected_frame.exists()
         assert len([*video_dir.rglob('openai*.mp4')])
         assert 'Maximum steps' in capsys.readouterr().out
+
+    def test_fit(self, capsys):
+        agent = DummyAgent(self.envs, self.model)
+        agent.fit(max_steps=1)
+        displayed = capsys.readouterr().out
+        assert agent.steps == 4
+        assert displayed.strip().split('\n') == [
+            'step starting',
+            'train_step',
+            'step ending',
+            'Maximum steps exceeded',
+        ]
