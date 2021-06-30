@@ -3,6 +3,7 @@ import random
 from abc import ABC
 from collections import deque
 from datetime import timedelta
+from pathlib import Path
 from time import perf_counter, sleep
 
 import cv2
@@ -27,6 +28,7 @@ class BaseAgent(ABC):
         seed=None,
         scale_factor=None,
         log_frequency=None,
+        history_folder=None,
     ):
         """
         Base class for various types of agents.
@@ -56,7 +58,6 @@ class BaseAgent(ABC):
         self.envs = envs
         self.model = model
         self.checkpoints = checkpoints
-        self.reward_buffer_size = reward_buffer_size
         self.total_rewards = deque(maxlen=reward_buffer_size)
         self.n_steps = n_steps
         self.gamma = gamma
@@ -65,6 +66,18 @@ class BaseAgent(ABC):
         self.scale_factor = scale_factor
         self.output_models = [self.model]
         self.log_frequency = log_frequency or self.n_envs
+        self.id = self.__module__.split('.')[1]
+        if history_folder:
+            history_folder = Path(history_folder) / self.id
+            history_folder.mkdir(parents=True, exist_ok=True)
+        self.history_folder = history_folder
+        self.training_history = {
+            'mean_rewards': [],
+            'best_rewards': [],
+            'episode_rewards': [],
+            'time': [],
+            'steps': [],
+        }
         self.target_reward = None
         self.max_steps = None
         self.input_shape = self.envs[0].observation_space.shape
@@ -154,6 +167,12 @@ class BaseAgent(ABC):
             if self.checkpoints:
                 for model, checkpoint in zip(self.output_models, self.checkpoints):
                     model.save_weights(checkpoint)
+            if self.history_folder:
+                for history_item, history in self.training_history.items():
+                    np.save(
+                        (self.history_folder / f'{history_item}.npy').as_posix(),
+                        np.array(history),
+                    )
         self.best_reward = max(self.mean_reward, self.best_reward)
 
     def display_metrics(self):
@@ -260,6 +279,13 @@ class BaseAgent(ABC):
                 ]
             return [item.astype(dtype) for (item, dtype) in zip(batches[0], dtypes)]
 
+    def update_history(self, episode_reward):
+        self.training_history['mean_rewards'].append(self.mean_reward)
+        self.training_history['best_rewards'].append(self.best_reward)
+        self.training_history['episode_rewards'].append(episode_reward)
+        self.training_history['time'].append(perf_counter() - self.training_start_time)
+        self.training_history['steps'].append(self.steps)
+
     def step_envs(self, actions, get_observation=False, store_in_buffers=False):
         """
         Step environments in self.envs, update metrics (if any done games)
@@ -290,11 +316,14 @@ class BaseAgent(ABC):
             if get_observation:
                 observations.append(observation)
             if done:
+                if self.history_folder:
+                    self.update_history(self.episode_rewards[i])
                 self.done_envs.append(1)
                 self.total_rewards.append(self.episode_rewards[i])
                 self.games += 1
                 self.episode_rewards[i] = 0
                 self.states[i] = env.reset()
+            self.steps += 1
         return [np.array(item, np.float32) for item in zip(*observations)]
 
     def init_training(self, target_reward, max_steps, monitor_session):
@@ -410,7 +439,12 @@ class BaseAgent(ABC):
         Returns:
             A list of concatenated numpy arrays.
         """
-        return [a.swapaxes(0, 1).reshape(-1, *a.shape[2:]) for a in args]
+        concatenated = []
+        for arg in args:
+            if len(arg.shape) == 1:
+                arg = np.expand_dims(arg, -1)
+            concatenated.append(arg.swapaxes(0, 1).reshape(-1, *arg.shape[2:]))
+        return concatenated
 
     def fit(
         self,
@@ -440,7 +474,6 @@ class BaseAgent(ABC):
             self.at_step_start()
             self.train_step()
             self.at_step_end()
-            self.steps += self.n_envs
 
     def play(
         self,
@@ -492,7 +525,6 @@ class BaseAgent(ABC):
             self.states[env_idx], reward, done, _ = env_in_use.step(action)
             if done:
                 break
-            steps += 1
             sleep(frame_delay)
 
 

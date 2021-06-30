@@ -1,4 +1,5 @@
 import random
+from pathlib import Path
 from time import perf_counter
 
 import gym
@@ -155,13 +156,14 @@ class TestBase:
             )
         assert 'Expected one of' in pe.value.args[0]
 
-    def test_checkpoint(self, agent, tmp_path, capsys):
+    def test_model_checkpoint(self, agent, tmp_path, capsys):
         """
         Test display after keywords that are expected after a checkpoint.
         Also test for the presence of the expected checkpoint .tf files
         that are usually saved during training and ensure the number of models
         per agent in self.model_counts matches the one required by the agent,
-        otherwise, an error will be raised by the agent.
+        otherwise, an error will be raised by the agent. And finally, check
+        for agent history files that are expected beside model checkpoints.
         Args:
             agent: OnPolicy/OffPolicy subclass.
             tmp_path: pathlib.PosixPath
@@ -176,15 +178,48 @@ class TestBase:
             expected_filenames.add(f'{checkpoint}.index')
             expected_filenames.add(f'{checkpoint}.data-00000-of-00001')
         expected_filenames.add((tmp_path / 'checkpoint').as_posix())
-        agent = agent(**self.get_agent_kwargs(agent), checkpoints=checkpoints)
+        agent = agent(
+            **self.get_agent_kwargs(agent),
+            checkpoints=checkpoints,
+            history_folder=tmp_path,
+        )
+        for history_item in agent.training_history:
+            expected_filenames.add(
+                (tmp_path / agent.id / f'{history_item}.npy').as_posix()
+            )
         agent.checkpoint()
         assert not capsys.readouterr().out
+        expected_history = {
+            history_item: [random.randint(0, 1000) for _ in range(10)]
+            for history_item in agent.training_history
+        }
+        agent.training_history = expected_history
         agent.mean_reward = 100
         agent.checkpoint()
         assert 'Best reward updated' in capsys.readouterr().out
         assert agent.best_reward == 100
-        resulting_files = {item.as_posix() for item in tmp_path.iterdir()}
-        assert expected_filenames == resulting_files
+        resulting_files = {
+            item.as_posix() for item in tmp_path.rglob('*') if item.is_file()
+        }
+        for expected_filename in expected_filenames:
+            assert expected_filename in resulting_files
+            if expected_filename.endswith('.npy'):
+                assert (
+                    np.load(expected_filename)
+                    == np.array(agent.training_history[Path(expected_filename).stem])
+                ).all()
+
+    def test_update_history(self, agent):
+        agent = agent(**self.get_agent_kwargs(agent))
+        agent.training_start_time = perf_counter()
+        agent.mean_reward = random.randint(0, 1000)
+        agent.best_reward = random.randint(0, 1000)
+        agent.steps = random.randint(0, 1000)
+        agent.update_history(10)
+        assert agent.training_history['mean_rewards'][-1] == agent.mean_reward
+        assert agent.training_history['best_rewards'][-1] == agent.best_reward
+        assert agent.training_history['episode_rewards'][-1] == 10
+        assert agent.training_history['steps'][-1] == agent.steps
 
     def test_wrong_checkpoints(self, agent):
         """
@@ -311,7 +346,7 @@ class TestBase:
         Args:
             off_policy_agent: OffPolicy subclass.
         """
-        buffers = [ReplayBuffer1(10, batch_size=1) for _ in range(4)]
+        buffers = [ReplayBuffer1(10, batch_size=1) for _ in range(len(self.envs))]
         agent = off_policy_agent(
             **self.get_agent_kwargs(off_policy_agent, buffers=buffers)
         )
@@ -354,6 +389,7 @@ class TestBase:
             assert len(set([item.shape for item in observations[0]])) == 1
         else:
             assert not observations
+        assert agent.steps == len(self.envs)
 
     @pytest.mark.skipif(not get_wandb_key(), reason='Wandb api key not available')
     @pytest.mark.parametrize(
@@ -496,7 +532,6 @@ class TestBase:
         agent = DummyAgent(self.envs, self.model)
         agent.fit(max_steps=1)
         displayed = capsys.readouterr().out
-        assert agent.steps == 4
         assert displayed.strip().split('\n') == [
             'step starting',
             'train_step',

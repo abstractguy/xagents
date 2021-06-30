@@ -75,6 +75,7 @@ agent_args = {
         'help': 'Path(s) to new model(s) to which checkpoint(s) will be saved during training',
         'nargs': '+',
     },
+    'history-folder': {'help': 'Path to folder to save training history'},
 }
 
 train_args = {

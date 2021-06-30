@@ -7,3 +7,4 @@ checkpoint*
 *.mp4
 openaigym*
 *scratch*
+*.npy
