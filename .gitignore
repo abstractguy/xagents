@@ -8,3 +8,4 @@ checkpoint*
 openaigym*
 *scratch*
 *.npy
+*.parquet

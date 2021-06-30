@@ -3,12 +3,13 @@ import random
 from abc import ABC
 from collections import deque
 from datetime import timedelta
-from pathlib import Path
 from time import perf_counter, sleep
 
 import cv2
 import gym
 import numpy as np
+import pyarrow as pa
+import pyarrow.parquet as pq
 import tensorflow as tf
 import wandb
 from gym.spaces.box import Box
@@ -28,7 +29,7 @@ class BaseAgent(ABC):
         seed=None,
         scale_factor=None,
         log_frequency=None,
-        history_folder=None,
+        history_checkpoint=None,
     ):
         """
         Base class for various types of agents.
@@ -67,17 +68,7 @@ class BaseAgent(ABC):
         self.output_models = [self.model]
         self.log_frequency = log_frequency or self.n_envs
         self.id = self.__module__.split('.')[1]
-        if history_folder:
-            history_folder = Path(history_folder) / self.id
-            history_folder.mkdir(parents=True, exist_ok=True)
-        self.history_folder = history_folder
-        self.training_history = {
-            'mean_rewards': [],
-            'best_rewards': [],
-            'episode_rewards': [],
-            'time': [],
-            'steps': [],
-        }
+        self.history_checkpoint = history_checkpoint
         self.target_reward = None
         self.max_steps = None
         self.input_shape = self.envs[0].observation_space.shape
@@ -167,12 +158,6 @@ class BaseAgent(ABC):
             if self.checkpoints:
                 for model, checkpoint in zip(self.output_models, self.checkpoints):
                     model.save_weights(checkpoint)
-            if self.history_folder:
-                for history_item, history in self.training_history.items():
-                    np.save(
-                        (self.history_folder / f'{history_item}.npy').as_posix(),
-                        np.array(history),
-                    )
         self.best_reward = max(self.mean_reward, self.best_reward)
 
     def display_metrics(self):
@@ -280,11 +265,17 @@ class BaseAgent(ABC):
             return [item.astype(dtype) for (item, dtype) in zip(batches[0], dtypes)]
 
     def update_history(self, episode_reward):
-        self.training_history['mean_rewards'].append(self.mean_reward)
-        self.training_history['best_rewards'].append(self.best_reward)
-        self.training_history['episode_rewards'].append(episode_reward)
-        self.training_history['time'].append(perf_counter() - self.training_start_time)
-        self.training_history['steps'].append(self.steps)
+        data = {
+            'mean_reward': [self.mean_reward],
+            'best_reward': [self.best_reward],
+            'episode_reward': [episode_reward],
+            'step': [self.steps],
+            'time': [perf_counter() - self.training_start_time],
+        }
+        table = pa.Table.from_pydict(data)
+        pq.write_to_dataset(
+            table, root_path=self.history_checkpoint, compression='gzip'
+        )
 
     def step_envs(self, actions, get_observation=False, store_in_buffers=False):
         """
@@ -316,7 +307,7 @@ class BaseAgent(ABC):
             if get_observation:
                 observations.append(observation)
             if done:
-                if self.history_folder:
+                if self.history_checkpoint:
                     self.update_history(self.episode_rewards[i])
                 self.done_envs.append(1)
                 self.total_rewards.append(self.episode_rewards[i])
@@ -526,6 +517,7 @@ class BaseAgent(ABC):
             if done:
                 break
             sleep(frame_delay)
+            steps += 1
 
 
 class OnPolicy(BaseAgent, ABC):
