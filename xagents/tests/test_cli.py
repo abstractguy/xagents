@@ -246,7 +246,6 @@ class TestExecutor:
                     'value_loss_coef': 33,
                     'grad_norm': 7,
                     'checkpoints': ['xyz.tf'],
-                    'reward_buffer_size': 150,
                     'n_steps': 100,
                     'gamma': 0.88,
                     'display_precision': 3,

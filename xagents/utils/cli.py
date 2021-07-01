@@ -76,6 +76,26 @@ agent_args = {
         'nargs': '+',
     },
     'history-checkpoint': {'help': 'Path to .parquet file to save training history'},
+    'plateau-reduce-factor': {
+        'help': 'Factor multiplied by current learning rate ' 'when there is a plateau',
+        'type': float,
+        'default': 0.1,
+    },
+    'plateau-reduce-patience': {
+        'help': 'Minimum non-improvements to reduce lr',
+        'type': int,
+        'default': 3,
+    },
+    'early-stop-patience': {
+        'help': 'Minimum plateau reduces to stop training',
+        'type': int,
+        'default': 3,
+    },
+    'divergence-monitoring-steps': {
+        'help': 'Steps after which, plateau and early stopping are active',
+        'type': int,
+        'default': 500000,
+    },
 }
 
 train_args = {

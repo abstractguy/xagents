@@ -13,3 +13,4 @@ box2d
 pytest-xvfb==2.0.0
 pyvirtualdisplay==2.2
 pyarrow==4.0.1
+matplotlib==3.4.2

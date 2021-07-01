@@ -24,6 +24,7 @@ class DummyAgent(BaseAgent):
         print(f'step starting')
 
     def train_step(self):
+        self.steps += 1
         print(f'train_step')
 
     def at_step_end(self):
@@ -71,8 +72,14 @@ class TestBase:
         agent_kwargs = {'envs': envs if envs is not None else self.envs}
         buffers = buffers or self.buffers
         if self.model_counts[agent] > 1:
-            agent_kwargs['actor_model'] = model or self.model
-            agent_kwargs['critic_model'] = critic_model or self.model
+            agent_kwargs['actor_model'] = model or tf.keras.models.clone_model(
+                self.model
+            )
+            agent_kwargs['critic_model'] = critic_model or tf.keras.models.clone_model(
+                self.model
+            )
+            agent_kwargs['actor_model'].compile('adam')
+            agent_kwargs['critic_model'].compile('adam')
         else:
             agent_kwargs['model'] = model or self.model
         if agent == xagents.ACER:
@@ -265,7 +272,33 @@ class TestBase:
         displayed = capsys.readouterr().out
         self.assert_progress_displayed(displayed)
 
-    def test_update_metrics(self, agent):
+    @pytest.mark.parametrize(
+        'steps, total_rewards, mean_reward, best_reward, plateau_count, '
+        'expected_fps, expected_mean, learning_rate,'
+        'interval, early_stop_count',
+        [
+            [1000, [100, 130, 150], 100, 99, 0, 500, 126.67, 0.01, 2, 0],
+            [2000, [10, 15, 20], 50, 52, 3, 1000, 15, 0.01, 2, 1],
+            [600000, [400, 300, 20], 100, 105, 1, 600, 240, 0.05, 1000, 1],
+            [100000, [14, 22], 100, 105, 2, 20000, 18, 0.1, 5, 1],
+            [1000, [1, 2, 3, 4, 5], 10, 9, 2, 1000, 3, 0.1, 1, 2],
+        ],
+    )
+    def test_update_metrics(
+        self,
+        agent,
+        steps,
+        total_rewards,
+        mean_reward,
+        best_reward,
+        plateau_count,
+        expected_fps,
+        expected_mean,
+        learning_rate,
+        interval,
+        early_stop_count,
+        capsys,
+    ):
         """
         Ensure accuracy of the metrics displayed as the training
             progresses.
@@ -273,12 +306,34 @@ class TestBase:
             agent: OnPolicy/OffPolicy subclass.
         """
         agent = agent(**self.get_agent_kwargs(agent))
-        agent.last_reset_time = perf_counter() - 2
-        agent.steps = 1000
-        agent.total_rewards.extend([100, 130, 150])
+        agent.last_reset_time = perf_counter() - interval
+        agent.steps = steps
+        agent.total_rewards.extend(total_rewards)
+        agent.mean_reward = mean_reward
+        agent.best_reward = best_reward
+        agent.plateau_count = plateau_count
+        agent.early_stop_count = early_stop_count
+        for model in agent.output_models:
+            model.optimizer.learning_rate.assign(learning_rate)
         agent.update_metrics()
-        assert round(agent.frame_speed) == 500
-        assert agent.mean_reward == 126.67
+        cap = capsys.readouterr().out
+        expected_learning_rate = learning_rate
+        if plateau_count >= agent.plateau_reduce_patience:
+            expected_learning_rate = agent.plateau_reduce_factor * learning_rate
+        assert np.isclose(agent.frame_speed, expected_fps, rtol=3)
+        assert agent.mean_reward == expected_mean
+        assert np.isclose(agent.model.optimizer.learning_rate, expected_learning_rate)
+        if mean_reward > best_reward:
+            assert agent.early_stop_count == 0
+            assert agent.plateau_count == 0
+        if plateau_count >= agent.plateau_reduce_patience:
+            assert agent.early_stop_count == early_stop_count + 1
+        if learning_rate != expected_learning_rate:
+            assert 'Learning rate reduced' in cap
+            assert agent.plateau_count == 0
+            assert agent.early_stop_count == early_stop_count + 1
+        elif mean_reward < best_reward and steps >= agent.divergence_monitoring_steps:
+            assert agent.plateau_count == plateau_count + 1
 
     def test_check_episodes(self, capsys, agent):
         """
@@ -300,17 +355,26 @@ class TestBase:
         assert not agent.done_envs
 
     @pytest.mark.parametrize(
-        'expected, mean_reward, steps, target_reward, max_steps',
+        'expected, mean_reward, steps, target_reward, max_steps, early_stop_count',
         [
-            (False, 10, 0, 20, None),
-            (False, 10, 10, 11, 11),
-            (True, 100, 1000, 90, 2000),
-            (True, 200, 120, 500, 100),
-            (True, 1, 1, 1, 1),
+            (False, 10, 0, 20, None, 0),
+            (False, 10, 10, 11, 11, 0),
+            (True, 100, 1000, 90, 2000, 0),
+            (True, 200, 120, 500, 100, 0),
+            (True, 1, 1, 1, 1, 0),
+            (True, 100, 600000, 200, None, 5),
         ],
     )
     def test_training_done(
-        self, capsys, expected, mean_reward, steps, target_reward, max_steps, agent
+        self,
+        capfd,
+        expected,
+        mean_reward,
+        steps,
+        target_reward,
+        max_steps,
+        early_stop_count,
+        agent,
     ):
         """
         Test training status (done / not done) and ensure respective expected
@@ -330,13 +394,14 @@ class TestBase:
         agent.steps = steps
         agent.target_reward = target_reward
         agent.max_steps = max_steps
+        agent.early_stop_count = early_stop_count
         status = agent.training_done()
-        messages = ['Reward achieved in', 'Maximum steps exceeded']
+        messages = ['Reward achieved in', 'Maximum steps exceeded', 'Early stopping']
         if not expected:
-            assert not status and not capsys.readouterr().out
+            assert not status and not capfd.readouterr().out
         else:
             assert status
-            cap = capsys.readouterr().out
+            cap = capfd.readouterr().out
             assert any([message in cap for message in messages])
 
     def test_concat_buffer_samples(self, off_policy_agent):

@@ -30,6 +30,10 @@ class BaseAgent(ABC):
         scale_factor=None,
         log_frequency=None,
         history_checkpoint=None,
+        plateau_reduce_factor=0.9,
+        plateau_reduce_patience=10,
+        early_stop_patience=3,
+        divergence_monitoring_steps=500000,
     ):
         """
         Base class for various types of agents.
@@ -69,6 +73,12 @@ class BaseAgent(ABC):
         self.log_frequency = log_frequency or self.n_envs
         self.id = self.__module__.split('.')[1]
         self.history_checkpoint = history_checkpoint
+        self.plateau_reduce_factor = plateau_reduce_factor
+        self.plateau_reduce_patience = plateau_reduce_patience
+        self.early_stop_patience = early_stop_patience
+        self.divergence_monitoring_steps = divergence_monitoring_steps
+        self.plateau_count = 0
+        self.early_stop_count = 0
         self.target_reward = None
         self.max_steps = None
         self.input_shape = self.envs[0].observation_space.shape
@@ -154,6 +164,8 @@ class BaseAgent(ABC):
             None
         """
         if self.mean_reward > self.best_reward:
+            self.plateau_count = 0
+            self.early_stop_count = 0
             print(f'Best reward updated: {self.best_reward} -> {self.mean_reward}')
             if self.checkpoints:
                 for model, checkpoint in zip(self.output_models, self.checkpoints):
@@ -205,6 +217,20 @@ class BaseAgent(ABC):
             None
         """
         self.checkpoint()
+        if (
+            self.steps >= self.divergence_monitoring_steps
+            and self.mean_reward <= self.best_reward
+        ):
+            self.plateau_count += 1
+        if self.plateau_count >= self.plateau_reduce_patience:
+            current_lr, new_lr = None, None
+            for model in self.output_models:
+                current_lr = model.optimizer.learning_rate
+                new_lr = current_lr * self.plateau_reduce_factor
+                current_lr.assign(new_lr)
+            print(f'Learning rate reduced {current_lr.numpy()} ' f'-> {new_lr.numpy()}')
+            self.plateau_count = 0
+            self.early_stop_count += 1
         self.frame_speed = (self.steps - self.last_reset_step) / (
             perf_counter() - self.last_reset_time
         )
@@ -233,6 +259,9 @@ class BaseAgent(ABC):
         Returns:
             bool
         """
+        if self.early_stop_count >= self.early_stop_patience:
+            print(f'Early stopping')
+            return True
         if self.target_reward and self.mean_reward >= self.target_reward:
             print(f'Reward achieved in {self.steps} steps')
             return True
