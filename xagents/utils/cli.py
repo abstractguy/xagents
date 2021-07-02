@@ -79,12 +79,12 @@ agent_args = {
     'plateau-reduce-factor': {
         'help': 'Factor multiplied by current learning rate ' 'when there is a plateau',
         'type': float,
-        'default': 0.1,
+        'default': 0.9,
     },
     'plateau-reduce-patience': {
         'help': 'Minimum non-improvements to reduce lr',
         'type': int,
-        'default': 3,
+        'default': 10,
     },
     'early-stop-patience': {
         'help': 'Minimum plateau reduces to stop training',
