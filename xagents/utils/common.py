@@ -294,17 +294,36 @@ def get_wandb_key(default_folder=None):
     return os.environ.get('WANDB_API_KEY')
 
 
-def plot_history(fp, agent, env, plot='mean_reward', interval=1):
-    history = pd.read_parquet(fp).sort_values('time').iloc[::interval]
-    times = history['time'].values
-    steps = history['step']
-    fig = plt.figure()
-    plt.suptitle(f'{agent} - {env}')
-    ax1 = fig.add_subplot(111)
-    ax2 = ax1.twiny()
-    ax1.plot(steps, history[plot])
-    ax1.set_xlabel('steps')
-    ax1.set_ylabel(plot.replace('_', ' '))
-    ax2.set_xlabel('hours', loc='right')
-    ax2.plot(times / 3600, history[plot])
-    ax1.grid()
+def plot_history(
+    paths,
+    agents,
+    env,
+    plot='mean_reward',
+    benchmark='step',
+    history_interval=1,
+    time_unit='hour',
+):
+    time_divisors = {'hour': 3600, 'minute': 60, 'second': 1}
+    assert len(paths) == len(agents), (
+        f'Expected `paths` and `agents` to have the same sizes, '
+        f'got {len(paths)} vs {len(agents)}'
+    )
+    histories = [
+        pd.read_parquet(path).sort_values('time').iloc[::history_interval]
+        for path in paths
+    ]
+    for history in histories:
+        data = history[benchmark]
+        if benchmark == 'time':
+            data = history[benchmark] / time_divisors[time_unit]
+        plt.plot(data, history[plot])
+    if len(agents) == 1:
+        title = f'{agents[0]} - {env}'
+    else:
+        title = env
+    plt.title(title)
+    x_label = f'{benchmark} ({time_unit}s)' if benchmark == 'time' else benchmark
+    plt.xlabel(x_label)
+    plt.ylabel(plot.replace('_', ' '))
+    plt.legend(agents, loc='lower right')
+    plt.grid()
