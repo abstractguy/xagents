@@ -6,8 +6,8 @@ non_agent_args = {
         'and preprocessed accordingly',
         'action': 'store_true',
     },
-    'no-scale': {
-        'help': 'If specified, frames will not be scaled / normalized (divided by 255)',
+    'no-env-scale': {
+        'help': 'If specified, frames will not be scaled by preprocessor',
         'action': 'store_true',
     },
     'lr': {
@@ -33,6 +33,10 @@ non_agent_args = {
     'weights': {
         'help': 'Path(s) to model(s) weight(s) to be loaded by agent output_models',
         'nargs': '+',
+    },
+    'max-frame': {
+        'help': 'If specified, max & skip will be applied during preprocessing',
+        'action': 'store_true',
     },
 }
 
@@ -69,7 +73,10 @@ agent_args = {
         'type': int,
     },
     'seed': {'help': 'Random seed', 'type': int},
-    'scale-factor': {'help': 'Input scale divisor', 'type': float},
+    'scale-inputs': {
+        'help': 'If specified, inputs will be scaled by agent',
+        'action': 'store_true',
+    },
     'log-frequency': {'help': 'Log progress every n games', 'type': int},
     'checkpoints': {
         'help': 'Path(s) to new model(s) to which checkpoint(s) will be saved during training',

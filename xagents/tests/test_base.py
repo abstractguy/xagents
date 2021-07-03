@@ -500,22 +500,17 @@ class TestBase:
 
     def test_get_model_inputs(self, agent):
         """
-        Validate `scale_factor` arg passed to agent and ensure
+        Validate `scale_inputs` arg passed to agent and ensure
         states are scaled properly.
         Args:
             agent: OnPolicy/OffPolicy subclass.
         """
         inputs = np.random.random((10, 10))
-        scale_factor = 122
         agent_kwargs = self.get_agent_kwargs(agent)
-        with pytest.raises(AssertionError) as pe:
-            agent(**agent_kwargs, scale_factor=0)
-        assert 'Invalid scale factor' in pe.value.args[0]
-        agent = agent(**agent_kwargs, scale_factor=scale_factor)
-        if scale_factor:
-            expected = inputs / scale_factor
-            actual = agent.get_model_inputs(inputs)
-            assert np.isclose(expected, actual).all()
+        agent = agent(**agent_kwargs, scale_inputs=True)
+        expected = inputs / 255
+        actual = agent.get_model_inputs(inputs)
+        assert np.isclose(expected, actual).all()
 
     def test_get_model_outputs(self, base_agent):
         """

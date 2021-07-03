@@ -1,6 +1,7 @@
 import configparser
 import os
 import re
+from collections import deque
 from pathlib import Path
 
 import cv2
@@ -24,6 +25,7 @@ class AtariPreprocessor(gym.Wrapper):
         frame_skips=4,
         resize_shape=(84, 84),
         scale_frames=True,
+        max_frame=False,
     ):
         """
         Initialize preprocessing settings.
@@ -39,6 +41,8 @@ class AtariPreprocessor(gym.Wrapper):
         self.frame_shape = resize_shape
         self.observation_space.shape = (*resize_shape, 1)
         self.scale_frames = scale_frames
+        self.max_frame = max_frame
+        self.frame_buffer = deque(maxlen=2)
 
     def process_frame(self, frame):
         """
@@ -68,6 +72,9 @@ class AtariPreprocessor(gym.Wrapper):
         state, done, info = 3 * [None]
         for _ in range(self.skips):
             state, reward, done, info = self.env.step(action)
+            if self.max_frame:
+                self.frame_buffer.append(state)
+                state = np.max(np.stack(self.frame_buffer), axis=0)
             total_reward += reward
             if done:
                 break
@@ -83,6 +90,9 @@ class AtariPreprocessor(gym.Wrapper):
             Processed atari frame.
         """
         state = self.env.reset(**kwargs)
+        if self.max_frame:
+            self.frame_buffer.clear()
+            self.frame_buffer.append(state)
         return self.process_frame(state)
 
 

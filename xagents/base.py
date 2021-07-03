@@ -27,7 +27,7 @@ class BaseAgent(ABC):
         gamma=0.99,
         display_precision=2,
         seed=None,
-        scale_factor=None,
+        scale_inputs=False,
         log_frequency=None,
         history_checkpoint=None,
         plateau_reduce_factor=0.9,
@@ -51,14 +51,11 @@ class BaseAgent(ABC):
             display_precision: Decimal precision for display purposes.
             seed: Random seed passed to random.seed(), np.random.seed(), tf.random.seed(),
                 env.seed()
-            scale_factor: Input divisor.
+            scale_inputs: If true, model inputs will be scaled.
             log_frequency: Interval of done games to display progress after each,
                 defaults to the number of environments given if not specified.
         """
         assert envs, 'No environments given'
-        assert (
-            scale_factor is None or scale_factor > 0
-        ), f'Invalid scale factor {scale_factor}'
         self.n_envs = len(envs)
         self.envs = envs
         self.model = model
@@ -68,7 +65,7 @@ class BaseAgent(ABC):
         self.gamma = gamma
         self.display_precision = display_precision
         self.seed = seed
-        self.scale_factor = scale_factor
+        self.scale_inputs = scale_inputs
         self.output_models = [self.model]
         self.log_frequency = log_frequency or self.n_envs
         self.id = self.__module__.split('.')[1]
@@ -227,8 +224,8 @@ class BaseAgent(ABC):
             for model in self.output_models:
                 current_lr = model.optimizer.learning_rate
                 new_lr = current_lr * self.plateau_reduce_factor
-                current_lr.assign(new_lr)
             print(f'Learning rate reduced {current_lr.numpy()} ' f'-> {new_lr.numpy()}')
+            current_lr.assign(new_lr)
             self.plateau_count = 0
             self.early_stop_count += 1
         self.frame_speed = (self.steps - self.last_reset_step) / (
@@ -270,11 +267,10 @@ class BaseAgent(ABC):
             return True
         return False
 
-    def concat_buffer_samples(self, dtypes=None):
+    def concat_buffer_samples(self):
         """
         Concatenate samples drawn from each environment respective buffer.
         Args:
-            dtypes: A list of respective numpy dtypes to return.
 
         Returns:
             A list of concatenated samples.
@@ -285,7 +281,11 @@ class BaseAgent(ABC):
                 buffer = self.buffers[i]
                 batch = buffer.get_sample()
                 batches.append(batch)
-            dtypes = dtypes or [np.float32 for _ in range(len(batches[0]))]
+            dtypes = (
+                self.np_batch_dtypes
+                if hasattr(self, 'np_batch_dtypes')
+                else [np.float32 for _ in range(len(batches[0]))]
+            )
             if len(batches) > 1:
                 return [
                     np.concatenate(item).astype(dtype)
@@ -381,20 +381,20 @@ class BaseAgent(ABC):
 
     def get_model_inputs(self, inputs):
         """
-        Get inputs and apply normalization if `scale_factor` was specified earlier.
+        Get inputs and apply normalization if `scale_inputs` was specified earlier.
         Args:
             inputs: Inputs as tensors / numpy arrays that are expected
                 by the given model(s).
         Returns:
 
         """
-        if not self.scale_factor:
+        if not self.scale_inputs:
             return inputs
-        return tf.cast(inputs, tf.float32) / self.scale_factor
+        return tf.cast(inputs, tf.float32) / 255
 
     def get_model_outputs(self, inputs, models, training=True):
         """
-        Get inputs and apply normalization if `scale_factor` was specified earlier,
+        Get inputs and apply normalization if `scale_inputs` was specified earlier,
         then return model outputs.
         Args:
             inputs: Inputs as tensors / numpy arrays that are expected
@@ -438,7 +438,7 @@ class BaseAgent(ABC):
         Returns:
             self.states as numpy array.
         """
-        return np.array(self.states, np.float32)
+        return np.array(self.states)
 
     def get_dones(self):
         """

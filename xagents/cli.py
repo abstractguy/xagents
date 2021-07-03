@@ -338,7 +338,8 @@ class Executor:
             non_agent_known.env,
             non_agent_known.n_envs,
             non_agent_known.preprocess,
-            scale_frames=not non_agent_known.no_scale,
+            scale_frames=not non_agent_known.no_env_scale,
+            max_frame=non_agent_known.max_frame,
         )
         agent_known, command_known = vars(agent_known), vars(command_known)
         agent_known['envs'] = envs

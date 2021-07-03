@@ -159,7 +159,7 @@ class ReplayBuffer2(BaseBuffer):
             if not isinstance(arg, np.ndarray):
                 arg = np.array([arg])
             if not self.slots[i].shape[0]:
-                self.slots[i] = np.zeros((self.size, *arg.shape), np.float32)
+                self.slots[i] = np.zeros((self.size, *arg.shape), arg.dtype)
             self.slots[i][self.current_size % self.size] = arg.copy()
         if self.current_size < self.size:
             self.current_size += 1

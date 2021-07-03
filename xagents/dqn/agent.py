@@ -1,6 +1,7 @@
 import numpy as np
 import tensorflow as tf
 from gym.spaces.discrete import Discrete
+from tensorflow.keras.losses import MSE
 
 from xagents.base import OffPolicy
 
@@ -50,6 +51,8 @@ class DQN(OffPolicy):
         self.batch_indices = tf.range(
             self.buffers[0].batch_size * self.n_envs, dtype=tf.int64
         )[:, tf.newaxis]
+        self.tf_batch_dtypes = [tf.uint8] + 3 * [tf.float32] + [tf.uint8]
+        self.np_batch_dtypes = [np.uint8] + 3 * [np.float32] + [np.uint8]
 
     @staticmethod
     def get_action_indices(batch_indices, actions):
@@ -67,7 +70,7 @@ class DQN(OffPolicy):
     @tf.function
     def get_model_outputs(self, inputs, models, training=True):
         """
-        Get inputs and apply normalization if `scale_factor` was specified earlier,
+        Get inputs and apply normalization if `scale_inputs` was specified earlier,
         then return model outputs.
         Args:
             inputs: Inputs as tensors / numpy arrays that are expected
@@ -153,22 +156,20 @@ class DQN(OffPolicy):
         )
         return target_values
 
-    def update_gradients(self, x, y, sample_weight=None):
+    def update_gradients(self, x, y):
         """
         Train on a given batch.
         Args:
             x: States tensor
             y: Targets tensor
-            sample_weight: sample_weight passed to model.compiled_loss()
 
         Returns:
             None
         """
         with tf.GradientTape() as tape:
             y_pred = self.get_model_outputs(x, self.model)[1]
-            loss = tf.reduce_mean(tf.square(y - y_pred))
+            loss = MSE(y, y_pred)
         self.model.optimizer.minimize(loss, self.model.trainable_variables, tape=tape)
-        self.model.compiled_metrics.update_state(y, y_pred, sample_weight)
 
     def at_step_start(self):
         """
@@ -193,7 +194,7 @@ class DQN(OffPolicy):
         training_batch = tf.numpy_function(
             self.concat_buffer_samples,
             [],
-            5 * [tf.float32],
+            self.tf_batch_dtypes,
         )
         targets = self.get_targets(*training_batch)
         self.update_gradients(training_batch[0], targets)
