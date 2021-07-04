@@ -60,7 +60,7 @@ class DDPG(OffPolicy):
         Returns:
             actions
         """
-        actions = self.actor(tf.numpy_function(self.get_states, [], tf.float32))
+        actions = self.actor(tf.numpy_function(self.get_states, [], tf.float64))
         actions += tf.random.normal(
             shape=(self.n_envs, self.n_actions), stddev=self.step_noise_coef
         )

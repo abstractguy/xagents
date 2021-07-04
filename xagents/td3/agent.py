@@ -57,7 +57,7 @@ class TD3(DDPG):
         Returns:
             actions
         """
-        return self.actor(tf.numpy_function(self.get_states, [], tf.float32))
+        return self.actor(tf.numpy_function(self.get_states, [], tf.float64))
 
     def update_critic_weights(self, states, actions, new_states, dones, rewards):
         """
