@@ -10,12 +10,14 @@
 * [Description](#description)
 * [Features](#features)
 * [Usage](#usage)
+  * [Training](#training)
+  * [Playing](#playing)
 * [Command line options](#command-line-options)
 * [Algorithms](#algorithms)
   * [A2C](#a2c)
   * [ACER](#acer)
   * [DDPG](#ddpg)
-  * [DQN / DDQN](#dqn)
+  * [DQN / DDQN](#dqn-ddqn)
   * [PPO](#ppo)
   * [TD3](#td3)
   * [TRPO](#trpo)
@@ -34,10 +36,10 @@ pip install .
 
 **Notes:** 
 * To be able to run atari environments, follow the instructions in [atari-py](https://github.com/openai/atari-py#roms)
-to install [ROMS](http://www.atarimania.com/rom_collection_archive_atari_2600_roms.html)
+to install [ROMS](http://www.atarimania.com/rom_collection_archive_atari_2600_roms.html).
   
 * To be able to run the tests remotely, [pytest-xvfb](https://pypi.org/project/pytest-xvfb/) plugin will
-be automatically installed but will require an additional step:
+be automatically installed but will require an additional step ...
   * For macOS users, you'll have to install [Xquartz](https://www.xquartz.org)
     ```shell 
     brew install xquartz
@@ -77,10 +79,10 @@ selection of algorithms can be used directly or through command line.
 
 * Tensorflow 2.
 * wandb support.
-* Multiple environments (All agents)
-* Command line
+* Multiple environments (All agents).
+* Command line options.
 * Early stopping, reduce on plateau.
-* Resume training.
+* Resume training and update metrics from last checkpoint.
 * Discrete and continuous action spaces.
 * Unit tests.
 * Models are loaded from .cfg files.
@@ -91,31 +93,90 @@ selection of algorithms can be used directly or through command line.
 
 ## **Usage**
 
-All agents are available through the command line:
+All agents are available through the command line.
 
     xagents <command> <agent> [options] [args]
 
-Example:
+**Note:** Unless called from command line with `--weights` passed,
+all models passed to agents in code, should be loaded with weights 
+beforehand, if called for resuming training or playing.
 
-    xagents train a2c --env PongNoFrameskip-v4 --target-reward 19 --preprocess
+###**Training**
 
-Or through direct importing:
+**Through command line**
 
+    xagents train a2c --env PongNoFrameskip-v4 --n-env 16 --target-reward 19 --preprocess
+
+**Through direct importing**
+
+    import xagents
     from xagents import A2C
-    from xagents.utils.common import ModelReader, create_gym_env
+    from xagents.utils.common import ModelReader, create_envs
     
-    envs = create_gym_env('PongNoFrameskip-v4')
-    model = ModelReader('/path/to/model.cfg', output_units=[6, 1], optimizer='adam').build_model()
+    envs = create_envs('PongNoFrameskip-v4')
+    model = ModelReader(
+        xagents.agents['a2c']['model']['cnn'][0],
+        output_units=[6, 1],
+        input_shape=envs[0].observation_space.shape,
+        optimizer='adam',
+    ).build_model()
     agent = A2C(envs, model)
+
     
 Then either `max_steps` or `target_reward` should be specified to start training:
     
     agent.fit(target_reward=19)
 
+###**Playing**
+
+**Through command line**
+
+    xagents play a2c --env PongNoFrameskip-v4 --preprocess --weights <trained-a2c-weights> --render
+
+
+**Through direct importing**
+
+    import xagents
+    from xagents import A2C
+    from xagents.utils.common import ModelReader, create_envs
+    
+    envs = create_envs('PongNoFrameskip-v4')
+    model = ModelReader(
+        xagents.agents['a2c']['model']['cnn'][0],
+        output_units=[6, 1],
+        input_shape=envs[0].observation_space.shape,
+        optimizer='adam',
+    ).build_model()
+    model.load_weights(
+        '/path/to/trained-weights.tf'
+    ).expect_partial()
+    agent = A2C(envs, model)
+    agent.play(render=True)
+
+If you need to save the game ...
+
+**For video**
+
+    agent.play(video_dir='/path/to/video-dir/')
+
+or
+
+    xagents play a2c --video-dir /path/to/video-dir/  
+
+**For frames**
+
+    agent.play(frame_dir='/path/to/frame-dir/')
+
+or 
+
+    xagents play a2c --frame-dir /path/to/frame-dir/
+
+and all arguments can be combined `--video-dir <vid-dir> --frame-dir <frame-dir> --render`
+
 <!-- COMMAND LINE OPTIONS -->
 ## **Command line options**
 
-Not all the flags listed below are available at once, and to know which 
+**Note:** Not all the flags listed below are available at once, and to know which 
 ones are available respective to the command you passed, you can use:
 
     xagents <command>
@@ -124,9 +185,9 @@ or
 
     xagents <command> <agent>
 
-Which should list command + agent options combined
+which should list command + agent options combined
 
-Flags (Available for all agents)
+**Flags (Available for all agents)**
 
 | flags                         | help                                                                         | required   | default   |
 |:------------------------------|:-----------------------------------------------------------------------------|:-----------|:----------|
@@ -161,7 +222,7 @@ Flags (Available for all agents)
 <!-- ALGORITHMS -->
 ## **Algorithms**
 
-*General notes*
+**General notes**
 
 * `--model <model.cfg>` or `--actor-model <actor.cfg>` and `--critic-model <critic.cfg>` are optional 
   which means, if not specified, the default model(s) will be loaded, so you don't have to worry about it.
@@ -178,12 +239,13 @@ and same goes for the weights, they should match the number of agent models.
 * For using a random seed, a `seed=some_seed` should be passed to agent constructor and ModelReader constructor if
 specified from code. If from the command line, all you need is to pass `--seed <some-seed>`
 * To save training history `history_checkpoint=some_history.parquet` should be specified
-to agent constructor or alternatively using `--history-checkpoint <some-history.parquet>`
+to agent constructor or alternatively using `--history-checkpoint <some-history.parquet>`. 
+  If the history checkpoint exists, training metrics will automatically start from where it left.
   
 ### *A2C*
 
-* Number of models: 1
-* Action spaces: discrete and continuous
+* *Number of models:* 1
+* *Action spaces:* discrete and continuous
 
 | flags             | help                                                 | default   |
 |:------------------|:-----------------------------------------------------|:----------|
@@ -193,7 +255,7 @@ to agent constructor or alternatively using `--history-checkpoint <some-history.
 | --grad-norm       | Gradient clipping value passed to tf.clip_by_value() | 0.5       |
 | --n-steps         | Transition steps                                     | 5         |
 
-*command line examples*
+**Command line**
 
      xagents train a2c --env PongNoFrameskip-v4 --target-reward 19 --n-envs 16 --preprocess --checkpoints a2c-pong.tf --opt-epsilon 1e-5 --beta1 0 beta2 0.99
 
@@ -201,15 +263,15 @@ OR
 
     xagents train a2c --env BipedalWalker-v3 --target-reward 100 --n-envs 16 --checkpoints a2c-bipedal-walker.tf
 
-*non-command line examples*
+**Non-command line**
     
     from tensorflow.keras.optimizers import Adam
 
     import xagents
     from xagents import A2C
-    from xagents.utils.common import ModelReader, create_gym_env
+    from xagents.utils.common import ModelReader, create_envs
     
-    envs = create_gym_env('PongNoFrameskip-v4', 16)
+    envs = create_envs('PongNoFrameskip-v4', 16)
     model_cfg = xagents.agents['a2c']['model']['cnn'][0]
     optimizer = Adam(learning_rate=7e-4, epsilon=1e-5, beta_1=0, beta_2=0.99)
     model = ModelReader(
@@ -221,12 +283,12 @@ OR
     agent = A2C(envs, model, checkpoints=['a2c-pong.tf'])
     agent.fit(target_reward=19)
 
-And for `BipedalWalker-v3`, the only difference is that you have to specify `preprocess=False` to `create_gym_env()`
+And for `BipedalWalker-v3`, the only difference is that you have to specify `preprocess=False` to `create_envs()`
 
 ### *ACER*
 
-* Number of models: 1
-* Action spaces: discrete
+* *Number of models:* 1
+* *Action spaces:* discrete
 
 | flags                 | help                                                               | default   |
 |:----------------------|:-------------------------------------------------------------------|:----------|
@@ -247,20 +309,20 @@ And for `BipedalWalker-v3`, the only difference is that you have to specify `pre
 | --buffer-batch-size   | Replay buffer batch size                                           | 32        |
 | --buffer-n-steps      | Replay buffer transition step                                      | 1         |
 
-*command line examples*
+**Command line**
 
     xagents train acer --env PongNoFrameskip-v4 --target-reward 19 --n-envs 16 --preprocess --checkpoints acer-pong.tf --buffer-max-size 5000 --buffer-initial-size 500 --buffer-batch-size 16 --trust-region --no-env-scale --scale-inputs
 
-*non-command line examples*
+**Non-command line**
 
     from tensorflow.keras.optimizers import Adam
     
     import xagents
     from xagents import ACER
     from xagents.utils.buffers import ReplayBuffer1
-    from xagents.utils.common import ModelReader, create_gym_env
+    from xagents.utils.common import ModelReader, create_envs
     
-    envs = create_gym_env('PongNoFrameskip-v4', 16, scale_frames=False)
+    envs = create_envs('PongNoFrameskip-v4', 16, scale_frames=False)
     buffers = [
         ReplayBuffer1(5000, initial_size=500, batch_size=1) for _ in range(len(envs))
     ]
@@ -277,8 +339,8 @@ And for `BipedalWalker-v3`, the only difference is that you have to specify `pre
 
 ### *DDPG*
 
-Number of models: 2
-Action spaces: continuous
+* *Number of models:* 2
+* *Action spaces:* continuous
 
 | flags                 | help                                                     | default   |
 |:----------------------|:---------------------------------------------------------|:----------|
@@ -292,20 +354,20 @@ Action spaces: continuous
 | --buffer-batch-size   | Replay buffer batch size                                 | 32        |
 | --buffer-n-steps      | Replay buffer transition step                            | 1         |
 
-*command line examples*
+**Command line**
 
     xagents train ddpg --env BipedalWalker-v3 --target-reward 100 --n-envs 16 --checkpoints ddpg-actor-bipedal-walker.tf ddpg-critic-bipedal-walker.tf --buffer-max-size 1000000 --buffer-initial-size 25000 --buffer-batch-size 100
 
-*non-command line examples*
+**Non-command line**
 
     from tensorflow.keras.optimizers import Adam
     
     import xagents
     from xagents import DDPG
     from xagents.utils.buffers import ReplayBuffer2
-    from xagents.utils.common import ModelReader, create_gym_env
+    from xagents.utils.common import ModelReader, create_envs
     
-    envs = create_gym_env('BipedalWalker-v3', 16, preprocess=False)
+    envs = create_envs('BipedalWalker-v3', 16, preprocess=False)
     buffers = [
         ReplayBuffer2(62500, slots=5, initial_size=1560, batch_size=8)
         for _ in range(len(envs))
@@ -336,8 +398,8 @@ Action spaces: continuous
 
 ### *DQN-DDQN*
 
-Number of models: 1
-Action spaces: discrete
+* *Number of models:* 1
+* *Action spaces:* discrete
 
 | flags                 | help                                                                    | default   |
 |:----------------------|:------------------------------------------------------------------------|:----------|
@@ -354,20 +416,20 @@ Action spaces: discrete
 | --buffer-batch-size   | Replay buffer batch size                                                | 32        |
 | --buffer-n-steps      | Replay buffer transition step                                           | 1         |
 
-*command line examples*
+**Command line**
 
     xagents train dqn --env PongNoFrameskip-v4 --target-reward 19 --n-envs 3 --lr 1e-4 --preprocess --checkpoints dqn-pong.tf --epsilon-start 0.02 --scale-inputs --no-env-scale --buffer-max-size 50000 --buffer-initial-size 10000 --max-frame
 
-*non-command line examples*
+**Non-command line**
 
     from tensorflow.keras.optimizers import Adam
     
     import xagents
     from xagents import DQN
     from xagents.utils.buffers import ReplayBuffer1
-    from xagents.utils.common import ModelReader, create_gym_env
+    from xagents.utils.common import ModelReader, create_envs
     
-    envs = create_gym_env('PongNoFrameskip-v4', 3, scale_frames=False, max_frame=True)
+    envs = create_envs('PongNoFrameskip-v4', 3, scale_frames=False, max_frame=True)
     buffers = [
         ReplayBuffer1(16666, initial_size=3333, batch_size=10) for _ in range(len(envs))
     ]
@@ -382,12 +444,12 @@ Action spaces: discrete
     agent = DQN(envs, model, buffers, checkpoints=['dqn-pong.tf'], scale_inputs=True)
     agent.fit(target_reward=19)
 
-*Note: if you need a DDQN, specify `double=True` to the agent constructor or `--double`
+**Note:** if you need a DDQN, specify `double=True` to the agent constructor or `--double`
 
 ### *PPO*
 
-Number of models: 1
-Action spaces: discrete, continuous
+* *Number of models:* 1
+* *Action spaces:* discrete, continuous
 
 | flags               | help                                                 | default   |
 |:--------------------|:-----------------------------------------------------|:----------|
@@ -402,23 +464,23 @@ Action spaces: discrete, continuous
 | --advantage-epsilon | Value added to estimated advantage                   | 1e-08     |
 | --clip-norm         | Clipping value passed to tf.clip_by_value()          | 0.1       |
 
-*command line examples*
+**Command line**
 
     xagents train ppo --env PongNoFrameskip-v4 --target-reward 19 --n-envs 16 --preprocess --checkpoints ppo-pong.tf
 
-OR
+or
 
     xagents train ppo --env BipedalWalker-v3 --target-reward 200 --n-envs 16 --checkpoints ppo-bipedal-walker.tf
 
-*non-command line examples*
+**Non-command line**
 
     from tensorflow.keras.optimizers import Adam
     
     import xagents
     from xagents import PPO
-    from xagents.utils.common import ModelReader, create_gym_env
+    from xagents.utils.common import ModelReader, create_envs
     
-    envs = create_gym_env('PongNoFrameskip-v4', 16)
+    envs = create_envs('PongNoFrameskip-v4', 16)
     model_cfg = xagents.agents['ppo']['model']['cnn'][0]
     optimizer = Adam(learning_rate=7e-4)
     model = ModelReader(
@@ -432,8 +494,8 @@ OR
 
 ### *TD3*
 
-Number of models: 3
-Action spaces: continuous
+* *Number of models:* 3
+* *Action spaces:* continuous
 
 | flags                 | help                                                               | default   |
 |:----------------------|:-------------------------------------------------------------------|:----------|
@@ -450,20 +512,20 @@ Action spaces: continuous
 | --buffer-batch-size   | Replay buffer batch size                                           | 32        |
 | --buffer-n-steps      | Replay buffer transition step                                      | 1         |
 
-*command line examples*
+**Command line**
 
     xagents train td3 --env BipedalWalker-v3 --target-reward 300 --n-envs 16 --checkpoints td3-actor-bipedal-walker.tf td3-critic1-bipedal-walker.tf td3-critic2-bipedal-walker.tf --buffer-max-size 1000000 --buffer-initial-size 100 --buffer-batch-size 100
 
-*non-command line examples*
+**Non-command line**
 
     from tensorflow.keras.optimizers import Adam
     
     import xagents
     from xagents import TD3
     from xagents.utils.buffers import ReplayBuffer2
-    from xagents.utils.common import ModelReader, create_gym_env
+    from xagents.utils.common import ModelReader, create_envs
     
-    envs = create_gym_env('BipedalWalker-v3', 16, preprocess=False)
+    envs = create_envs('BipedalWalker-v3', 16, preprocess=False)
     buffers = [
         ReplayBuffer2(62500, slots=5, initial_size=1560, batch_size=8)
         for _ in range(len(envs))
@@ -496,13 +558,13 @@ Action spaces: continuous
     )
     agent.fit(target_reward=100)
 
-*Note:* TD3 accepts only 2 models as input but accepts 3 for checkpoints or weights, 
+**Note:** TD3 accepts only 2 models as input but accepts 3 for checkpoints or weights, 
 because the second critic network will be cloned at runtime.
 
 ### *TRPO*
 
-Number of models: 2
-Action spaces: discrete, continuous
+* *Number of models:* 2
+* *Action spaces:* discrete, continuous
 
 | flags                   | help                                                           | default   |
 |:------------------------|:---------------------------------------------------------------|:----------|
@@ -525,23 +587,23 @@ Action spaces: discrete, continuous
 | --critic-iterations     | Critic optimization iterations per train step                  | 3         |
 | --fvp-n-steps           | Value used to skip every n-frames used to calculate FVP        | 5         |
 
-*command line examples*
+**Command line**
 
     xagents train trpo --env PongNoFrameskip-v4 --target-reward 19 --n-envs 16 --checkpoints trpo-actor-pong.tf trpo-critic-pong.tf --preprocess --lr 1e-3
 
-OR
+or
 
     xagents train trpo --env BipedalWalker-v3 --target-reward 200 --n-envs 16 --checkpoints trpo-actor-pong.tf trpo-critic-pong.tf --lr 1e-3
 
-*non-command line examples*
+**Non-command line**
 
     from tensorflow.keras.optimizers import Adam
     
     import xagents
     from xagents import TRPO
-    from xagents.utils.common import ModelReader, create_gym_env
+    from xagents.utils.common import ModelReader, create_envs
     
-    envs = create_gym_env('PongNoFrameskip-v4', 16)
+    envs = create_envs('PongNoFrameskip-v4', 16)
     actor_model_cfg = xagents.agents['trpo']['actor_model']['cnn'][0]
     critic_model_cfg = xagents.agents['trpo']['critic_model']['cnn'][0]
     optimizer = Adam()

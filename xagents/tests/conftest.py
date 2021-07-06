@@ -205,11 +205,27 @@ def base_agent(request):
 
 @pytest.fixture(params=[ReplayBuffer1, ReplayBuffer2])
 def buffer_type(request):
+    """
+    Fixture with buffer types to test buffer attributes.
+    Args:
+        request: _pytest.fixtures.SubRequest
+
+    Yields:
+        BaseBuffer subclass.
+    """
     yield request.param
 
 
 @pytest.fixture(scope='class')
 def observations(request):
+    """
+    Fixture to be used by class methods that require creation of a batch.
+    Args:
+        request: _pytest.fixtures.SubRequest
+
+    Returns:
+        None
+    """
     states = np.random.randint(0, 255, (10, 84, 84, 1))
     actions = np.random.randint(0, 6, 10)
     rewards = np.random.randint(0, 10, 10)

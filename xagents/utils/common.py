@@ -8,13 +8,15 @@ import cv2
 import gym
 import numpy as np
 import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 from matplotlib import pyplot as plt
 from tensorflow.keras.initializers import GlorotUniform, Orthogonal
 from tensorflow.keras.layers import Conv2D, Dense, Flatten, Input
 from tensorflow.keras.models import Model
 
 
-class AtariPreprocessor(gym.Wrapper):
+class AtariWrapper(gym.Wrapper):
     """
     gym wrapper for preprocessing atari frames.
     """
@@ -34,9 +36,10 @@ class AtariPreprocessor(gym.Wrapper):
             frame_skips: Number of frame skips to use per environment step.
             resize_shape: (m, n) output frame size.
             scale_frames: If False, frames will not be scaled / normalized (divided by 255)
+            max_frame: If True, max and skip is applied.
         """
         assert frame_skips > 1, 'frame_skips must be >= 1'
-        super(AtariPreprocessor, self).__init__(env)
+        super(AtariWrapper, self).__init__(env)
         self.skips = frame_skips
         self.frame_shape = resize_shape
         self.observation_space.shape = (*resize_shape, 1)
@@ -96,22 +99,22 @@ class AtariPreprocessor(gym.Wrapper):
         return self.process_frame(state)
 
 
-def create_gym_env(env_name, n=1, preprocess=True, *args, **kwargs):
+def create_envs(env_name, n=1, preprocess=True, *args, **kwargs):
     """
     Create gym environment and initialize preprocessing settings.
     Args:
         env_name: Name of the environment to be passed to gym.make()
         n: Number of environments to create.
-        preprocess: If True, AtariPreprocessor will be used.
-        *args: args to be passed to AtariPreprocessor
-        **kwargs: kwargs to be passed to AtariPreprocessor
+        preprocess: If True, AtariWrapper will be used.
+        *args: args to be passed to AtariWrapper
+        **kwargs: kwargs to be passed to AtariWrapper
 
     Returns:
         A list of gym environments.
     """
     envs = [gym.make(env_name) for _ in range(n)]
     if preprocess:
-        envs = [AtariPreprocessor(env, *args, **kwargs) for env in envs]
+        envs = [AtariWrapper(env, *args, **kwargs) for env in envs]
     return envs
 
 
@@ -291,6 +294,10 @@ def register_models(agents):
 def get_wandb_key(default_folder=None):
     """
     Check ~/.netrc and WANDB_API_KEY environment variable for wandb api key.
+    Args:
+        default_folder: Path to wandb configuration file, if not specified,
+            defaults to ~/.netrc
+
     Returns:
         Key found or None
     """
@@ -313,6 +320,23 @@ def plot_history(
     history_interval=1,
     time_unit='hour',
 ):
+    """
+    Plot a single agent training history given a column name,
+    OR
+    plot multiple agent training histories compared in a single figure.
+    Args:
+        paths: List of paths to .parquet files that have the training histories.
+        agents: List of agent ids for labels / legend.
+        env: Environment id.
+        plot: Name of the column to be compared.
+        benchmark: `step` or `time`
+        history_interval: Plot every n data points.
+        time_unit: Assuming the `time` column has seconds, time
+            will be divided accordingly.
+
+    Returns:
+        None
+    """
     time_divisors = {'hour': 3600, 'minute': 60, 'second': 1}
     assert len(paths) == len(agents), (
         f'Expected `paths` and `agents` to have the same sizes, '
@@ -337,3 +361,17 @@ def plot_history(
     plt.ylabel(plot.replace('_', ' '))
     plt.legend(agents, loc='lower right')
     plt.grid()
+
+
+def write_from_dict(_dict, path):
+    """
+    Write to .parquet given a dict
+    Args:
+        _dict: Dictionary of label: [scalar]
+        path: Path to .parquet fiile.
+
+    Returns:
+        None
+    """
+    table = pa.Table.from_pydict(_dict)
+    pq.write_to_dataset(table, root_path=path, compression='gzip')

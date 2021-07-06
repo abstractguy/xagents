@@ -10,7 +10,7 @@ import xagents
 from xagents.base import OffPolicy
 from xagents.utils.buffers import ReplayBuffer1, ReplayBuffer2
 from xagents.utils.cli import agent_args, non_agent_args, off_policy_args
-from xagents.utils.common import ModelReader, create_gym_env
+from xagents.utils.common import ModelReader, create_envs
 
 
 class Executor:
@@ -334,7 +334,7 @@ class Executor:
         if not self.agent_id:
             return
         agent_known, non_agent_known, command_known = self.parse_known_args(argv)
-        envs = create_gym_env(
+        envs = create_envs(
             non_agent_known.env,
             non_agent_known.n_envs,
             non_agent_known.preprocess,

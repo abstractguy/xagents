@@ -103,16 +103,15 @@ class ReplayBuffer1(BaseBuffer):
         Returns:
             None
         """
-        self.current_size = len(self.main_buffer)
         if self.n_steps == 1:
             self.main_buffer.append(args)
-            return
-        if (self.temp_buffer and self.temp_buffer[-1][3]) or len(
+        elif (self.temp_buffer and self.temp_buffer[-1][3]) or len(
             self.temp_buffer
         ) == self.n_steps:
             adjusted_sample = self.reset_temp_history()
             self.main_buffer.append(adjusted_sample)
         self.temp_buffer.append(args)
+        self.current_size = len(self.main_buffer)
 
     def get_sample(self):
         """

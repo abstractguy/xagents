@@ -3,17 +3,19 @@ import random
 from abc import ABC
 from collections import deque
 from datetime import timedelta
+from pathlib import Path
 from time import perf_counter, sleep
 
 import cv2
 import gym
 import numpy as np
-import pyarrow as pa
-import pyarrow.parquet as pq
+import pandas as pd
 import tensorflow as tf
 import wandb
 from gym.spaces.box import Box
 from gym.spaces.discrete import Discrete
+
+from xagents.utils.common import write_from_dict
 
 
 class BaseAgent(ABC):
@@ -51,9 +53,18 @@ class BaseAgent(ABC):
             display_precision: Decimal precision for display purposes.
             seed: Random seed passed to random.seed(), np.random.seed(), tf.random.seed(),
                 env.seed()
-            scale_inputs: If true, model inputs will be scaled.
+            scale_inputs: If true, model inputs will be divided by 255.
             log_frequency: Interval of done games to display progress after each,
                 defaults to the number of environments given if not specified.
+            history_checkpoint: Path to .parquet file to which episode history will be saved.
+            plateau_reduce_patience: int, Maximum times of non-improving consecutive model checkpoints.
+            plateau_reduce_factor: Factor by which the learning rates of all models in
+                self.output_models are multiplied when plateau_reduce_patience is consecutively
+                reached / exceeded.
+            early_stop_patience: Number of times plateau_reduce_patience is consecutively
+                reached / exceeded.
+            divergence_monitoring_steps: Number of steps at which reduce on plateau,
+                and early stopping start monitoring.
         """
         assert envs, 'No environments given'
         self.n_envs = len(envs)
@@ -294,6 +305,14 @@ class BaseAgent(ABC):
             return [item.astype(dtype) for (item, dtype) in zip(batches[0], dtypes)]
 
     def update_history(self, episode_reward):
+        """
+        Write 1 episode stats to .parquet history checkpoint.
+        Args:
+            episode_reward: int, a finished episode reward
+
+        Returns:
+            None
+        """
         data = {
             'mean_reward': [self.mean_reward],
             'best_reward': [self.best_reward],
@@ -301,10 +320,7 @@ class BaseAgent(ABC):
             'step': [self.steps],
             'time': [perf_counter() - self.training_start_time],
         }
-        table = pa.Table.from_pydict(data)
-        pq.write_to_dataset(
-            table, root_path=self.history_checkpoint, compression='gzip'
-        )
+        write_from_dict(data, self.history_checkpoint)
 
     def step_envs(self, actions, get_observation=False, store_in_buffers=False):
         """
@@ -346,6 +362,35 @@ class BaseAgent(ABC):
             self.steps += 1
         return [np.array(item, np.float32) for item in zip(*observations)]
 
+    def init_from_checkpoint(self):
+        """
+        Load previous training session metadata and update agent metrics
+            to go from there.
+
+        Returns:
+            None
+        """
+        previous_history = pd.read_parquet(self.history_checkpoint)
+        expected_columns = {
+            'time',
+            'mean_reward',
+            'best_reward',
+            'step',
+            'episode_reward',
+        }
+        assert (
+            set(previous_history.columns) == expected_columns
+        ), f'Expected the following columns: {expected_columns}, got {set(previous_history.columns)}'
+        last_row = previous_history.loc[previous_history['time'].idxmax()]
+        self.mean_reward = last_row['mean_reward']
+        self.best_reward = previous_history['best_reward'].max()
+        history_start_steps = last_row['step']
+        history_start_time = last_row['time']
+        self.training_start_time = perf_counter() - history_start_time
+        self.last_reset_step = self.steps = int(history_start_steps)
+        self.total_rewards.append(last_row['episode_reward'])
+        self.games = previous_history.shape[0]
+
     def init_training(self, target_reward, max_steps, monitor_session):
         """
         Initialize training start time, wandb session & models (self.model / self.target_model)
@@ -366,6 +411,11 @@ class BaseAgent(ABC):
             self.check_checkpoints()
         self.training_start_time = perf_counter()
         self.last_reset_time = perf_counter()
+        if self.history_checkpoint:
+            assert Path(
+                self.history_checkpoint
+            ).exists(), f'Checkpoint not found {self.history_checkpoint}'
+            self.init_from_checkpoint()
 
     def train_step(self):
         """

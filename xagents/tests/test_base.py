@@ -13,21 +13,51 @@ import xagents
 from xagents import A2C, ACER, DDPG, DQN, PPO, TD3, TRPO
 from xagents.base import BaseAgent, OffPolicy, OnPolicy
 from xagents.utils.buffers import ReplayBuffer1
-from xagents.utils.common import get_wandb_key
+from xagents.utils.common import get_wandb_key, write_from_dict
 
 
 class DummyAgent(BaseAgent):
+    """
+    Lightweight agent for testing time consuming tasks.
+    """
     def __init__(self, envs, model, **kwargs):
+        """
+        Initialize dummy agent.
+        Args:
+            envs: A list of gym environments which are meant as placeholders.
+            model: tf.keras.Model which serves as a placeholder.
+            **kwargs: kwargs to be passed to super classes.
+        """
         super(DummyAgent, self).__init__(envs, model, **kwargs)
 
     def at_step_start(self):
+        """
+        Execute steps that will run before self.train_step()
+        which consist of printing a few words for testing purposes.
+
+        Returns:
+            None
+        """
         print(f'step starting')
 
     def train_step(self):
+        """
+        A lightweight train step for test convenience purposes.
+
+        Returns:
+            None
+        """
         self.steps += 1
         print(f'train_step')
 
     def at_step_end(self):
+        """
+        Execute steps that will run after self.train_step()
+        which consist of printing a few words for testing purposes.
+
+        Returns:
+            None
+        """
         print(f'step ending')
 
 
@@ -163,7 +193,64 @@ class TestBase:
             )
         assert 'Expected one of' in pe.value.args[0]
 
+    def test_init_from_checkpoint(self, agent, tmp_path):
+        """
+        Test initialization from history checkpoint, and ensure
+        metrics are retrieved with the proper values.
+        Args:
+            agent: OnPolicy/OffPolicy subclass.
+            tmp_path: pathlib.PosixPath
+        """
+        columns = [
+            'time',
+            'mean_reward',
+            'best_reward',
+            'step',
+            'episode_reward',
+        ]
+        invalid_data = [{'a': [1], 'b': [2]}, {'a': [3], 'b': [4]}]
+        invalid_checkpoint = tmp_path / 'invalid_checkpoint.parquet'
+        for invalid_item in invalid_data:
+            write_from_dict(invalid_item, invalid_checkpoint)
+        agent = agent(
+            **self.get_agent_kwargs(agent), history_checkpoint=invalid_checkpoint
+        )
+        with pytest.raises(AssertionError) as pe:
+            agent.init_from_checkpoint()
+        assert 'Expected the following columns' in pe.value.args[0]
+        history_size = 10
+        valid_history = []
+        agent.history_checkpoint = valid_checkpoint = (
+            tmp_path / 'valid_checkpoint.parquet'
+        )
+        for size in range(history_size):
+            valid_data = {column: [random.randint(0, 100)] for column in columns}
+            write_from_dict(valid_data, valid_checkpoint)
+            valid_history.append(
+                {column: value[0] for (column, value) in valid_data.items()}
+            )
+        valid_history = pd.DataFrame(valid_history)
+        agent.init_from_checkpoint()
+        last_row = valid_history.loc[valid_history['time'].idxmax()]
+        assert agent.mean_reward == last_row['mean_reward']
+        assert agent.best_reward == valid_history['best_reward'].max()
+        history_start_steps = last_row['step']
+        history_start_time = last_row['time']
+        times = agent.training_start_time, perf_counter() - history_start_time
+        assert np.isclose(*times, rtol=0.1)
+        assert agent.last_reset_step == agent.steps == history_start_steps
+        assert np.mean(agent.total_rewards) == last_row['episode_reward']
+        assert agent.games == valid_history.shape[0]
+
     def test_update_history(self, agent, tmp_path):
+        """
+        Test training history update that should happen after each
+        finished episode. Several test episode values are checked in
+        the respective file and validated against what's expected.
+        Args:
+            agent: OnPolicy/OffPolicy subclass.
+            tmp_path: pathlib.PosixPath
+        """
         history_checkpoint = tmp_path / 'test_checkpoint.parquet'
         agent = agent(
             **self.get_agent_kwargs(agent),
@@ -304,6 +391,18 @@ class TestBase:
             progresses.
         Args:
             agent: OnPolicy/OffPolicy subclass.
+            steps: Agent total environment steps so far.
+            total_rewards: A list of finished episode rewards.
+            mean_reward: Previous mean reward.
+            best_reward: Previous best reward.
+            plateau_count: Number of times agent reached plateau.
+            expected_fps: Expected frame speed calculated given the other values.
+            expected_mean: Expected calculated reward mean
+            learning_rate: Start learning rate, before update.
+            interval: Seconds back in time to set last reset time.
+            early_stop_count: Number of times plateau reached its maximum
+                patience and learning rate was reduced.
+            capsys: _pytest.capture.CaptureFixture
         """
         agent = agent(**self.get_agent_kwargs(agent))
         agent.last_reset_time = perf_counter() - interval
@@ -380,13 +479,15 @@ class TestBase:
         Test training status (done / not done) and ensure respective expected
             actions take place.
         Args:
-            capsys: _pytest.capture.CaptureFixture
+            capfd: _pytest.capture.CaptureFixture
             expected: Expected training status where True indicates training
                 should be done.
             mean_reward: Agent `mean_reward` attribute to set.
             steps: Agent `steps` attribute to set
             target_reward: Agent `target_reward` attribute to set.
             max_steps: Agent `max_steps` attribute to set
+            early_stop_count: Number of times plateau reached its maximum
+                patience and learning rate was reduced.
             agent: OnPolicy/OffPolicy subclass.
         """
         agent = agent(**self.get_agent_kwargs(agent))
@@ -418,13 +519,17 @@ class TestBase:
             agent.concat_buffer_samples()
         assert 'Sample larger than population' in pe.value.args[0]
         seen = []
+        agent.np_batch_dtypes = [np.float64, np.float16, np.float32, np.int16, np.int32]
         for i, buffer in enumerate(agent.buffers):
-            observation = [[i], [i * 10], [i * 100], [i * 1000]]
+            observation = [[i], [i * 10], [i * 100], [i * 1000], [i * 10000]]
             seen.append(observation)
             buffer.append(*observation)
-        expected = np.squeeze(np.array(seen, np.float32)).T
-        result = agent.concat_buffer_samples()
-        assert (expected == result).all()
+        expected = np.squeeze(np.array(seen)).T
+        result = np.array(agent.concat_buffer_samples())
+        assert [
+            item.dtype for item in agent.concat_buffer_samples()
+        ] == agent.np_batch_dtypes
+        assert (result == expected).all()
 
     @pytest.mark.parametrize(
         'get_observation, store_in_buffers',
@@ -469,9 +574,9 @@ class TestBase:
         Args:
             agent: OnPolicy/OffPolicy subclass.
             capsys: _pytest.capture.CaptureFixture
-            target_reward: arg passed to init_training()
-            max_steps: arg passed to init_training()
-            monitor_session: arg passed to init_training()
+            target_reward: Reward when reached, training should stop.
+            max_steps: Number of agent steps, if reached, training should stop.
+            monitor_session: wandb session name.
             tmpdir: py._path.local.LocalPath
         """
         checkpoints = [f'test-{i}.tf' for i in range(self.model_counts[agent])]
@@ -507,10 +612,14 @@ class TestBase:
         """
         inputs = np.random.random((10, 10))
         agent_kwargs = self.get_agent_kwargs(agent)
-        agent = agent(**agent_kwargs, scale_inputs=True)
-        expected = inputs / 255
-        actual = agent.get_model_inputs(inputs)
-        assert np.isclose(expected, actual).all()
+        agent = agent(**agent_kwargs)
+        for scale_inputs in [True, False]:
+            agent.scale_inputs = scale_inputs
+            actual = agent.get_model_inputs(inputs)
+            expected = inputs
+            if scale_inputs:
+                expected = inputs / 255
+            assert np.isclose(actual, expected).all()
 
     def test_get_model_outputs(self, base_agent):
         """
@@ -535,12 +644,12 @@ class TestBase:
         max_steps=10,
     ):
         """
-        Test 1 game play and ensure resulting video / frames are saved.
+        Play 1 game, and ensure resulting video / frames are saved.
         Args:
             agent: OnPolicy/OffPolicy subclass.
             capsys: _pytest.capture.CaptureFixture
-            max_steps: arg passed to init_training()
             tmp_path: pathlib.PosixPath
+            max_steps: Number of agent steps, if reached, training should stop.
         """
         agent_kwargs = {}
         agent_id = agent.__module__.split('.')[1]
@@ -588,6 +697,11 @@ class TestBase:
         assert 'Maximum steps' in capsys.readouterr().out
 
     def test_fit(self, capsys):
+        """
+        Test agent.fit() and ensure the proper order of execution.
+        Args:
+            capsys: _pytest.capture.CaptureFixture
+        """
         agent = DummyAgent(self.envs, self.model)
         agent.fit(max_steps=1)
         displayed = capsys.readouterr().out
@@ -597,3 +711,32 @@ class TestBase:
             'step ending',
             'Maximum steps exceeded',
         ]
+
+    @pytest.mark.parametrize('supported_agent', [DQN, TD3, DDPG])
+    def test_fill_buffers(self, supported_agent, capsys):
+        """
+        Test buffers are filled up to the correct size, and
+        filling progress was displayed.
+        Args:
+            supported_agent: An OffPolicy subclass.
+            capsys: _pytest.capture.CaptureFixture
+        """
+        initial_size = 100
+        max_size = 500
+        n_buffers = len(self.envs)
+        buffers = [
+            ReplayBuffer1(500, initial_size=initial_size) for _ in range(n_buffers)
+        ]
+        agent = supported_agent(
+            **self.get_agent_kwargs(supported_agent, buffers=buffers)
+        )
+        agent.fill_buffers()
+        for i, buffer in enumerate(buffers):
+            assert (
+                buffer.current_size
+                == buffer.initial_size
+                == len(buffer.main_buffer)
+                == initial_size
+            )
+            assert buffer.size == buffer.main_buffer.maxlen == max_size
+        assert f'{n_buffers}/{n_buffers}' in capsys.readouterr().out
