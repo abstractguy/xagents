@@ -411,10 +411,7 @@ class BaseAgent(ABC):
             self.check_checkpoints()
         self.training_start_time = perf_counter()
         self.last_reset_time = perf_counter()
-        if self.history_checkpoint:
-            assert Path(
-                self.history_checkpoint
-            ).exists(), f'Checkpoint not found {self.history_checkpoint}'
+        if self.history_checkpoint and Path(self.history_checkpoint).exists():
             self.init_from_checkpoint()
 
     def train_step(self):

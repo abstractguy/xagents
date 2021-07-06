@@ -20,6 +20,7 @@ class DummyAgent(BaseAgent):
     """
     Lightweight agent for testing time consuming tasks.
     """
+
     def __init__(self, envs, model, **kwargs):
         """
         Initialize dummy agent.
