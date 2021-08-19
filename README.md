@@ -51,14 +51,14 @@
 * [Show your support](#8-show-your-support)
 * [Contact](#9-contact)
 
-![breakout](/img/breakout.gif)
-![pong](/img/pong.gif)
-![carnival](/img/carnival.gif)
-![pacman](/img/pacman.gif)
-![gopher](/img/gopher.gif)
+![breakout](/assets/breakout.gif)
+![pong](/assets/pong.gif)
+![carnival](/assets/carnival.gif)
+![pacman](/assets/pacman.gif)
+![gopher](/assets/gopher.gif)
 
-![bipedal-walker](/img/bipedal-walker.gif)
-![lunar-lander](/img/lunar-lander.gif)
+![bipedal-walker](/assets/bipedal-walker.gif)
+![lunar-lander](/assets/lunar-lander.gif)
 
 
 ### **1. Installation**
@@ -131,7 +131,7 @@ ___
 
 Visualization of the training is supported, as well as many other awesome features provided by [wandb](https://wandb.ai/site).
 
-![wandb-agents](/img/wandb-agents.png)
+![wandb-agents](/assets/wandb-agents.png)
 
 ### **3.3. Multiple environments**
 
@@ -176,7 +176,7 @@ And in both examples if `--interesting-param` is not specified, it will have the
 or a fixed value, if only 1 value is specified. Also, some nice visualization options using 
 [optuna.visualization.matplotlib](https://optuna.readthedocs.io/en/latest/reference/visualization/matplotlib.html):
 
-![param-importances](/img/param-importances.png)
+![param-importances](/assets/param-importances.png)
 
 ### **3.7. Early stopping / reduce on plateau.**
 
@@ -305,8 +305,8 @@ columns:
 Which enables producing plots similar to the ones below,
 using [xagents.utils.common.plot_history](https://github.com/schissmantics/xagents/blob/d81e446bdd37d621fb4c3c1999a35306d70047b7/xagents/utils/common.py#L346)
 
-![step-benchmark](/img/step-benchmark.jpg)
-![time-benchmark](/img/time-benchmark.jpg)
+![step-benchmark](/assets/step-benchmark.jpg)
+![time-benchmark](/assets/time-benchmark.jpg)
 
 ### **3.12. Reproducible results**
 
