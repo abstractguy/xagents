@@ -71,23 +71,13 @@ pip install .
 ```
 
 **Notes:** 
-* To be able to use atari environments, follow the instructions in [atari-py](https://github.com/openai/atari-py#roms)
-to install [ROMS](http://www.atarimania.com/rom_collection_archive_atari_2600_roms.html).
-  
-* To be able to run the tests **remotely**, you need to run:
+* To be able to use atari environments, according to [atari-py](https://github.com/openai/atari-py#roms),
+you need to install [ROMS](http://www.atarimania.com/rom_collection_archive_atari_2600_roms.html):
 
-      pip install pytest-xvfb pyvirtualdisplay 
-
-**Followed by:**
-
-  * **For OSX cloud**:
-    ```shell 
-    brew install xquartz
-    ```
-  * **For linux cloud**:
-    ```shell
-    sudo apt-get install -y xvfb
-    ```
+      mkdir Roms
+      wget http://www.atarimania.com/roms/Roms.rar
+      unrar e -r Roms.rar Roms
+      python -m atari_py.import_roms Roms
     
 **Verify installation**
 
@@ -139,19 +129,19 @@ All agents support multiple environments, which operations are conducted
 in tensorflow graph. This boosts training speed without the overhead of creating
 a process per environment. Atari and environments that return images, 
 are wrapped in 
-[LazyFrames](https://github.com/schissmantics/xagents/blob/d81e446bdd37d621fb4c3c1999a35306d70047b7/xagents/utils/common.py#L24) 
+[LazyFrames](https://github.com/schissmantics/xagents/blob/db5fa4e4470e5a4c6d232c0b590d8d752684be69/xagents/utils/common.py#L24) 
  which significantly lower memory usage.
 
 ### **3.4. Multiple memory-optimized replay buffers**
 
 There are 2 kinds of replay buffers available:
- * [ReplayBuffer1](https://github.com/schissmantics/xagents/blob/d81e446bdd37d621fb4c3c1999a35306d70047b7/xagents/utils/buffers.py#L59) 
+ * [ReplayBuffer1](https://github.com/schissmantics/xagents/blob/db5fa4e4470e5a4c6d232c0b590d8d752684be69/xagents/utils/buffers.py#L59) 
    which is deque-based (DQN, ACER).
- * [ReplayBuffer2](https://github.com/schissmantics/xagents/blob/d81e446bdd37d621fb4c3c1999a35306d70047b7/xagents/utils/buffers.py#L101) 
+ * [ReplayBuffer2](https://github.com/schissmantics/xagents/blob/db5fa4e4470e5a4c6d232c0b590d8d752684be69/xagents/utils/buffers.py#L101) 
    which is numpy-based (DDPG, TD3).
 
 Both support max size and initial size, and are usually
-combined with [LazyFrames](https://github.com/schissmantics/xagents/blob/d81e446bdd37d621fb4c3c1999a35306d70047b7/xagents/utils/common.py#L24) 
+combined with [LazyFrames](https://github.com/schissmantics/xagents/blob/db5fa4e4470e5a4c6d232c0b590d8d752684be69/xagents/utils/common.py#L24) 
 for memory optimality.
 
 ### **3.5. Command line options**
@@ -195,9 +185,7 @@ reduced by some pre-determined factor. To activate these features:
 
 ### **3.9. Unit tests**
 
-Main components are covered using [pytest](https://docs.pytest.org/en/6.2.x/) unit tests. To be able to run the tests,
-you need to install extra dependencies mentioned [earlier](#1-installation). More
-unit tests will be added to agents in future versions.
+Main components are covered using [pytest](https://docs.pytest.org/en/6.2.x/).
 
 ### **3.10. Models are loaded from .cfg files**
 
