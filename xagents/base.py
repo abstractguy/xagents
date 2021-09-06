@@ -15,6 +15,7 @@ import tensorflow as tf
 import wandb
 from gym.spaces.box import Box
 from gym.spaces.discrete import Discrete
+from termcolor import colored
 
 from xagents.utils.common import write_from_dict
 
@@ -221,7 +222,8 @@ class BaseAgent(ABC):
             self.plateau_count = 0
             self.early_stop_count = 0
             self.display_message(
-                f'Best reward updated: {self.best_reward} -> {self.mean_reward}'
+                f'Best reward updated: {colored(self.best_reward, "red")} -> '
+                f'{colored(self.mean_reward, "green")}'
             )
             if self.checkpoints:
                 for model, checkpoint in zip(self.output_models, self.checkpoints):

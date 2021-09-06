@@ -51,24 +51,19 @@
 * [Show your support](#8-show-your-support)
 * [Contact](#9-contact)
 
-![breakout](/assets/breakout.gif)
-![pong](/assets/pong.gif)
-![carnival](/assets/carnival.gif)
-![pacman](/assets/pacman.gif)
-![gopher](/assets/gopher.gif)
+![features](/assets/all-features.gif)
 
-![bipedal-walker](/assets/bipedal-walker.gif)
-![lunar-lander](/assets/lunar-lander.gif)
-
+You can check the [walkthrough](/walkthrough.ipynb) if you prefer a notebook, which 
+will walk you through the different features.
 
 ### **1. Installation**
 ___
 
-```sh
-git clone https://github.com/schissmantics/xagents
-cd xagents
-pip install .
-```
+![installation](/assets/installation.gif)
+
+``sh
+pip install xagents
+``
 
 **Notes:** 
 * To be able to use atari environments, according to [atari-py](https://github.com/openai/atari-py#roms),
@@ -87,7 +82,7 @@ xagents
 
 **OUT:**
 
-    xagents 1.0
+    xagents 1.0.1
 
     Usage:
         xagents <command> <agent> [options] [args]
@@ -326,6 +321,8 @@ beforehand, if called for resuming training or playing.
 
 ### **4.1. Training**
 
+![training](/assets/training.gif)
+
 **Through command line**
 
     xagents train a2c --env PongNoFrameskip-v4 --n-env 16 --target-reward 19 --preprocess
@@ -351,6 +348,8 @@ Then either `max_steps` or `target_reward` should be specified to start training
     agent.fit(target_reward=19)
 
 ### **4.2. Playing**
+
+![playing](/assets/playing.gif)
 
 **Through command line**
 
@@ -395,6 +394,8 @@ and all arguments can be combined `--video-dir <vid-dir> --frame-dir <frame-dir>
 
 ### **4.3. Tuning**
 
+![tuning](/assets/tuning.gif)
+
 **Notes**
 
 * Due to an [issue](https://github.com/tensorflow/tensorflow/issues/50765) with tensorflow
@@ -416,7 +417,7 @@ check optuna [docs](https://optuna.readthedocs.io/en/stable/).
 and will not be tuned or can have a single fixed value `--flag <val>`
 * Also, due to tensorflow issue mentioned above, tensorflow logging is silenced
 using `TF_CPP_MIN_LOG_LEVEL` environment variable to prevent each trial process 
-from displaying the same import log messages over and over.
+from displaying the same import log messages over and over ...
 
 **Through command line**
 
@@ -509,7 +510,6 @@ from displaying the same import log messages over and over.
                 future_trials = [executor.submit(run_trial)]
                 for future_trial in as_completed(future_trials):
                     future_trial.result()
-
 
 <!-- COMMAND LINE OPTIONS -->
 ## **5. Command line options**

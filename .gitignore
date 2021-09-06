@@ -10,3 +10,5 @@ openaigym*
 *.npy
 *.parquet
 *.db
+*dist*
+*egg*

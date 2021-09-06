@@ -13,7 +13,7 @@ from xagents.utils.common import register_models
 __author__ = 'schissmantics'
 __email__ = 'schissmantics@outlook.com'
 __license__ = 'MIT'
-__version__ = 1.0
+__version__ = '1.0.1'
 
 agents = {
     'a2c': {'module': a2c, 'agent': A2C},
