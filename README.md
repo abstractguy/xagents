@@ -61,9 +61,8 @@ ___
 
 ![installation](/assets/installation.gif)
 
-``sh
-pip install xagents
-``
+    pip install xagents
+
 
 **Notes:** 
 * To be able to use atari environments, according to [atari-py](https://github.com/openai/atari-py#roms),
