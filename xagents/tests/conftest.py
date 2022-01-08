@@ -2,10 +2,9 @@ import gym
 import numpy as np
 import optuna
 import pytest
+import xagents
 from tensorflow.keras.layers import Dense, Input
 from tensorflow.keras.models import Model
-
-import xagents
 from xagents import ACER, DDPG, DQN, TD3
 from xagents.base import BaseAgent, OffPolicy, OnPolicy
 from xagents.cli import Executor

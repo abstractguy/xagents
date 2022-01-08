@@ -5,7 +5,6 @@ from pathlib import Path
 
 import gym
 import pytest
-
 from xagents.utils.common import AtariWrapper, create_buffers, get_wandb_key
 
 

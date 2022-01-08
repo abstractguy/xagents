@@ -2,7 +2,6 @@ import numpy as np
 import tensorflow as tf
 from gym.spaces.discrete import Discrete
 from tensorflow.keras.losses import MSE
-
 from xagents.base import OffPolicy
 
 

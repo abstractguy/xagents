@@ -1,6 +1,5 @@
 import numpy as np
 import pytest
-
 from xagents.utils.buffers import BaseBuffer, ReplayBuffer2
 
 

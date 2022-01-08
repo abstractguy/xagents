@@ -10,14 +10,13 @@ import numpy as np
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
+import xagents
 from gym.spaces import Box, Discrete
 from matplotlib import pyplot as plt
 from tensorflow.keras.initializers import GlorotUniform, Orthogonal
 from tensorflow.keras.layers import Conv2D, Dense, Flatten, Input
 from tensorflow.keras.models import Model
 from tensorflow.keras.optimizers import Adam
-
-import xagents
 from xagents.utils.buffers import ReplayBuffer1, ReplayBuffer2
 
 

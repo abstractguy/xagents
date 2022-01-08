@@ -1,6 +1,5 @@
 import numpy as np
 import tensorflow as tf
-
 from xagents import A2C
 
 

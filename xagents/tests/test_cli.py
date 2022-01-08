@@ -4,9 +4,8 @@ import string
 
 import pytest
 import tensorflow as tf
-from gym.spaces import Discrete
-
 import xagents
+from gym.spaces import Discrete
 from xagents.tests.utils import assert_flags_displayed, get_expected_flags
 from xagents.utils.common import create_model
 

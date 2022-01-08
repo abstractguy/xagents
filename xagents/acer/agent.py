@@ -1,7 +1,6 @@
 import numpy as np
 import tensorflow as tf
 from gym.spaces import Discrete
-
 from xagents import A2C
 from xagents.utils.common import LazyFrames
 

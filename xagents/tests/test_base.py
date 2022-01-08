@@ -8,11 +8,10 @@ import pandas as pd
 import pytest
 import tensorflow as tf
 import wandb
+import xagents
 from gym.spaces import Discrete
 from optuna import Trial
 from optuna.distributions import UniformDistribution
-
-import xagents
 from xagents import A2C, ACER, DDPG, DQN, PPO, TD3, TRPO
 from xagents.base import BaseAgent, OffPolicy, OnPolicy
 from xagents.utils.buffers import ReplayBuffer1

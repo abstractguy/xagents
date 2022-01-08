@@ -3,7 +3,6 @@ import tensorflow as tf
 from gym.spaces.discrete import Discrete
 from tensorflow_probability.python.distributions import (
     Categorical, MultivariateNormalDiag)
-
 from xagents.base import OnPolicy
 
 
