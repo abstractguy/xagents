@@ -61,11 +61,14 @@ ___
 
 ![installation](/assets/installation.gif)
 
-    pip install xagents
+Install [swig](https://github.com/swig/swig) using apt / brew depending on your os
+    
+    git clone https://github.com/schissmantics/xagents
+    pip install xagents/
 
 
 **Notes:** 
-* To be able to use atari environments, according to [atari-py](https://github.com/openai/atari-py#roms),
+* To be able to use atari environments / run tests, according to [atari-py](https://github.com/openai/atari-py#roms),
 you need to install [ROMS](http://www.atarimania.com/rom_collection_archive_atari_2600_roms.html):
 
       mkdir Roms

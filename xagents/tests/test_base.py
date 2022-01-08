@@ -169,7 +169,7 @@ class TestBase:
         'env_ids',
         [
             ('RiverraidNoFrameskip-v4', 'MountainCarContinuous-v0'),
-            ('Robotank-ramDeterministic-v0', 'Pendulum-v0'),
+            ('Robotank-ramDeterministic-v0', 'Pendulum-v1'),
             ('BeamRiderDeterministic-v4', 'LunarLanderContinuous-v2'),
             ('PongNoFrameskip-v4', 'BipedalWalker-v3'),
             ('GravitarNoFrameskip-v0', 'BipedalWalkerHardcore-v3'),
@@ -192,19 +192,6 @@ class TestBase:
             assert agent.n_actions == env.action_space.n
         else:
             assert agent.n_actions == env.action_space.shape[0]
-
-    def test_unsupported_env(self, agent):
-        """
-        Test currently unsupported environments including multi-discrete.
-        Args:
-            agent: OnPolicy/OffPolicy subclass.
-        """
-        with pytest.raises(AssertionError, match=r'Expected one of'):
-            agent(
-                **self.get_agent_kwargs(
-                    agent, [gym.make('RepeatCopy-v0') for _ in range(len(self.envs))]
-                )
-            )
 
     def test_init_from_checkpoint(self, agent, tmp_path):
         """

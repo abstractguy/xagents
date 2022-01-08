@@ -88,7 +88,7 @@ class AtariWrapper(gym.Wrapper):
         super(AtariWrapper, self).__init__(env)
         self.skips = frame_skips
         self.frame_shape = resize_shape
-        self.observation_space.shape = (*resize_shape, 1)
+        self.observation_space._shape = (*resize_shape, 1)
         self.max_frame = max_frame
         self.frame_buffer = deque(maxlen=2)
 

@@ -1,4 +1,6 @@
-gym[atari,box2d]==0.21.0
+gym==0.21.0
+atari-py==0.2.9
+box2d-py==2.3.8
 matplotlib==3.5.1
 numpy==1.21.0
 opencv-python-headless==4.5.5.62
