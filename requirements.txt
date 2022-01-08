@@ -10,7 +10,7 @@ setuptools==60.3.1
 tensorflow==2.7.0
 tensorflow-probability==0.15.0
 termcolor==1.1.0
-wandb==0.12.7
+wandb==0.12.9
 tensorflow_addons==0.15.0
 tabulate==0.8.9
 pyglet==1.5.21
