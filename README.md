@@ -5,7 +5,7 @@
 [![MIT License][license-shield]][license-url]
 
 <p>
-  <a href="https://github.com/schissmantics/xagents/">
+  <a href="https://github.com/alternativebug/xagents/">
   </a>
 
   <h3 align="left">xagents - reusable, scalable, 
@@ -63,7 +63,7 @@ ___
 
 Install [swig](https://github.com/swig/swig) using apt / brew depending on your os
     
-    git clone https://github.com/schissmantics/xagents
+    git clone https://github.com/alternativebug/xagents
     pip install xagents/
 
 
@@ -126,19 +126,19 @@ All agents support multiple environments, which operations are conducted
 in tensorflow graph. This boosts training speed without the overhead of creating
 a process per environment. Atari and environments that return images, 
 are wrapped in 
-[LazyFrames](https://github.com/schissmantics/xagents/blob/db5fa4e4470e5a4c6d232c0b590d8d752684be69/xagents/utils/common.py#L24) 
+[LazyFrames](https://github.com/alternativebug/xagents/blob/db5fa4e4470e5a4c6d232c0b590d8d752684be69/xagents/utils/common.py#L24) 
  which significantly lower memory usage.
 
 ### **3.4. Multiple memory-optimized replay buffers**
 
 There are 2 kinds of replay buffers available:
- * [ReplayBuffer1](https://github.com/schissmantics/xagents/blob/db5fa4e4470e5a4c6d232c0b590d8d752684be69/xagents/utils/buffers.py#L59) 
+ * [ReplayBuffer1](https://github.com/alternativebug/xagents/blob/db5fa4e4470e5a4c6d232c0b590d8d752684be69/xagents/utils/buffers.py#L59) 
    which is deque-based (DQN, ACER).
- * [ReplayBuffer2](https://github.com/schissmantics/xagents/blob/db5fa4e4470e5a4c6d232c0b590d8d752684be69/xagents/utils/buffers.py#L101) 
+ * [ReplayBuffer2](https://github.com/alternativebug/xagents/blob/db5fa4e4470e5a4c6d232c0b590d8d752684be69/xagents/utils/buffers.py#L101) 
    which is numpy-based (DDPG, TD3).
 
 Both support max size and initial size, and are usually
-combined with [LazyFrames](https://github.com/schissmantics/xagents/blob/db5fa4e4470e5a4c6d232c0b590d8d752684be69/xagents/utils/common.py#L24) 
+combined with [LazyFrames](https://github.com/alternativebug/xagents/blob/db5fa4e4470e5a4c6d232c0b590d8d752684be69/xagents/utils/common.py#L24) 
 for memory optimality.
 
 ### **3.5. Command line options**
@@ -268,11 +268,11 @@ Which should generate a keras model similar to this one with output units 6, and
 * `common=1` marks a layer to be reused by the following layers, which means
 `dense-1` and `dense-2` are called on the output of `dense-0`.
 * Initializer can be `orthogonal` or `glorot_uniform`, and to add more, 
-you'll have to modify [xagents.utils.common.ModelReader.initializers](https://github.com/schissmantics/xagents/blob/d81e446bdd37d621fb4c3c1999a35306d70047b7/xagents/utils/common.py#L169).
+you'll have to modify [xagents.utils.common.ModelReader.initializers](https://github.com/alternativebug/xagents/blob/d81e446bdd37d621fb4c3c1999a35306d70047b7/xagents/utils/common.py#L169).
 * `output=1` marks a layer as output which will be appended to the outputs 
 of the resulting [tf.keras.Model](https://www.tensorflow.org/api_docs/python/tf/keras/Model)
 * Dense layers without units (output layers) will expect their respective units to be passed
-to [xagents.utils.common.ModelReader](https://github.com/schissmantics/xagents/blob/d81e446bdd37d621fb4c3c1999a35306d70047b7/xagents/utils/common.py#L151).
+to [xagents.utils.common.ModelReader](https://github.com/alternativebug/xagents/blob/d81e446bdd37d621fb4c3c1999a35306d70047b7/xagents/utils/common.py#L151).
 
 ### **3.11. Training history checkpoints**
 
@@ -288,7 +288,7 @@ columns:
 * `time` training elapsed time.
 
 Which enables producing plots similar to the ones below,
-using [xagents.utils.common.plot_history](https://github.com/schissmantics/xagents/blob/d81e446bdd37d621fb4c3c1999a35306d70047b7/xagents/utils/common.py#L346)
+using [xagents.utils.common.plot_history](https://github.com/alternativebug/xagents/blob/d81e446bdd37d621fb4c3c1999a35306d70047b7/xagents/utils/common.py#L346)
 
 ![step-benchmark](/assets/step-benchmark.jpg)
 ![time-benchmark](/assets/time-benchmark.jpg)
@@ -1017,17 +1017,17 @@ Give a ⭐️ if this project helped you!
 ## **9. Contact**
 ___
 
-schissmantics@outlook.com
+alternativebug@outlook.com
 
-Project link: https://github.com/schissmantics/xagents
+Project link: https://github.com/alternativebug/xagents
 
-[contributors-shield]: https://img.shields.io/github/contributors/schissmantics/xagents?style=flat-square
-[contributors-url]: https://github.com/schissmantics/xagents/graphs/contributors
-[forks-shield]: https://img.shields.io/github/forks/schissmantics/xagents?style=flat-square
-[forks-url]: https://github.com/schissmantics/xagents/network/members
-[stars-shield]: https://img.shields.io/github/stars/schissmantics/xagents?style=flat-square
-[stars-url]: https://github.com/schissmantics/xagents/stargazers
-[issues-shield]: https://img.shields.io/github/issues/schissmantics/xagents?style=flat-square
-[issues-url]: https://github.com/schissmantics/xagents/issues
-[license-shield]: https://img.shields.io/github/license/schissmantics/xagents
-[license-url]: https://github.com/schissmantics/xagents/blob/master/LICENSE
+[contributors-shield]: https://img.shields.io/github/contributors/alternativebug/xagents?style=flat-square
+[contributors-url]: https://github.com/alternativebug/xagents/graphs/contributors
+[forks-shield]: https://img.shields.io/github/forks/alternativebug/xagents?style=flat-square
+[forks-url]: https://github.com/alternativebug/xagents/network/members
+[stars-shield]: https://img.shields.io/github/stars/alternativebug/xagents?style=flat-square
+[stars-url]: https://github.com/alternativebug/xagents/stargazers
+[issues-shield]: https://img.shields.io/github/issues/alternativebug/xagents?style=flat-square
+[issues-url]: https://github.com/alternativebug/xagents/issues
+[license-shield]: https://img.shields.io/github/license/alternativebug/xagents
+[license-url]: https://github.com/alternativebug/xagents/blob/master/LICENSE

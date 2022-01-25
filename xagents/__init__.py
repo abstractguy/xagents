@@ -10,8 +10,8 @@ from xagents.trpo.agent import TRPO
 from xagents.utils.cli import play_args, train_args, tune_args
 from xagents.utils.common import register_models
 
-__author__ = 'schissmantics'
-__email__ = 'schissmantics@outlook.com'
+__author__ = 'alternativebug'
+__email__ = 'alternativebug@outlook.com'
 __license__ = 'MIT'
 __version__ = '1.0.1'
 
