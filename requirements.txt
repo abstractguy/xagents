@@ -5,7 +5,7 @@ matplotlib==3.5.1
 numpy==1.22.2
 opencv-python-headless==4.5.5.62
 optuna==2.10.0
-pandas==1.4.0
+pandas==1.4.1
 pyarrow==7.0.0
 pytest==7.0.0
 tensorflow==2.8.0
