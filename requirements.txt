@@ -9,7 +9,7 @@ pandas==1.4.1
 pyarrow==7.0.0
 pytest==7.0.1
 tensorflow==2.8.0
-tensorflow-probability==0.15.0
+tensorflow-probability==0.16.0
 termcolor==1.1.0
 wandb==0.12.10
 tensorflow_addons==0.15.0
