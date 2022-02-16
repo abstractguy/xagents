@@ -14,7 +14,7 @@ import xagents
 from gym.spaces import Box, Discrete
 from matplotlib import pyplot as plt
 from tensorflow.keras.initializers import GlorotUniform, Orthogonal
-from tensorflow.keras.layers import Conv2D, Dense, Flatten, Input
+from tensorflow.keras.layers import Conv1D, Dense, Flatten, Input
 from tensorflow.keras.models import Model
 from tensorflow.keras.optimizers import Adam
 from xagents.utils.buffers import ReplayBuffer1, ReplayBuffer2
@@ -222,13 +222,13 @@ class ModelReader:
             section: str, representing section unique name.
 
         Returns:
-            tf.keras.layers.Conv2D
+            tf.keras.layers.Conv1D
         """
         filters = int(self.parser[section]['filters'])
         kernel_size = int(self.parser[section]['size'])
         stride = int(self.parser[section]['stride'])
         activation = self.parser[section].get('activation')
-        return Conv2D(
+        return Conv1D(
             filters,
             kernel_size,
             stride,
